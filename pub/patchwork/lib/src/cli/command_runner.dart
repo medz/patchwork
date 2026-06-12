@@ -471,34 +471,49 @@ final class PatchworkCommandRunner {
     }
 
     stdout.writeln('Workspace: ${result.workspaceRootPath}');
-    if (result.patches.isEmpty) {
+    if (result.patches.isEmpty && result.staleOverrides.isEmpty) {
       stdout.writeln('Patches: none');
       return PatchworkExitCode.success;
     }
 
-    stdout.writeln('Patches:');
-    for (final patch in result.patches) {
-      stdout.writeln('  - ${patch.target} [${_statusStateLabel(patch.state)}]');
-      stdout.writeln(
-        '    patch: ${patch.patchPath} (${_patchStateLabel(patch)})',
-      );
-      final storePath = patch.storePath;
-      if (storePath != null) {
+    if (result.patches.isEmpty) {
+      stdout.writeln('Patches: none');
+    } else {
+      stdout.writeln('Patches:');
+      for (final patch in result.patches) {
         stdout.writeln(
-          '    store: $storePath (${patch.storeCurrent ? 'current' : 'missing or stale'})',
+          '  - ${patch.target} [${_statusStateLabel(patch.state)}]',
         );
-      }
-      final packageName = patch.packageName;
-      if (packageName != null) {
-        final overridePath = patch.overridePath;
         stdout.writeln(
-          '    override: $packageName -> ${overridePath ?? 'missing'} '
-          '(${patch.overrideCurrent ? 'current' : 'missing or stale'})',
+          '    patch: ${patch.patchPath} (${_patchStateLabel(patch)})',
         );
+        final storePath = patch.storePath;
+        if (storePath != null) {
+          stdout.writeln(
+            '    store: $storePath (${patch.storeCurrent ? 'current' : 'missing or stale'})',
+          );
+        }
+        final packageName = patch.packageName;
+        if (packageName != null) {
+          final overridePath = patch.overridePath;
+          stdout.writeln(
+            '    override: $packageName -> ${overridePath ?? 'missing'} '
+            '(${patch.overrideCurrent ? 'current' : 'missing or stale'})',
+          );
+        }
+        final diagnostic = patch.diagnostic;
+        if (diagnostic != null) {
+          stdout.writeln('    detail: ${diagnostic.message}');
+        }
       }
-      final diagnostic = patch.diagnostic;
-      if (diagnostic != null) {
-        stdout.writeln('    detail: ${diagnostic.message}');
+    }
+
+    if (result.staleOverrides.isNotEmpty) {
+      stdout.writeln('Stale overrides:');
+      for (final override in result.staleOverrides) {
+        stdout.writeln(
+          '  - ${override.packageName} -> ${override.path} [stale]',
+        );
       }
     }
 

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import '../diagnostics/diagnostic.dart';
+import '../pub/package_resolution.dart';
 import '../pub/pub_workspace.dart';
 import '../store/patchwork_store.dart';
 
@@ -42,11 +43,13 @@ ProcessResult _defaultProcessRunner(String executable, List<String> arguments) {
 final class PubDoctor {
   const PubDoctor({
     this.workspaceLocator = const PubWorkspaceLocator(),
+    this.resolutionReader = const PubResolutionReader(),
     this.store = const PatchworkStore(),
     this.processRunner = _defaultProcessRunner,
   });
 
   final PubWorkspaceLocator workspaceLocator;
+  final PubResolutionReader resolutionReader;
   final PatchworkStore store;
   final PubDoctorProcessRunner processRunner;
 
@@ -70,7 +73,7 @@ final class PubDoctor {
       ),
     );
     checks.add(_checkFile('package config', workspace.packageConfigPath));
-    checks.add(_checkResolutionMetadata(workspace));
+    checks.add(_checkResolutionMetadata(currentDirectory, workspace));
     checks.add(_checkWriteAccess(workspace));
 
     return PubDoctorResult(checks: checks);
@@ -124,30 +127,20 @@ final class PubDoctor {
     );
   }
 
-  PubDoctorCheck _checkResolutionMetadata(PubWorkspace workspace) {
-    if (File(workspace.lockfilePath).existsSync()) {
-      return PubDoctorCheck(
-        name: 'pub resolution metadata',
-        state: PubDoctorCheckState.ok,
-        message: 'Found pubspec.lock.',
-        location: workspace.lockfilePath,
-      );
-    }
-
-    if (File(workspace.packageGraphPath).existsSync()) {
-      return PubDoctorCheck(
-        name: 'pub resolution metadata',
-        state: PubDoctorCheckState.ok,
-        message: 'Found .dart_tool/package_graph.json.',
-        location: workspace.packageGraphPath,
-      );
+  PubDoctorCheck _checkResolutionMetadata(
+    String currentDirectory,
+    PubWorkspace workspace,
+  ) {
+    final result = resolutionReader.readFromDirectory(currentDirectory);
+    final diagnostic = result.diagnostic;
+    if (diagnostic != null) {
+      return _errorFromDiagnostic('pub resolution metadata', diagnostic);
     }
 
     return PubDoctorCheck(
       name: 'pub resolution metadata',
-      state: PubDoctorCheckState.error,
-      message: 'Missing pub resolution metadata.',
-      hint: 'Run dart pub get before using patchwork.',
+      state: PubDoctorCheckState.ok,
+      message: 'Pub resolution metadata is readable.',
       location: workspace.rootPath,
     );
   }

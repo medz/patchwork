@@ -13,16 +13,19 @@ final class PubStatusResult {
   const PubStatusResult._({
     this.workspaceRootPath,
     this.patches = const [],
+    this.staleOverrides = const [],
     this.diagnostic,
   });
 
   factory PubStatusResult.success({
     required String workspaceRootPath,
     required List<PubPatchStatus> patches,
+    required List<PubManagedOverrideStatus> staleOverrides,
   }) {
     return PubStatusResult._(
       workspaceRootPath: workspaceRootPath,
       patches: List.unmodifiable(patches),
+      staleOverrides: List.unmodifiable(staleOverrides),
     );
   }
 
@@ -32,10 +35,12 @@ final class PubStatusResult {
 
   final String? workspaceRootPath;
   final List<PubPatchStatus> patches;
+  final List<PubManagedOverrideStatus> staleOverrides;
   final Diagnostic? diagnostic;
 
   bool get hasBrokenState {
-    return patches.any((patch) => patch.state != PubPatchStatusState.clean);
+    return patches.any((patch) => patch.state != PubPatchStatusState.clean) ||
+        staleOverrides.isNotEmpty;
   }
 }
 
@@ -67,6 +72,16 @@ final class PubPatchStatus {
   final String? overridePath;
   final bool overrideCurrent;
   final Diagnostic? diagnostic;
+}
+
+final class PubManagedOverrideStatus {
+  const PubManagedOverrideStatus({
+    required this.packageName,
+    required this.path,
+  });
+
+  final String packageName;
+  final String path;
 }
 
 final class PubStatus {
@@ -113,7 +128,13 @@ final class PubStatus {
     final overridePaths = overridesResult.paths;
 
     final patches = <PubPatchStatus>[];
+    final manifestPackageNames = <String>{};
     for (final inspection in inspectionResult.patches) {
+      final targetResult = targetParser.parsePubTarget(inspection.entry.target);
+      final target = targetResult.target;
+      if (target != null) {
+        manifestPackageNames.add(target.name);
+      }
       patches.add(
         _inspectPatch(
           workspaceRootPath: workspaceRootPath,
@@ -123,11 +144,42 @@ final class PubStatus {
         ),
       );
     }
+    final staleOverrides = _staleManagedOverrides(
+      workspaceRootPath: workspaceRootPath,
+      overridePaths: overridePaths,
+      manifestPackageNames: manifestPackageNames,
+    );
 
     return PubStatusResult.success(
       workspaceRootPath: workspaceRootPath,
       patches: patches,
+      staleOverrides: staleOverrides,
     );
+  }
+
+  List<PubManagedOverrideStatus> _staleManagedOverrides({
+    required String workspaceRootPath,
+    required Map<String, String> overridePaths,
+    required Set<String> manifestPackageNames,
+  }) {
+    final staleOverrides = <PubManagedOverrideStatus>[];
+    final sortedEntries = overridePaths.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    for (final entry in sortedEntries) {
+      if (manifestPackageNames.contains(entry.key)) {
+        continue;
+      }
+      if (!overridesStore.isManagedPatchworkStoreOverride(
+        workspaceRootPath: workspaceRootPath,
+        path: entry.value,
+      )) {
+        continue;
+      }
+      staleOverrides.add(
+        PubManagedOverrideStatus(packageName: entry.key, path: entry.value),
+      );
+    }
+    return staleOverrides;
   }
 
   PubPatchStatus _inspectPatch({

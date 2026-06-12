@@ -13,7 +13,12 @@ final class PubspecOverridesStore {
     required String workspaceRootPath,
   }) {
     final overridesPath = p.join(workspaceRootPath, 'pubspec_overrides.yaml');
-    final overrides = _readPubspecOverrides(overridesPath);
+    final Map<String, Object?> overrides;
+    try {
+      overrides = _readPubspecOverrides(overridesPath);
+    } on PubspecOverridesException catch (error) {
+      return PubspecOverridePathsReadResult.failure(error.diagnostic);
+    }
     final existingDependencyOverrides = overrides['dependency_overrides'];
     if (existingDependencyOverrides == null) {
       return PubspecOverridePathsReadResult.success(const {});
@@ -40,6 +45,15 @@ final class PubspecOverridesStore {
     }
 
     return PubspecOverridePathsReadResult.success(paths);
+  }
+
+  bool isManagedPatchworkStoreOverride({
+    required String workspaceRootPath,
+    required String path,
+  }) {
+    return _isManagedPatchworkStoreOverride({
+      'path': path,
+    }, workspaceRootPath: workspaceRootPath);
   }
 
   void updateDependencyOverrides({

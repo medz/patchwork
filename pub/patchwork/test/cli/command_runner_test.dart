@@ -230,6 +230,58 @@ void main() {
       expect(stdout.toString(), contains('(hash mismatch)'));
     });
 
+    test('reports malformed overrides when reading status', () {
+      final fixture = PubResolutionFixture.create();
+      addTearDown(fixture.dispose);
+      File(
+        p.join(fixture.rootPath, 'pubspec_overrides.yaml'),
+      ).writeAsStringSync('dependency_overrides: [');
+      final stdout = StringBuffer();
+      final stderr = StringBuffer();
+
+      final exitCode = runner.run(
+        ['status'],
+        stdout: stdout,
+        stderr: stderr,
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(exitCode, PatchworkExitCode.failure);
+      expect(stdout.toString(), isEmpty);
+      expect(
+        stderr.toString(),
+        contains('pubspec_overrides.yaml is malformed'),
+      );
+    });
+
+    test('reports stale managed overrides without manifest entries', () {
+      final fixture = PubResolutionFixture.create();
+      addTearDown(fixture.dispose);
+      File(
+        p.join(fixture.rootPath, 'pubspec_overrides.yaml'),
+      ).writeAsStringSync('''
+dependency_overrides:
+  analyzer:
+    path: .dart_tool/patchwork/store/pub/analyzer@7.4.0_patch_hash=aaaaaaaa
+''');
+      final stdout = StringBuffer();
+      final stderr = StringBuffer();
+
+      final exitCode = runner.run(
+        ['status'],
+        stdout: stdout,
+        stderr: stderr,
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(exitCode, PatchworkExitCode.failure);
+      expect(stderr.toString(), isEmpty);
+      expect(stdout.toString(), contains('Patches: none'));
+      expect(stdout.toString(), contains('Stale overrides:'));
+      expect(stdout.toString(), contains('analyzer ->'));
+      expect(stdout.toString(), contains('[stale]'));
+    });
+
     test('reports missing status when a patch file is gone', () {
       final fixture = PubResolutionFixture.create();
       addTearDown(fixture.dispose);
@@ -275,6 +327,28 @@ void main() {
       expect(stdout.toString(), contains('[ok] package config:'));
       expect(stdout.toString(), contains('[ok] pub resolution metadata:'));
       expect(stdout.toString(), contains('[ok] write access:'));
+    });
+
+    test('reports malformed lockfiles in doctor checks', () {
+      final fixture = PubResolutionFixture.create();
+      addTearDown(fixture.dispose);
+      fixture.overwriteLockfile('packages: [');
+      final stdout = StringBuffer();
+      final stderr = StringBuffer();
+
+      final exitCode = runner.run(
+        ['doctor'],
+        stdout: stdout,
+        stderr: stderr,
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(exitCode, PatchworkExitCode.failure);
+      expect(stderr.toString(), isEmpty);
+      expect(
+        stdout.toString(),
+        contains('[error] pub resolution metadata: Malformed pubspec.lock'),
+      );
     });
 
     test('reports doctor failures outside a pub workspace', () {

@@ -1,8 +1,8 @@
-name: patchwork_workspace
+name: _
 publish_to: none
 
 environment:
-  sdk: ^3.6.0
+  sdk: ^3.12.1
 
 workspace:
-  - pub/patchwork
+  - pub/*

@@ -67,6 +67,26 @@ void main() {
       );
     });
 
+    test('parses patch commit with a Windows edit directory', () {
+      const editPaths = [
+        r'C:\repo\.dart_tool\patchwork\edit\pub\analyzer@7.4.0',
+        r'c:\repo\.dart_tool\patchwork\edit\pub\analyzer@7.4.0',
+        r'.\.dart_tool\patchwork\edit\pub\analyzer@7.4.0',
+      ];
+
+      for (final editPath in editPaths) {
+        final intent = _parseSuccess<PatchIntent>(parser, [
+          'patch',
+          '--commit',
+          editPath,
+        ]);
+
+        expect(intent.isCommit, isTrue);
+        expect(intent.commitSubject, isA<PatchCommitDirectory>());
+        expect(intent.commitSubject.toString(), editPath);
+      }
+    });
+
     test(
       'rejects path targets before treating commit subjects as directories',
       () {

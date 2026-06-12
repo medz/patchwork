@@ -137,6 +137,12 @@ final class PatchworkCommandParser {
   }
 
   ParseResult _parseCommitSubject(String operand) {
+    if (_looksLikeWindowsEditDirectory(operand)) {
+      return ParseResult.success(
+        PatchIntent.commit(PatchCommitDirectory(operand)),
+      );
+    }
+
     if (_hasTargetKindPrefix(operand)) {
       final targetResult = targetParser.parsePubTarget(operand);
       final diagnostic = targetResult.diagnostic;
@@ -246,7 +252,16 @@ final class PatchworkCommandParser {
     return operand.startsWith('/') ||
         operand.startsWith('./') ||
         operand.startsWith('../') ||
-        operand.contains('/');
+        operand.contains('/') ||
+        _looksLikeWindowsEditDirectory(operand);
+  }
+
+  bool _looksLikeWindowsEditDirectory(String operand) {
+    return RegExp(r'^[A-Za-z]:[\\/]').hasMatch(operand) ||
+        operand.startsWith('.\\') ||
+        operand.startsWith('..\\') ||
+        operand.startsWith('\\\\') ||
+        operand.contains('\\');
   }
 
   bool _hasTargetKindPrefix(String operand) {

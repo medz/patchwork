@@ -204,5 +204,44 @@ patches:
       );
       expect(result.patches.single.diagnostic?.location, patchFile.path);
     });
+
+    test('rejects symlinked patch files before hashing', () {
+      if (Platform.isWindows) {
+        markTestSkipped('Symlink creation requires privileges on Windows.');
+      }
+
+      const patchPath = 'patches/pub/analyzer@7.4.0.patch';
+      final outsideDir = Directory.systemTemp.createTempSync(
+        'patchwork manifest outside ',
+      );
+      addTearDown(() {
+        if (outsideDir.existsSync()) {
+          outsideDir.deleteSync(recursive: true);
+        }
+      });
+      final outsidePatch = File(p.join(outsideDir.path, 'target.patch'));
+      outsidePatch.writeAsStringSync('outside patch\n');
+      final patchLink = Link(p.join(root.path, patchPath));
+      patchLink.parent.createSync(recursive: true);
+      patchLink.createSync(outsidePatch.path);
+      File(p.join(root.path, 'patchwork.lock')).writeAsStringSync('''
+patches:
+  - target: pub:analyzer@7.4.0
+    path: $patchPath
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+''');
+
+      final result = PatchworkManifestStore(
+        hashFile: (_) => throw StateError(
+          'hashFile should not be called for symlinked patches',
+        ),
+      ).inspectPatchFiles(workspaceRootPath: root.path);
+
+      expect(result.diagnostic, isNull);
+      expect(result.patches, hasLength(1));
+      expect(result.patches.single.state, PatchworkManifestPatchState.invalid);
+      expect(result.patches.single.diagnostic?.code, 'patchwork.patch_invalid');
+      expect(result.patches.single.diagnostic?.location, patchLink.path);
+    });
   });
 }

@@ -41,7 +41,13 @@ final class PatchworkManifestReadResult {
   final Diagnostic? diagnostic;
 }
 
-enum PatchworkManifestPatchState { current, missing, stale, unreadable }
+enum PatchworkManifestPatchState {
+  current,
+  missing,
+  stale,
+  unreadable,
+  invalid,
+}
 
 final class PatchworkManifestPatchInspection {
   const PatchworkManifestPatchInspection({
@@ -261,20 +267,12 @@ final class PatchworkManifestStore {
         workspaceRootPath: workspaceRootPath,
         relativePath: entry.path,
       );
-      final file = File(absolutePatchPath);
-      if (!file.existsSync()) {
-        inspections.add(
-          PatchworkManifestPatchInspection(
-            entry: entry,
-            state: PatchworkManifestPatchState.missing,
-            diagnostic: Diagnostic(
-              code: 'patchwork.patch_missing',
-              message: 'Patch file listed in patchwork.lock is missing.',
-              hint: 'Recreate the patch or remove its manifest entry.',
-              location: absolutePatchPath,
-            ),
-          ),
-        );
+      final unavailablePatch = _inspectUnavailablePatchEntity(
+        entry: entry,
+        absolutePatchPath: absolutePatchPath,
+      );
+      if (unavailablePatch != null) {
+        inspections.add(unavailablePatch);
         continue;
       }
 
@@ -323,6 +321,42 @@ final class PatchworkManifestStore {
     }
 
     return PatchworkManifestInspectionResult.success(inspections);
+  }
+
+  PatchworkManifestPatchInspection? _inspectUnavailablePatchEntity({
+    required PatchworkManifestPatch entry,
+    required String absolutePatchPath,
+  }) {
+    final entityType = FileSystemEntity.typeSync(
+      absolutePatchPath,
+      followLinks: false,
+    );
+    if (entityType == FileSystemEntityType.notFound) {
+      return PatchworkManifestPatchInspection(
+        entry: entry,
+        state: PatchworkManifestPatchState.missing,
+        diagnostic: Diagnostic(
+          code: 'patchwork.patch_missing',
+          message: 'Patch file listed in patchwork.lock is missing.',
+          hint: 'Recreate the patch or remove its manifest entry.',
+          location: absolutePatchPath,
+        ),
+      );
+    }
+    if (entityType != FileSystemEntityType.file) {
+      return PatchworkManifestPatchInspection(
+        entry: entry,
+        state: PatchworkManifestPatchState.invalid,
+        diagnostic: Diagnostic(
+          code: 'patchwork.patch_invalid',
+          message: 'Patch path listed in patchwork.lock is not a regular file.',
+          hint:
+              'Keep committed patch entries as regular files under patches/pub.',
+          location: absolutePatchPath,
+        ),
+      );
+    }
+    return null;
   }
 
   PatchworkManifest _readForWrite(String workspaceRootPath) {

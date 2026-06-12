@@ -9,6 +9,39 @@ import '../diagnostics/diagnostic.dart';
 final class PubspecOverridesStore {
   const PubspecOverridesStore();
 
+  PubspecOverridePathsReadResult readDependencyOverridePaths({
+    required String workspaceRootPath,
+  }) {
+    final overridesPath = p.join(workspaceRootPath, 'pubspec_overrides.yaml');
+    final overrides = _readPubspecOverrides(overridesPath);
+    final existingDependencyOverrides = overrides['dependency_overrides'];
+    if (existingDependencyOverrides == null) {
+      return PubspecOverridePathsReadResult.success(const {});
+    }
+    if (existingDependencyOverrides is! Map<String, Object?>) {
+      return PubspecOverridePathsReadResult.failure(
+        Diagnostic(
+          code: 'pub.overrides_malformed',
+          message: 'pubspec_overrides.yaml dependency_overrides is malformed.',
+          location: overridesPath,
+        ),
+      );
+    }
+
+    final paths = <String, String>{};
+    for (final entry in existingDependencyOverrides.entries) {
+      final value = entry.value;
+      if (value is Map<String, Object?>) {
+        final path = value['path'];
+        if (path is String) {
+          paths[entry.key] = path;
+        }
+      }
+    }
+
+    return PubspecOverridePathsReadResult.success(paths);
+  }
+
   void updateDependencyOverrides({
     required String workspaceRootPath,
     required Map<String, String> dependencyOverridePaths,
@@ -59,6 +92,24 @@ final class PubspecOverridesStore {
       flush: true,
     );
   }
+}
+
+final class PubspecOverridePathsReadResult {
+  const PubspecOverridePathsReadResult._({
+    this.paths = const {},
+    this.diagnostic,
+  });
+
+  factory PubspecOverridePathsReadResult.success(Map<String, String> paths) {
+    return PubspecOverridePathsReadResult._(paths: Map.unmodifiable(paths));
+  }
+
+  factory PubspecOverridePathsReadResult.failure(Diagnostic diagnostic) {
+    return PubspecOverridePathsReadResult._(diagnostic: diagnostic);
+  }
+
+  final Map<String, String> paths;
+  final Diagnostic? diagnostic;
 }
 
 bool _isManagedPatchworkStoreOverride(

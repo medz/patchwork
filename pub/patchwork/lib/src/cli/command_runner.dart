@@ -2,9 +2,12 @@ import 'dart:io';
 
 import '../app/apply_patches.dart';
 import '../app/commit_patch_session.dart';
+import '../app/pub_doctor.dart';
+import '../app/pub_status.dart';
 import '../app/start_patch_session.dart';
 import '../diagnostics/diagnostic.dart';
 import '../diagnostics/exit_code.dart';
+import '../store/patchwork_manifest.dart';
 import '../target/target_parser.dart';
 import 'command_intent.dart';
 
@@ -288,12 +291,16 @@ final class PatchworkCommandRunner {
     this.startPatchSession = const StartPatchSession(),
     this.commitPatchSession = const CommitPatchSession(),
     this.applyPatches = const ApplyPatches(),
+    this.pubStatus = const PubStatus(),
+    this.pubDoctor = const PubDoctor(),
   });
 
   final PatchworkCommandParser parser;
   final StartPatchSession startPatchSession;
   final CommitPatchSession commitPatchSession;
   final ApplyPatches applyPatches;
+  final PubStatus pubStatus;
+  final PubDoctor pubDoctor;
 
   int run(
     List<String> arguments, {
@@ -341,8 +348,29 @@ final class PatchworkCommandRunner {
       );
     }
 
-    stdout.writeln('Parsed command: ${intent.summary}');
-    return PatchworkExitCode.success;
+    if (intent is StatusIntent) {
+      return _status(
+        stdout: stdout,
+        stderr: stderr,
+        currentDirectory: currentDirectory ?? Directory.current.path,
+      );
+    }
+
+    if (intent is DoctorIntent) {
+      return _doctor(
+        stdout: stdout,
+        currentDirectory: currentDirectory ?? Directory.current.path,
+      );
+    }
+
+    _writeDiagnostic(
+      stderr,
+      const Diagnostic(
+        code: 'usage.unknown_command',
+        message: 'Command is not implemented.',
+      ),
+    );
+    return PatchworkExitCode.usage;
   }
 
   int _startPatchSession(
@@ -430,6 +458,78 @@ final class PatchworkCommandRunner {
     return PatchworkExitCode.success;
   }
 
+  int _status({
+    required StringSink stdout,
+    required StringSink stderr,
+    required String currentDirectory,
+  }) {
+    final result = pubStatus.read(currentDirectory: currentDirectory);
+    final diagnostic = result.diagnostic;
+    if (diagnostic != null) {
+      _writeDiagnostic(stderr, diagnostic);
+      return PatchworkExitCode.forDiagnostic(diagnostic);
+    }
+
+    stdout.writeln('Workspace: ${result.workspaceRootPath}');
+    if (result.patches.isEmpty) {
+      stdout.writeln('Patches: none');
+      return PatchworkExitCode.success;
+    }
+
+    stdout.writeln('Patches:');
+    for (final patch in result.patches) {
+      stdout.writeln('  - ${patch.target} [${_statusStateLabel(patch.state)}]');
+      stdout.writeln(
+        '    patch: ${patch.patchPath} (${_patchStateLabel(patch)})',
+      );
+      final storePath = patch.storePath;
+      if (storePath != null) {
+        stdout.writeln(
+          '    store: $storePath (${patch.storeCurrent ? 'current' : 'missing or stale'})',
+        );
+      }
+      final packageName = patch.packageName;
+      if (packageName != null) {
+        final overridePath = patch.overridePath;
+        stdout.writeln(
+          '    override: $packageName -> ${overridePath ?? 'missing'} '
+          '(${patch.overrideCurrent ? 'current' : 'missing or stale'})',
+        );
+      }
+      final diagnostic = patch.diagnostic;
+      if (diagnostic != null) {
+        stdout.writeln('    detail: ${diagnostic.message}');
+      }
+    }
+
+    return result.hasBrokenState
+        ? PatchworkExitCode.failure
+        : PatchworkExitCode.success;
+  }
+
+  int _doctor({required StringSink stdout, required String currentDirectory}) {
+    final result = pubDoctor.check(currentDirectory: currentDirectory);
+    stdout.writeln('Doctor:');
+    for (final check in result.checks) {
+      stdout.writeln(
+        '  [${check.state == PubDoctorCheckState.ok ? 'ok' : 'error'}] '
+        '${check.name}: ${check.message}',
+      );
+      final location = check.location;
+      if (location != null) {
+        stdout.writeln('    location: $location');
+      }
+      final hint = check.hint;
+      if (hint != null && hint.isNotEmpty) {
+        stdout.writeln('    hint: $hint');
+      }
+    }
+
+    return result.hasErrors
+        ? PatchworkExitCode.failure
+        : PatchworkExitCode.success;
+  }
+
   String helpText([String? command]) {
     return switch (command) {
       null => _mainHelp,
@@ -447,6 +547,26 @@ final class PatchworkCommandRunner {
     if (hint != null) {
       stderr.writeln('hint: $hint');
     }
+  }
+
+  String _statusStateLabel(PubPatchStatusState state) {
+    return switch (state) {
+      PubPatchStatusState.clean => 'clean',
+      PubPatchStatusState.stale => 'stale',
+      PubPatchStatusState.missing => 'missing',
+      PubPatchStatusState.unapplied => 'unapplied',
+      PubPatchStatusState.broken => 'broken',
+    };
+  }
+
+  String _patchStateLabel(PubPatchStatus patch) {
+    return switch (patch.patchState) {
+      PatchworkManifestPatchState.current => 'hash ok',
+      PatchworkManifestPatchState.missing => 'missing',
+      PatchworkManifestPatchState.stale => 'hash mismatch',
+      PatchworkManifestPatchState.unreadable => 'unreadable',
+      PatchworkManifestPatchState.invalid => 'invalid',
+    };
   }
 }
 

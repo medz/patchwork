@@ -126,5 +126,26 @@ void main() {
       expect(result.patchPath, isNull);
       expect(patchFile.existsSync(), isFalse);
     });
+
+    test('reports patch write failures as diagnostics', () {
+      final startResult = const StartPatchSession()(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+      expect(startResult.diagnostic, isNull);
+      final session = startResult.session!;
+      File(
+        p.join(session.editPath, 'lib', 'analyzer.dart'),
+      ).writeAsStringSync("String analyzerVersion() => '7.4.1';\n");
+      File(p.join(fixture.rootPath, 'patches')).writeAsStringSync('not a dir');
+
+      final result = const CommitPatchSession().commitTarget(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(result.diagnostic?.code, 'pub.patch_commit_failed');
+      expect(result.patchPath, isNull);
+    });
   });
 }

@@ -312,6 +312,24 @@ void main() {
           : false,
     );
 
+    test('treats text files as text despite binary diff attributes', () {
+      final roots = _PatchRootPair(root);
+      File(p.join(roots.baselinePath, 'file.txt')).writeAsStringSync('old\n');
+      File(p.join(roots.editPath, 'file.txt')).writeAsStringSync('new\n');
+      final attributesPath = p.join(root.path, 'attributes');
+      File(attributesPath).writeAsStringSync('*.txt binary\n');
+
+      _withLocalGitConfig(root, {'core.attributesFile': attributesPath}, () {
+        final buildResult = roots.build();
+
+        expect(buildResult.diagnostic, isNull);
+        expect(buildResult.content, contains('diff --git a/file.txt'));
+        expect(buildResult.content, contains('-old'));
+        expect(buildResult.content, contains('+new'));
+        expect(buildResult.content, isNot(contains('Binary files')));
+      });
+    });
+
     test('allows git warnings when diff output is valid', () {
       final roots = _PatchRootPair(root);
       File(p.join(roots.baselinePath, 'file.txt')).writeAsStringSync('old\n');
@@ -565,7 +583,53 @@ index 3367afdbbf91e638efe983616377c60477cc6612..3e757656cf36eca53338e520d134963a
 
       expect(result.diagnostic, isNull);
     });
+
+    test('deletes temporary patch files after validation', () {
+      File(p.join(root.path, 'file.txt')).writeAsStringSync('old\n');
+      final before = _validationPatchFiles();
+      addTearDown(() {
+        for (final path in _validationPatchFiles().difference(before)) {
+          final file = File(path);
+          if (file.existsSync()) {
+            file.deleteSync();
+          }
+        }
+      });
+
+      final result = const PatchValidator().validate(
+        baselinePath: root.path,
+        patchContent: [
+          'diff --git a/file.txt b/file.txt',
+          '--- a/file.txt',
+          '+++ b/file.txt',
+          '@@ -1 +1 @@',
+          '-old',
+          '+new',
+          '',
+        ].join('\n'),
+      );
+
+      expect(result.diagnostic, isNull);
+      expect(_validationPatchFiles(), before);
+    });
   });
+}
+
+Set<String> _validationPatchFiles() {
+  if (!Directory.systemTemp.existsSync()) {
+    return const {};
+  }
+
+  return Directory.systemTemp
+      .listSync(followLinks: false)
+      .whereType<File>()
+      .map((file) => file.path)
+      .where((path) {
+        final name = p.basename(path);
+        return name.startsWith('patchwork_patch_validate_') &&
+            name.endsWith('.patch');
+      })
+      .toSet();
 }
 
 String _applyPatch({

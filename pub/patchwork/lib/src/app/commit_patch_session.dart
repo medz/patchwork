@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:path/path.dart' as p;
 
 import '../diagnostics/diagnostic.dart';
@@ -102,10 +104,16 @@ final class CommitPatchSession {
     }
 
     if (!buildResult.hasChanges) {
-      store.deletePubPatchFile(
-        workspaceRootPath: locateResult.workspaceRootPath!,
-        session: session,
-      );
+      try {
+        store.deletePubPatchFile(
+          workspaceRootPath: locateResult.workspaceRootPath!,
+          session: session,
+        );
+      } on FileSystemException catch (error) {
+        return PubPatchSessionCommitResult.failure(
+          _patchCommitDiagnostic(error),
+        );
+      }
       return PubPatchSessionCommitResult.noChanges();
     }
 
@@ -120,11 +128,15 @@ final class CommitPatchSession {
     }
 
     final workspaceRootPath = locateResult.workspaceRootPath!;
-    store.writePubPatchFile(
-      workspaceRootPath: workspaceRootPath,
-      session: session,
-      content: patchContent,
-    );
+    try {
+      store.writePubPatchFile(
+        workspaceRootPath: workspaceRootPath,
+        session: session,
+        content: patchContent,
+      );
+    } on FileSystemException catch (error) {
+      return PubPatchSessionCommitResult.failure(_patchCommitDiagnostic(error));
+    }
 
     return PubPatchSessionCommitResult.success(
       p.relative(
@@ -136,4 +148,13 @@ final class CommitPatchSession {
       ),
     );
   }
+}
+
+Diagnostic _patchCommitDiagnostic(FileSystemException error) {
+  return Diagnostic(
+    code: 'pub.patch_commit_failed',
+    message: 'Could not commit the pub patch file.',
+    hint: error.message,
+    location: error.path,
+  );
 }

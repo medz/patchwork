@@ -117,6 +117,7 @@ final class PatchFileBuilder {
       '--no-ext-diff',
       '--no-color',
       '--no-textconv',
+      '--text',
       '--src-prefix=a/',
       '--dst-prefix=b/',
       '--full-index',
@@ -190,10 +191,11 @@ final class PatchValidator {
     final validationRoot = Directory.systemTemp.createTempSync(
       'patchwork_patch_validate_',
     );
+    File? patchFile;
 
     try {
       _copyDirectoryContents(baselinePath, validationRoot.path);
-      final patchFile = File('${validationRoot.path}.patch');
+      patchFile = File('${validationRoot.path}.patch');
       patchFile.writeAsStringSync(patchContent);
       final ProcessResult result;
       try {
@@ -233,6 +235,9 @@ final class PatchValidator {
         ),
       );
     } finally {
+      if (patchFile != null && patchFile.existsSync()) {
+        patchFile.deleteSync();
+      }
       if (validationRoot.existsSync()) {
         validationRoot.deleteSync(recursive: true);
       }

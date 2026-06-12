@@ -4,7 +4,9 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:patchwork/src/pub/package_resolution.dart';
 import 'package:patchwork/src/pub/pub_workspace.dart';
+import 'package:patchwork/src/store/edit_session.dart';
 import 'package:patchwork/src/store/patchwork_store.dart';
+import 'package:patchwork/src/target/target.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -181,6 +183,31 @@ void main() {
           ),
         ).existsSync(),
         isFalse,
+      );
+    });
+
+    test('escapes pub patch file path components', () {
+      const session = PubPatchSession(
+        target: PubTarget(name: 'some_pkg', versionConstraint: '1.0.0+1'),
+        package: ResolvedPubPackage(
+          name: 'some_pkg',
+          version: '1.0.0+1',
+          sourceKind: PubPackageSourceKind.unknown,
+          dependencyKind: PubPackageDependencyKind.unknown,
+          rootPath: '/cache/pkg',
+          packageUri: 'lib/',
+        ),
+        baselinePath: '/workspace/.dart_tool/patchwork/baseline/pub/pkg',
+        editPath: '/workspace/.dart_tool/patchwork/edit/pub/pkg',
+        metadataPath: '/workspace/.dart_tool/patchwork/sessions/pub/pkg.json',
+      );
+
+      expect(
+        const PatchworkStore().pubPatchFilePath(
+          workspaceRootPath: root.path,
+          session: session,
+        ),
+        p.join(root.path, 'patches', 'pub', 'some_pkg@1.0.0%2B1.patch'),
       );
     });
   });

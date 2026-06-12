@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../app/commit_patch_session.dart';
 import '../app/start_patch_session.dart';
 import '../diagnostics/diagnostic.dart';
 import '../diagnostics/exit_code.dart';
@@ -284,10 +285,12 @@ final class PatchworkCommandRunner {
   const PatchworkCommandRunner({
     this.parser = const PatchworkCommandParser(),
     this.startPatchSession = const StartPatchSession(),
+    this.commitPatchSession = const CommitPatchSession(),
   });
 
   final PatchworkCommandParser parser;
   final StartPatchSession startPatchSession;
+  final CommitPatchSession commitPatchSession;
 
   int run(
     List<String> arguments, {
@@ -310,6 +313,15 @@ final class PatchworkCommandRunner {
 
     if (intent is PatchIntent && !intent.isCommit) {
       return _startPatchSession(
+        intent,
+        stdout: stdout,
+        stderr: stderr,
+        currentDirectory: currentDirectory ?? Directory.current.path,
+      );
+    }
+
+    if (intent is PatchIntent && intent.isCommit) {
+      return _commitPatchSession(
         intent,
         stdout: stdout,
         stderr: stderr,
@@ -340,6 +352,39 @@ final class PatchworkCommandRunner {
     final session = result.session!;
     stdout.writeln('Edit directory: ${session.editPath}');
     stdout.writeln('Commit changes with: ${session.commitCommand}');
+    return PatchworkExitCode.success;
+  }
+
+  int _commitPatchSession(
+    PatchIntent intent, {
+    required StringSink stdout,
+    required StringSink stderr,
+    required String currentDirectory,
+  }) {
+    final subject = intent.commitSubject!;
+    final result = switch (subject) {
+      PatchCommitTarget(:final target) => commitPatchSession.commitTarget(
+        target,
+        currentDirectory: currentDirectory,
+      ),
+      PatchCommitDirectory(:final path) =>
+        commitPatchSession.commitEditDirectory(
+          path,
+          currentDirectory: currentDirectory,
+        ),
+    };
+    final diagnostic = result.diagnostic;
+    if (diagnostic != null) {
+      _writeDiagnostic(stderr, diagnostic);
+      return PatchworkExitCode.forDiagnostic(diagnostic);
+    }
+
+    if (result.noChanges) {
+      stdout.writeln('No changes to commit.');
+      return PatchworkExitCode.success;
+    }
+
+    stdout.writeln('Patch file: ${result.patchPath}');
     return PatchworkExitCode.success;
   }
 

@@ -53,3 +53,31 @@ final class PubPatchSessionCreateResult {
 
   bool get isSuccess => session != null;
 }
+
+final class PubPatchSessionLocateResult {
+  const PubPatchSessionLocateResult._({
+    this.session,
+    this.workspaceRootPath,
+    this.diagnostic,
+  });
+
+  factory PubPatchSessionLocateResult.success({
+    required PubPatchSession session,
+    required String workspaceRootPath,
+  }) {
+    return PubPatchSessionLocateResult._(
+      session: session,
+      workspaceRootPath: workspaceRootPath,
+    );
+  }
+
+  factory PubPatchSessionLocateResult.failure(Diagnostic diagnostic) {
+    return PubPatchSessionLocateResult._(diagnostic: diagnostic);
+  }
+
+  final PubPatchSession? session;
+  final String? workspaceRootPath;
+  final Diagnostic? diagnostic;
+
+  bool get isSuccess => session != null;
+}

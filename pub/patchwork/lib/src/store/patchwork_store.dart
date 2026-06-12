@@ -6,11 +6,9 @@ import 'package:path/path.dart' as p;
 import '../diagnostics/diagnostic.dart';
 import '../pub/package_resolution.dart';
 import '../pub/pub_workspace.dart';
+import '../session/session_file_filter.dart';
 import '../target/target.dart';
 import 'edit_session.dart';
-
-const _excludedDirectoryNames = {'.dart_tool', '.git', 'build'};
-const _excludedFileNames = {'.packages', 'pubspec.lock'};
 
 final class PatchworkStore {
   const PatchworkStore();
@@ -63,6 +61,90 @@ final class PatchworkStore {
     return PubPatchSessionCreateResult.success(session);
   }
 
+  PubPatchSessionLocateResult locatePubEditSessionForPackage({
+    required PubWorkspace workspace,
+    required ResolvedPubPackage package,
+  }) {
+    final sessionId = '${package.name}@${package.version}';
+    final metadataPath = p.join(
+      workspace.rootPath,
+      '.dart_tool',
+      'patchwork',
+      'sessions',
+      'pub',
+      '$sessionId.json',
+    );
+
+    return _readPubEditSessionMetadata(
+      metadataPath,
+      workspaceRootPath: workspace.rootPath,
+      package: package,
+    );
+  }
+
+  PubPatchSessionLocateResult locatePubEditSessionForEditPath({
+    required String editPath,
+    required String currentDirectory,
+  }) {
+    final absoluteEditPath = p.normalize(
+      p.absolute(currentDirectory, editPath),
+    );
+    final metadataLocation = _metadataLocationForPubEditPath(absoluteEditPath);
+    if (metadataLocation == null) {
+      return PubPatchSessionLocateResult.failure(
+        Diagnostic(
+          code: 'pub.patch_session_not_found',
+          message: 'Could not find a pub patch edit session for "$editPath".',
+          hint: 'Use a path printed by patchwork patch <target>.',
+          location: editPath,
+        ),
+      );
+    }
+
+    return _readPubEditSessionMetadata(
+      metadataLocation.metadataPath,
+      workspaceRootPath: metadataLocation.workspaceRootPath,
+      expectedEditPath: absoluteEditPath,
+    );
+  }
+
+  String pubPatchFilePath({
+    required String workspaceRootPath,
+    required PubPatchSession session,
+  }) {
+    return p.join(
+      workspaceRootPath,
+      'patches',
+      'pub',
+      '${_escapePatchPathComponent(session.package.name)}@'
+          '${_escapePatchPathComponent(session.package.version)}.patch',
+    );
+  }
+
+  void writePubPatchFile({
+    required String workspaceRootPath,
+    required PubPatchSession session,
+    required String content,
+  }) {
+    final patchFile = File(
+      pubPatchFilePath(workspaceRootPath: workspaceRootPath, session: session),
+    );
+    patchFile.parent.createSync(recursive: true);
+    patchFile.writeAsStringSync(content);
+  }
+
+  void deletePubPatchFile({
+    required String workspaceRootPath,
+    required PubPatchSession session,
+  }) {
+    final patchFile = File(
+      pubPatchFilePath(workspaceRootPath: workspaceRootPath, session: session),
+    );
+    if (patchFile.existsSync()) {
+      patchFile.deleteSync();
+    }
+  }
+
   void _refreshCopy(
     String sourcePath,
     String destinationPath, {
@@ -100,7 +182,7 @@ final class PatchworkStore {
 
       final relativePath = p.relative(entity.path, from: sourceRootPath);
       final type = FileSystemEntity.typeSync(entity.path, followLinks: false);
-      if (_shouldExclude(relativePath, type)) {
+      if (shouldExcludePatchSessionPath(relativePath, type)) {
         continue;
       }
 
@@ -134,19 +216,6 @@ final class PatchworkStore {
     return p.equals(parentPath, childPath) || p.isWithin(parentPath, childPath);
   }
 
-  bool _shouldExclude(String relativePath, FileSystemEntityType type) {
-    if (p.split(relativePath).length != 1) {
-      return false;
-    }
-
-    final name = p.basename(relativePath);
-    if (type == FileSystemEntityType.directory) {
-      return _excludedDirectoryNames.contains(name);
-    }
-
-    return _excludedFileNames.contains(name);
-  }
-
   void _writeMetadata(
     PubPatchSession session, {
     required String workspaceRootPath,
@@ -170,4 +239,164 @@ final class PatchworkStore {
     });
     metadataFile.writeAsStringSync('$metadata\n');
   }
+
+  PubPatchSessionLocateResult _readPubEditSessionMetadata(
+    String metadataPath, {
+    required String workspaceRootPath,
+    ResolvedPubPackage? package,
+    String? expectedEditPath,
+  }) {
+    final metadataFile = File(metadataPath);
+    if (!metadataFile.existsSync()) {
+      return PubPatchSessionLocateResult.failure(
+        Diagnostic(
+          code: 'pub.patch_session_not_found',
+          message: 'Could not find a pub patch edit session.',
+          hint: 'Run patchwork patch <target> before committing a patch.',
+          location: metadataPath,
+        ),
+      );
+    }
+
+    try {
+      final decoded = jsonDecode(metadataFile.readAsStringSync());
+      if (decoded is! Map<String, Object?>) {
+        return _malformedPubEditSession(metadataPath);
+      }
+
+      final packageJson = decoded['package'];
+      final pathsJson = decoded['paths'];
+      if (packageJson is! Map<String, Object?> ||
+          pathsJson is! Map<String, Object?>) {
+        return _malformedPubEditSession(metadataPath);
+      }
+
+      final packageName = packageJson['name'];
+      final packageVersion = packageJson['version'];
+      final baselinePath = pathsJson['baseline'];
+      final editPath = pathsJson['edit'];
+      final sourceRootPath = pathsJson['sourceRoot'];
+      if (packageName is! String ||
+          packageVersion is! String ||
+          baselinePath is! String ||
+          editPath is! String ||
+          sourceRootPath is! String) {
+        return _malformedPubEditSession(metadataPath);
+      }
+
+      final absoluteEditPath = p.normalize(p.join(workspaceRootPath, editPath));
+      if (expectedEditPath != null &&
+          !p.equals(absoluteEditPath, expectedEditPath)) {
+        return PubPatchSessionLocateResult.failure(
+          Diagnostic(
+            code: 'pub.patch_session_not_found',
+            message:
+                'Could not find a pub patch edit session for "$expectedEditPath".',
+            hint: 'Use a path printed by patchwork patch <target>.',
+            location: expectedEditPath,
+          ),
+        );
+      }
+
+      final resolvedPackage =
+          package ??
+          ResolvedPubPackage(
+            name: packageName,
+            version: packageVersion,
+            sourceKind: PubPackageSourceKind.unknown,
+            dependencyKind: PubPackageDependencyKind.unknown,
+            rootPath: sourceRootPath,
+            packageUri: 'lib/',
+          );
+
+      return PubPatchSessionLocateResult.success(
+        workspaceRootPath: workspaceRootPath,
+        session: PubPatchSession(
+          target: PubTarget(
+            name: resolvedPackage.name,
+            versionConstraint: resolvedPackage.version,
+          ),
+          package: resolvedPackage,
+          baselinePath: p.normalize(p.join(workspaceRootPath, baselinePath)),
+          editPath: absoluteEditPath,
+          metadataPath: metadataPath,
+        ),
+      );
+    } on FormatException {
+      return _malformedPubEditSession(metadataPath);
+    } on FileSystemException catch (error) {
+      return PubPatchSessionLocateResult.failure(
+        Diagnostic(
+          code: 'pub.patch_session_not_readable',
+          message: 'Could not read pub patch edit session metadata.',
+          hint: error.message,
+          location: metadataPath,
+        ),
+      );
+    }
+  }
+
+  PubPatchSessionLocateResult _malformedPubEditSession(String metadataPath) {
+    return PubPatchSessionLocateResult.failure(
+      Diagnostic(
+        code: 'pub.patch_session_malformed',
+        message: 'Pub patch edit session metadata is malformed.',
+        location: metadataPath,
+      ),
+    );
+  }
+
+  _PubEditSessionMetadataLocation? _metadataLocationForPubEditPath(
+    String editPath,
+  ) {
+    final parts = p.split(editPath);
+    for (var index = 0; index <= parts.length - 5; index += 1) {
+      if (parts[index] == '.dart_tool' &&
+          parts[index + 1] == 'patchwork' &&
+          parts[index + 2] == 'edit' &&
+          parts[index + 3] == 'pub') {
+        final workspaceRootPath = index == 0
+            ? p.current
+            : p.joinAll(parts.take(index));
+        final sessionId = parts[index + 4];
+        return _PubEditSessionMetadataLocation(
+          workspaceRootPath: workspaceRootPath,
+          metadataPath: p.join(
+            workspaceRootPath,
+            '.dart_tool',
+            'patchwork',
+            'sessions',
+            'pub',
+            '$sessionId.json',
+          ),
+        );
+      }
+    }
+
+    return null;
+  }
+
+  String _escapePatchPathComponent(String value) {
+    final buffer = StringBuffer();
+    for (final codeUnit in value.codeUnits) {
+      final character = String.fromCharCode(codeUnit);
+      if (RegExp(r'[A-Za-z0-9._-]').hasMatch(character)) {
+        buffer.write(character);
+      } else {
+        buffer.write('%');
+        buffer.write(codeUnit.toRadixString(16).toUpperCase().padLeft(2, '0'));
+      }
+    }
+    return buffer.toString();
+  }
+}
+
+final class _PubEditSessionMetadataLocation {
+  const _PubEditSessionMetadataLocation({
+    required this.workspaceRootPath,
+    required this.metadataPath,
+  });
+
+  final String workspaceRootPath;
+  final String metadataPath;
 }

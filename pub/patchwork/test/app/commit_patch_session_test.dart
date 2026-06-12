@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:patchwork/src/app/commit_patch_session.dart';
 import 'package:patchwork/src/app/start_patch_session.dart';
+import 'package:patchwork/src/store/patchwork_manifest.dart';
 import 'package:patchwork/src/target/target.dart';
 import 'package:test/test.dart';
 
@@ -60,6 +61,36 @@ void main() {
         contains('path: patches/pub/analyzer@7.4.0.patch'),
       );
       expect(manifestContent, matches(RegExp(r'hash: [0-9a-f]{64}')));
+    });
+
+    test('uses the injected manifest hasher when recording hash', () {
+      final startResult = const StartPatchSession()(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.memberPath,
+      );
+      expect(startResult.diagnostic, isNull);
+      final session = startResult.session!;
+      File(
+        p.join(session.editPath, 'lib', 'analyzer.dart'),
+      ).writeAsStringSync("String analyzerVersion() => '7.4.1';\n");
+      const injectedHash =
+          'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+
+      final result =
+          CommitPatchSession(
+            manifestStore: PatchworkManifestStore(
+              hashFile: (_) => injectedHash,
+            ),
+          ).commitTarget(
+            const PubTarget(name: 'analyzer'),
+            currentDirectory: fixture.memberPath,
+          );
+
+      expect(result.diagnostic, isNull);
+      expect(
+        File(p.join(fixture.rootPath, 'patchwork.lock')).readAsStringSync(),
+        contains('hash: $injectedHash'),
+      );
     });
 
     test('commits an edit directory session', () {
@@ -172,6 +203,44 @@ patches:
       expect(patchFile.readAsStringSync(), 'existing patch\n');
     });
 
+    test('restores an existing patch when lock removal write fails', () {
+      final startResult = const StartPatchSession()(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+      expect(startResult.diagnostic, isNull);
+      final patchFile = File(
+        p.join(fixture.rootPath, 'patches', 'pub', 'analyzer@7.4.0.patch'),
+      );
+      patchFile.parent.createSync(recursive: true);
+      patchFile.writeAsStringSync('existing patch\n');
+      final manifestFile = File(p.join(fixture.rootPath, 'patchwork.lock'));
+      const manifestContent = '''
+patches:
+  - target: pub:analyzer@7.4.0
+    path: patches/pub/analyzer@7.4.0.patch
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+''';
+      manifestFile.writeAsStringSync(manifestContent);
+
+      final result =
+          CommitPatchSession(
+            manifestStore: PatchworkManifestStore(
+              writeFile: (_, _) => throw FileSystemException(
+                'Lock write failed',
+                manifestFile.path,
+              ),
+            ),
+          ).commitTarget(
+            const PubTarget(name: 'analyzer'),
+            currentDirectory: fixture.rootPath,
+          );
+
+      expect(result.diagnostic, isNotNull);
+      expect(patchFile.readAsStringSync(), 'existing patch\n');
+      expect(manifestFile.readAsStringSync(), manifestContent);
+    });
+
     test('updates the existing manifest entry when recommitting', () {
       final startResult = const StartPatchSession()(
         const PubTarget(name: 'analyzer'),
@@ -237,6 +306,48 @@ patches:
 
       expect(result.diagnostic?.code, 'patchwork.manifest_malformed');
       expect(patchFile.readAsStringSync(), 'existing patch\n');
+    });
+
+    test('restores an existing patch when lock update write fails', () {
+      final startResult = const StartPatchSession()(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+      expect(startResult.diagnostic, isNull);
+      final session = startResult.session!;
+      File(
+        p.join(session.editPath, 'lib', 'analyzer.dart'),
+      ).writeAsStringSync("String analyzerVersion() => '7.4.1';\n");
+      final patchFile = File(
+        p.join(fixture.rootPath, 'patches', 'pub', 'analyzer@7.4.0.patch'),
+      );
+      patchFile.parent.createSync(recursive: true);
+      patchFile.writeAsStringSync('existing patch\n');
+      final manifestFile = File(p.join(fixture.rootPath, 'patchwork.lock'));
+      const manifestContent = '''
+patches:
+  - target: pub:analyzer@7.4.0
+    path: patches/pub/analyzer@7.4.0.patch
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+''';
+      manifestFile.writeAsStringSync(manifestContent);
+
+      final result =
+          CommitPatchSession(
+            manifestStore: PatchworkManifestStore(
+              writeFile: (_, _) => throw FileSystemException(
+                'Lock write failed',
+                manifestFile.path,
+              ),
+            ),
+          ).commitTarget(
+            const PubTarget(name: 'analyzer'),
+            currentDirectory: fixture.rootPath,
+          );
+
+      expect(result.diagnostic, isNotNull);
+      expect(patchFile.readAsStringSync(), 'existing patch\n');
+      expect(manifestFile.readAsStringSync(), manifestContent);
     });
 
     test('reports patch write failures as diagnostics', () {

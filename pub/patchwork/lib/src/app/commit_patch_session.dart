@@ -115,6 +115,11 @@ final class CommitPatchSession {
         return PubPatchSessionCommitResult.failure(manifestDiagnostic);
       }
 
+      final patchFilePath = store.pubPatchFilePath(
+        workspaceRootPath: workspaceRootPath,
+        session: session,
+      );
+      final patchSnapshot = _PatchFileSnapshot.capture(patchFilePath);
       try {
         store.deletePubPatchFile(
           workspaceRootPath: workspaceRootPath,
@@ -125,10 +130,18 @@ final class CommitPatchSession {
           target: session.target.toString(),
         );
       } on FileSystemException catch (error) {
+        final rollbackDiagnostic = _restorePatchFile(patchSnapshot);
+        if (rollbackDiagnostic != null) {
+          return PubPatchSessionCommitResult.failure(rollbackDiagnostic);
+        }
         return PubPatchSessionCommitResult.failure(
           _patchCommitDiagnostic(error),
         );
       } on PatchworkManifestException catch (error) {
+        final rollbackDiagnostic = _restorePatchFile(patchSnapshot);
+        if (rollbackDiagnostic != null) {
+          return PubPatchSessionCommitResult.failure(rollbackDiagnostic);
+        }
         return PubPatchSessionCommitResult.failure(error.diagnostic);
       }
       return PubPatchSessionCommitResult.noChanges();
@@ -161,6 +174,7 @@ final class CommitPatchSession {
       from: workspaceRootPath,
     );
     final manifestPatchPath = patchworkManifestPath(relativePatchPath);
+    final patchSnapshot = _PatchFileSnapshot.capture(patchFilePath);
     try {
       store.writePubPatchFile(
         workspaceRootPath: workspaceRootPath,
@@ -172,16 +186,67 @@ final class CommitPatchSession {
         entry: PatchworkManifestPatch(
           target: session.target.toString(),
           path: manifestPatchPath,
-          hash: patchworkPatchFileHash(patchFilePath),
+          hash: manifestStore.hashFile(patchFilePath),
         ),
       );
     } on FileSystemException catch (error) {
+      final rollbackDiagnostic = _restorePatchFile(patchSnapshot);
+      if (rollbackDiagnostic != null) {
+        return PubPatchSessionCommitResult.failure(rollbackDiagnostic);
+      }
       return PubPatchSessionCommitResult.failure(_patchCommitDiagnostic(error));
     } on PatchworkManifestException catch (error) {
+      final rollbackDiagnostic = _restorePatchFile(patchSnapshot);
+      if (rollbackDiagnostic != null) {
+        return PubPatchSessionCommitResult.failure(rollbackDiagnostic);
+      }
       return PubPatchSessionCommitResult.failure(error.diagnostic);
     }
 
     return PubPatchSessionCommitResult.success(relativePatchPath);
+  }
+}
+
+final class _PatchFileSnapshot {
+  const _PatchFileSnapshot._({required this.path, required this.bytes});
+
+  final String path;
+  final List<int>? bytes;
+
+  static _PatchFileSnapshot capture(String path) {
+    final file = File(path);
+    return _PatchFileSnapshot._(
+      path: path,
+      bytes: file.existsSync() ? file.readAsBytesSync() : null,
+    );
+  }
+
+  void restore() {
+    final file = File(path);
+    final bytes = this.bytes;
+    if (bytes == null) {
+      if (file.existsSync()) {
+        file.deleteSync();
+      }
+      return;
+    }
+
+    file.parent.createSync(recursive: true);
+    file.writeAsBytesSync(bytes, flush: true);
+  }
+}
+
+Diagnostic? _restorePatchFile(_PatchFileSnapshot snapshot) {
+  try {
+    snapshot.restore();
+    return null;
+  } on FileSystemException catch (error) {
+    return Diagnostic(
+      code: 'pub.patch_commit_failed',
+      message: 'Could not roll back the pub patch file after commit failure.',
+      hint: error.message,
+      location: error.path,
+    );
   }
 }
 

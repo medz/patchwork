@@ -110,6 +110,30 @@ patches:
       expect(result.diagnostic?.location, p.join(root.path, 'patchwork.lock'));
     });
 
+    test('rejects invalid patch paths before writing entries', () {
+      final store = const PatchworkManifestStore();
+
+      expect(
+        () => store.upsertPatch(
+          workspaceRootPath: root.path,
+          entry: const PatchworkManifestPatch(
+            target: 'pub:analyzer@7.4.0',
+            path: '../outside.patch',
+            hash:
+                '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+          ),
+        ),
+        throwsA(
+          isA<PatchworkManifestException>().having(
+            (error) => error.diagnostic.code,
+            'diagnostic code',
+            'patchwork.manifest_invalid_path',
+          ),
+        ),
+      );
+      expect(File(p.join(root.path, 'patchwork.lock')).existsSync(), isFalse);
+    });
+
     test('writes entries with stable formatting and updates by target', () {
       final store = const PatchworkManifestStore();
 
@@ -141,6 +165,83 @@ patches:
       final result = store.read(workspaceRootPath: root.path);
       expect(result.diagnostic, isNull);
       expect(result.manifest!.patches, hasLength(1));
+    });
+
+    test('writes entries in stable target order', () {
+      final store = const PatchworkManifestStore();
+      final otherRoot = Directory.systemTemp.createTempSync(
+        'patchwork manifest other ',
+      );
+      addTearDown(() {
+        if (otherRoot.existsSync()) {
+          otherRoot.deleteSync(recursive: true);
+        }
+      });
+      final entries = [
+        const PatchworkManifestPatch(
+          target: 'pub:collection@1.19.1',
+          path: 'patches/pub/collection@1.19.1.patch',
+          hash:
+              'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+        ),
+        const PatchworkManifestPatch(
+          target: 'pub:analyzer@7.4.0',
+          path: 'patches/pub/analyzer@7.4.0.patch',
+          hash:
+              '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        ),
+      ];
+
+      for (final entry in entries) {
+        store.upsertPatch(workspaceRootPath: root.path, entry: entry);
+      }
+      for (final entry in entries.reversed) {
+        store.upsertPatch(workspaceRootPath: otherRoot.path, entry: entry);
+      }
+
+      expect(
+        File(p.join(root.path, 'patchwork.lock')).readAsStringSync(),
+        File(p.join(otherRoot.path, 'patchwork.lock')).readAsStringSync(),
+      );
+      expect(File(p.join(root.path, 'patchwork.lock')).readAsStringSync(), '''
+patches:
+  - target: pub:analyzer@7.4.0
+    path: patches/pub/analyzer@7.4.0.patch
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  - target: pub:collection@1.19.1
+    path: patches/pub/collection@1.19.1.patch
+    hash: ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+''');
+    });
+
+    test('keeps entries sorted when removing a target', () {
+      File(p.join(root.path, 'patchwork.lock')).writeAsStringSync('''
+patches:
+  - target: pub:zeta@1.0.0
+    path: patches/pub/zeta@1.0.0.patch
+    hash: ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+  - target: pub:collection@1.19.1
+    path: patches/pub/collection@1.19.1.patch
+    hash: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  - target: pub:analyzer@7.4.0
+    path: patches/pub/analyzer@7.4.0.patch
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+''');
+
+      const PatchworkManifestStore().removePatch(
+        workspaceRootPath: root.path,
+        target: 'pub:collection@1.19.1',
+      );
+
+      expect(File(p.join(root.path, 'patchwork.lock')).readAsStringSync(), '''
+patches:
+  - target: pub:analyzer@7.4.0
+    path: patches/pub/analyzer@7.4.0.patch
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  - target: pub:zeta@1.0.0
+    path: patches/pub/zeta@1.0.0.patch
+    hash: ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+''');
     });
 
     test('detects missing and stale patch files', () {

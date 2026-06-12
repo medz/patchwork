@@ -92,11 +92,16 @@ final class PatchworkManifestException implements Exception {
 }
 
 typedef PatchworkPatchHasher = String Function(String path);
+typedef PatchworkManifestWriter = void Function(String path, String content);
 
 final class PatchworkManifestStore {
-  const PatchworkManifestStore({this.hashFile = patchworkPatchFileHash});
+  const PatchworkManifestStore({
+    this.hashFile = patchworkPatchFileHash,
+    this.writeFile = _atomicWriteManifestFile,
+  });
 
   final PatchworkPatchHasher hashFile;
+  final PatchworkManifestWriter writeFile;
 
   String path({required String workspaceRootPath}) {
     return p.join(workspaceRootPath, 'patchwork.lock');
@@ -225,14 +230,21 @@ final class PatchworkManifestStore {
     required String workspaceRootPath,
     required PatchworkManifestPatch entry,
   }) {
+    final normalizedEntry = _normalizeEntryForWrite(
+      manifestPath: path(workspaceRootPath: workspaceRootPath),
+      entry: entry,
+    );
     final manifest = _readForWrite(workspaceRootPath);
     final patches = manifest.patches.toList();
-    final index = patches.indexWhere((patch) => patch.target == entry.target);
+    final index = patches.indexWhere(
+      (patch) => patch.target == normalizedEntry.target,
+    );
     if (index == -1) {
-      patches.add(entry);
+      patches.add(normalizedEntry);
     } else {
-      patches[index] = entry;
+      patches[index] = normalizedEntry;
     }
+    _sortPatches(patches);
     _write(workspaceRootPath, PatchworkManifest(patches: patches));
   }
 
@@ -248,7 +260,8 @@ final class PatchworkManifestStore {
     final manifest = _readForWrite(workspaceRootPath);
     final patches = manifest.patches
         .where((patch) => patch.target != target)
-        .toList(growable: false);
+        .toList();
+    _sortPatches(patches);
     _write(workspaceRootPath, PatchworkManifest(patches: patches));
   }
 
@@ -369,8 +382,10 @@ final class PatchworkManifestStore {
   }
 
   void _write(String workspaceRootPath, PatchworkManifest manifest) {
-    final file = File(path(workspaceRootPath: workspaceRootPath));
-    file.writeAsStringSync(_formatManifest(manifest));
+    writeFile(
+      path(workspaceRootPath: workspaceRootPath),
+      _formatManifest(manifest),
+    );
   }
 }
 
@@ -380,6 +395,60 @@ String patchworkPatchFileHash(String path) {
 
 String patchworkManifestPath(String path) {
   return path.replaceAll('\\', '/');
+}
+
+void _atomicWriteManifestFile(String manifestPath, String content) {
+  final manifestFile = File(manifestPath);
+  manifestFile.parent.createSync(recursive: true);
+  final tempFile = File(
+    p.join(
+      manifestFile.parent.path,
+      '.${p.basename(manifestPath)}.$pid.'
+      '${DateTime.now().microsecondsSinceEpoch}.tmp',
+    ),
+  );
+
+  try {
+    tempFile.writeAsStringSync(content, flush: true);
+    tempFile.renameSync(manifestPath);
+  } catch (_) {
+    if (tempFile.existsSync()) {
+      tempFile.deleteSync();
+    }
+    rethrow;
+  }
+}
+
+PatchworkManifestPatch _normalizeEntryForWrite({
+  required String manifestPath,
+  required PatchworkManifestPatch entry,
+}) {
+  final normalizedPath = _normalizeManifestPatchPath(entry.path);
+  if (normalizedPath == null) {
+    throw PatchworkManifestException(
+      Diagnostic(
+        code: 'patchwork.manifest_invalid_path',
+        message: 'patchwork.lock contains a patch path outside patches/pub.',
+        hint: 'Keep patch paths relative to the workspace patch directory.',
+        location: manifestPath,
+      ),
+    );
+  }
+  return PatchworkManifestPatch(
+    target: entry.target,
+    path: normalizedPath,
+    hash: entry.hash,
+  );
+}
+
+void _sortPatches(List<PatchworkManifestPatch> patches) {
+  patches.sort((a, b) {
+    final byTarget = a.target.compareTo(b.target);
+    if (byTarget != 0) {
+      return byTarget;
+    }
+    return a.path.compareTo(b.path);
+  });
 }
 
 String? _normalizeManifestPatchPath(String path) {

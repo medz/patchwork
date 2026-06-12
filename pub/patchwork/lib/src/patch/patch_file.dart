@@ -140,12 +140,19 @@ final class PatchFileBuilder {
       ...relativePath.split('/'),
     ]);
     final editFilePath = p.joinAll([editPath, ...relativePath.split('/')]);
+    if (!baselineExists && File(editFilePath).lengthSync() == 0) {
+      return _PathDiffResult(content: _modeOnlyDiff(relativePath, 'new'));
+    }
+    if (!editExists && File(baselineFilePath).lengthSync() == 0) {
+      return _PathDiffResult(content: _modeOnlyDiff(relativePath, 'deleted'));
+    }
+
     final arguments = <String>[
       '-u',
       '--label',
-      baselineExists ? 'a/$relativePath' : '/dev/null',
+      baselineExists ? _patchLabel('a', relativePath) : '/dev/null',
       '--label',
-      editExists ? 'b/$relativePath' : '/dev/null',
+      editExists ? _patchLabel('b', relativePath) : '/dev/null',
       baselineExists ? baselineFilePath : '/dev/null',
       editExists ? editFilePath : '/dev/null',
     ];
@@ -177,7 +184,13 @@ final class PatchFileBuilder {
       );
     }
 
-    return _PathDiffResult(content: output);
+    return _PathDiffResult(
+      content:
+          '${_gitDiffHeader(relativePath)}'
+          '${!baselineExists ? 'new file mode 100644\n' : ''}'
+          '${!editExists ? 'deleted file mode 100644\n' : ''}'
+          '$output',
+    );
   }
 }
 
@@ -196,10 +209,9 @@ final class PatchValidator {
       _copyDirectoryContents(baselinePath, validationRoot.path);
       final patchFile = File(p.join(validationRoot.path, '.patchwork.patch'));
       patchFile.writeAsStringSync(patchContent);
-      final result = Process.runSync('patch', [
-        '--dry-run',
-        '-p1',
-        '-i',
+      final result = Process.runSync('git', [
+        'apply',
+        '--check',
         patchFile.path,
       ], workingDirectory: validationRoot.path);
       if (result.exitCode == 0) {
@@ -263,4 +275,16 @@ final class _PathDiffResult {
 
 String _patchPath(String relativePath) {
   return p.split(relativePath).join('/');
+}
+
+String _patchLabel(String side, String relativePath) {
+  return '$side/$relativePath\t1970-01-01 00:00:00 +0000';
+}
+
+String _gitDiffHeader(String relativePath) {
+  return 'diff --git a/$relativePath b/$relativePath\n';
+}
+
+String _modeOnlyDiff(String relativePath, String mode) {
+  return '${_gitDiffHeader(relativePath)}$mode file mode 100644\n';
 }

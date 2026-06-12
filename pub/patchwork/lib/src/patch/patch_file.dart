@@ -116,6 +116,7 @@ final class PatchFileBuilder {
       'diff',
       '--no-ext-diff',
       '--no-color',
+      '--no-textconv',
       '--src-prefix=a/',
       '--dst-prefix=b/',
       '--full-index',
@@ -199,6 +200,7 @@ final class PatchValidator {
         result = Process.runSync('git', [
           'apply',
           '--check',
+          '--whitespace=nowarn',
           patchFile.path,
         ], workingDirectory: validationRoot.path);
       } on ProcessException catch (error) {

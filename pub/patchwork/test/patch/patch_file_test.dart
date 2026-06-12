@@ -246,6 +246,55 @@ void main() {
       });
     });
 
+    test(
+      'disables configured textconv filters',
+      () {
+        final roots = _PatchRootPair(root);
+        File(p.join(roots.baselinePath, 'file.txt')).writeAsStringSync('old\n');
+        File(p.join(roots.editPath, 'file.txt')).writeAsStringSync('new\n');
+        final textconvRoot = Directory.systemTemp.createTempSync(
+          'patchwork_textconv_',
+        );
+        addTearDown(() {
+          if (textconvRoot.existsSync()) {
+            textconvRoot.deleteSync(recursive: true);
+          }
+        });
+        final textconvPath = p.join(textconvRoot.path, 'upcase.sh');
+        File(
+          textconvPath,
+        ).writeAsStringSync('#!/bin/sh\ntr "[:lower:]" "[:upper:]" < "\$1"\n');
+        final chmodResult = Process.runSync('chmod', ['+x', textconvPath]);
+        expect(
+          chmodResult.exitCode,
+          0,
+          reason: '${chmodResult.stderr}${chmodResult.stdout}'.trim(),
+        );
+        final attributesPath = p.join(textconvRoot.path, 'attributes');
+        File(attributesPath).writeAsStringSync('*.txt diff=upper\n');
+
+        _withLocalGitConfig(
+          root,
+          {
+            'core.attributesFile': attributesPath,
+            'diff.upper.textconv': textconvPath,
+          },
+          () {
+            final buildResult = roots.build();
+
+            expect(buildResult.diagnostic, isNull);
+            expect(buildResult.content, contains('-old'));
+            expect(buildResult.content, contains('+new'));
+            expect(buildResult.content, isNot(contains('-OLD')));
+            expect(buildResult.content, isNot(contains('+NEW')));
+          },
+        );
+      },
+      skip: Platform.isWindows
+          ? 'Textconv fixture uses a POSIX shell script.'
+          : false,
+    );
+
     test('allows git warnings when diff output is valid', () {
       final roots = _PatchRootPair(root);
       File(p.join(roots.baselinePath, 'file.txt')).writeAsStringSync('old\n');
@@ -440,6 +489,45 @@ index 3367afdbbf91e638efe983616377c60477cc6612..3e757656cf36eca53338e520d134963a
       );
 
       expect(result.diagnostic?.code, 'patch.validation_failed');
+    });
+
+    test('ignores user whitespace policy while checking patches', () {
+      File(p.join(root.path, 'file.txt')).writeAsStringSync('old\n');
+      final initResult = Process.runSync('git', [
+        'init',
+        '-q',
+      ], workingDirectory: root.path);
+      expect(
+        initResult.exitCode,
+        0,
+        reason: '${initResult.stderr}${initResult.stdout}'.trim(),
+      );
+      final configResult = Process.runSync('git', [
+        'config',
+        '--local',
+        'apply.whitespace',
+        'error',
+      ], workingDirectory: root.path);
+      expect(
+        configResult.exitCode,
+        0,
+        reason: '${configResult.stderr}${configResult.stdout}'.trim(),
+      );
+
+      final result = const PatchValidator().validate(
+        baselinePath: root.path,
+        patchContent: [
+          'diff --git a/file.txt b/file.txt',
+          '--- a/file.txt',
+          '+++ b/file.txt',
+          '@@ -1 +1 @@',
+          '-old',
+          '+new   ',
+          '',
+        ].join('\n'),
+      );
+
+      expect(result.diagnostic, isNull);
     });
   });
 }

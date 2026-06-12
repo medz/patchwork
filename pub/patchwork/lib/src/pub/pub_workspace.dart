@@ -47,7 +47,7 @@ final class PubWorkspaceLocator {
     if (resolutionRoot == null) {
       return PubWorkspaceLocateResult.failure(
         Diagnostic(
-          code: 'pub.resolutionNotFound',
+          code: 'pub.resolution_not_found',
           message: 'Could not find a pub resolution for "$startPath".',
           hint: 'Run dart pub get before using patchwork.',
         ),

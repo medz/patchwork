@@ -50,7 +50,7 @@ void main() {
       final result = const PubWorkspaceLocator().locate(directory.path);
 
       expect(result.isSuccess, isFalse);
-      expect(result.diagnostic?.code, 'pub.resolutionNotFound');
+      expect(result.diagnostic?.code, 'pub.resolution_not_found');
     });
   });
 }

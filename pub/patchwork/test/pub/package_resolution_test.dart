@@ -48,6 +48,18 @@ void main() {
       expect(result.package?.rootPath, fixture.analyzerRootPath);
     });
 
+    test('resolves a workspace member when pubspec.lock is present', () {
+      final resolution = _readResolution(fixture.rootPath);
+      final result = resolution.resolve(const PubTarget(name: 'app'));
+
+      expect(result.diagnostic, isNull);
+      expect(result.package?.name, 'app');
+      expect(result.package?.version, '0.0.0');
+      expect(result.package?.sourceKind, PubPackageSourceKind.root);
+      expect(result.package?.dependencyKind, PubPackageDependencyKind.root);
+      expect(result.package?.rootPath, fixture.memberPath);
+    });
+
     test('reports an unknown package', () {
       final resolution = _readResolution(fixture.rootPath);
       final result = resolution.resolve(
@@ -55,7 +67,7 @@ void main() {
       );
 
       expect(result.isSuccess, isFalse);
-      expect(result.diagnostic?.code, 'pub.packageNotFound');
+      expect(result.diagnostic?.code, 'pub.package_not_found');
     });
 
     test('reports a requested version that is not selected', () {
@@ -65,7 +77,7 @@ void main() {
       );
 
       expect(result.isSuccess, isFalse);
-      expect(result.diagnostic?.code, 'pub.versionNotSelected');
+      expect(result.diagnostic?.code, 'pub.version_not_selected');
       expect(result.diagnostic?.message, contains('7.4.0'));
       expect(result.diagnostic?.message, contains('7.5.0'));
     });
@@ -78,7 +90,7 @@ void main() {
       );
 
       expect(result.isSuccess, isFalse);
-      expect(result.diagnostic?.code, 'pub.ambiguousPackage');
+      expect(result.diagnostic?.code, 'pub.ambiguous_package');
     });
 
     test('reports a missing resolved package root', () {
@@ -88,7 +100,7 @@ void main() {
       final result = resolution.resolve(const PubTarget(name: 'analyzer'));
 
       expect(result.isSuccess, isFalse);
-      expect(result.diagnostic?.code, 'pub.packageRootMissing');
+      expect(result.diagnostic?.code, 'pub.package_root_missing');
       expect(result.diagnostic?.location, fixture.analyzerRootPath);
     });
 
@@ -100,7 +112,7 @@ void main() {
       );
 
       expect(result.isSuccess, isFalse);
-      expect(result.diagnostic?.code, 'pub.malformedPackageConfig');
+      expect(result.diagnostic?.code, 'pub.malformed_package_config');
     });
 
     test('reports a malformed pubspec.lock', () {
@@ -111,7 +123,7 @@ void main() {
       );
 
       expect(result.isSuccess, isFalse);
-      expect(result.diagnostic?.code, 'pub.malformedLockfile');
+      expect(result.diagnostic?.code, 'pub.malformed_lockfile');
     });
 
     test(

@@ -160,7 +160,7 @@ final class PubResolutionReader {
         if (entries.containsKey(name)) {
           return _PackageConfigReadResult.failure(
             Diagnostic(
-              code: 'pub.ambiguousPackage',
+              code: 'pub.ambiguous_package',
               message:
                   'Package "$name" appears more than once in pub resolution.',
               location: workspace.packageConfigPath,
@@ -193,7 +193,7 @@ final class PubResolutionReader {
     } on FileSystemException catch (error) {
       return _PackageConfigReadResult.failure(
         Diagnostic(
-          code: 'pub.packageConfigNotReadable',
+          code: 'pub.package_config_not_readable',
           message: 'Could not read pub package_config.json.',
           hint: error.message,
           location: workspace.packageConfigPath,
@@ -206,18 +206,38 @@ final class PubResolutionReader {
     PubWorkspace workspace,
   ) {
     final lockfile = File(workspace.lockfilePath);
+    final packageGraph = File(workspace.packageGraphPath);
+
     if (lockfile.existsSync()) {
-      return _readLockfile(workspace, lockfile);
+      final lockfileResult = _readLockfile(workspace, lockfile);
+      final lockfileDiagnostic = lockfileResult.diagnostic;
+      if (lockfileDiagnostic != null) {
+        return _ResolutionMetadataReadResult.failure(lockfileDiagnostic);
+      }
+
+      if (!packageGraph.existsSync()) {
+        return lockfileResult;
+      }
+
+      final packageGraphResult = _readPackageGraph(workspace, packageGraph);
+      final packageGraphDiagnostic = packageGraphResult.diagnostic;
+      if (packageGraphDiagnostic != null) {
+        return _ResolutionMetadataReadResult.failure(packageGraphDiagnostic);
+      }
+
+      return _ResolutionMetadataReadResult.success({
+        ...packageGraphResult.packages,
+        ...lockfileResult.packages,
+      });
     }
 
-    final packageGraph = File(workspace.packageGraphPath);
     if (packageGraph.existsSync()) {
       return _readPackageGraph(workspace, packageGraph);
     }
 
     return _ResolutionMetadataReadResult.failure(
       Diagnostic(
-        code: 'pub.resolutionMetadataNotFound',
+        code: 'pub.resolution_metadata_not_found',
         message:
             'Could not find pubspec.lock or .dart_tool/package_graph.json.',
         hint: 'Run dart pub get before using patchwork.',
@@ -290,7 +310,7 @@ final class PubResolutionReader {
     } on FileSystemException catch (error) {
       return _ResolutionMetadataReadResult.failure(
         Diagnostic(
-          code: 'pub.lockfileNotReadable',
+          code: 'pub.lockfile_not_readable',
           message: 'Could not read pubspec.lock.',
           hint: error.message,
           location: workspace.lockfilePath,
@@ -385,7 +405,7 @@ final class PubResolutionReader {
     } on FileSystemException catch (error) {
       return _ResolutionMetadataReadResult.failure(
         Diagnostic(
-          code: 'pub.packageGraphNotReadable',
+          code: 'pub.package_graph_not_readable',
           message: 'Could not read .dart_tool/package_graph.json.',
           hint: error.message,
           location: workspace.packageGraphPath,
@@ -396,7 +416,7 @@ final class PubResolutionReader {
 
   Diagnostic _malformedPackageConfig(PubWorkspace workspace, String message) {
     return Diagnostic(
-      code: 'pub.malformedPackageConfig',
+      code: 'pub.malformed_package_config',
       message: 'Malformed pub package_config.json: $message',
       location: workspace.packageConfigPath,
     );
@@ -404,7 +424,7 @@ final class PubResolutionReader {
 
   Diagnostic _malformedLockfile(PubWorkspace workspace, String message) {
     return Diagnostic(
-      code: 'pub.malformedLockfile',
+      code: 'pub.malformed_lockfile',
       message: 'Malformed pubspec.lock: $message',
       location: workspace.lockfilePath,
     );
@@ -412,7 +432,7 @@ final class PubResolutionReader {
 
   Diagnostic _malformedPackageGraph(PubWorkspace workspace, String message) {
     return Diagnostic(
-      code: 'pub.malformedPackageGraph',
+      code: 'pub.malformed_package_graph',
       message: 'Malformed .dart_tool/package_graph.json: $message',
       location: workspace.packageGraphPath,
     );
@@ -504,7 +524,7 @@ final class PubResolution {
     if (packageConfig == null) {
       return PubPackageResolveResult.failure(
         Diagnostic(
-          code: 'pub.packageNotFound',
+          code: 'pub.package_not_found',
           message:
               'Package "${target.name}" is not selected by the current pub resolution.',
           hint: 'Run dart pub get and check that the package is a dependency.',
@@ -516,7 +536,7 @@ final class PubResolution {
     if (metadata == null) {
       return PubPackageResolveResult.failure(
         Diagnostic(
-          code: 'pub.packageVersionNotFound',
+          code: 'pub.package_version_not_found',
           message: 'Package "${target.name}" has no selected version metadata.',
           hint: 'Run dart pub get to refresh pub resolution metadata.',
         ),
@@ -527,7 +547,7 @@ final class PubResolution {
     if (requestedVersion != null && requestedVersion != metadata.version) {
       return PubPackageResolveResult.failure(
         Diagnostic(
-          code: 'pub.versionNotSelected',
+          code: 'pub.version_not_selected',
           message:
               'Package "${target.name}" is selected at ${metadata.version}, not $requestedVersion.',
           hint:
@@ -539,7 +559,7 @@ final class PubResolution {
     if (!Directory(packageConfig.rootPath).existsSync()) {
       return PubPackageResolveResult.failure(
         Diagnostic(
-          code: 'pub.packageRootMissing',
+          code: 'pub.package_root_missing',
           message: 'Resolved package root does not exist for "${target.name}".',
           hint: 'Run dart pub get to refresh pub resolution metadata.',
           location: packageConfig.rootPath,

@@ -738,6 +738,66 @@ index 3367afdbbf91e638efe983616377c60477cc6612..3e757656cf36eca53338e520d134963a
       expect(_validationPatchFiles(), before);
     });
   });
+
+  group('PatchApplier', () {
+    late Directory root;
+
+    setUp(() {
+      root = Directory.systemTemp.createTempSync('patchwork patch apply ');
+    });
+
+    tearDown(() {
+      if (root.existsSync()) {
+        root.deleteSync(recursive: true);
+      }
+    });
+
+    test(
+      'applies patches to package copies nested inside a git repository',
+      () {
+        final initResult = Process.runSync('git', [
+          'init',
+          '-q',
+        ], workingDirectory: root.path);
+        expect(
+          initResult.exitCode,
+          0,
+          reason: '${initResult.stderr}${initResult.stdout}'.trim(),
+        );
+
+        final packagePath = p.join(
+          root.path,
+          '.dart_tool',
+          'patchwork',
+          'store',
+          'pub',
+          'sample_dep@1.2.3_patch_hash=abc',
+        );
+        Directory(p.join(packagePath, 'lib')).createSync(recursive: true);
+        final libFile = File(p.join(packagePath, 'lib', 'sample_dep.dart'))
+          ..writeAsStringSync("String sampleMessage() => 'original';\n");
+
+        final result = const PatchApplier().apply(
+          packagePath: packagePath,
+          patchContent: [
+            'diff --git a/lib/sample_dep.dart b/lib/sample_dep.dart',
+            '--- a/lib/sample_dep.dart',
+            '+++ b/lib/sample_dep.dart',
+            '@@ -1 +1 @@',
+            "-String sampleMessage() => 'original';",
+            "+String sampleMessage() => 'patched';",
+            '',
+          ].join('\n'),
+        );
+
+        expect(result.diagnostic, isNull);
+        expect(
+          libFile.readAsStringSync(),
+          "String sampleMessage() => 'patched';\n",
+        );
+      },
+    );
+  });
 }
 
 Set<String> _validationPatchFiles() {

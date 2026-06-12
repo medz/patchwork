@@ -310,12 +310,18 @@ final class PatchApplier {
       patchFile.writeAsStringSync(patchContent, flush: true);
       final ProcessResult result;
       try {
-        result = Process.runSync('git', [
-          'apply',
-          '--binary',
-          '--whitespace=nowarn',
-          patchFile.path,
-        ], workingDirectory: packagePath);
+        result = Process.runSync(
+          'git',
+          ['apply', '--binary', '--whitespace=nowarn', patchFile.path],
+          workingDirectory: packagePath,
+          environment: {
+            // Generated package copies may live under a user's Git repository.
+            // Keep git apply anchored to the package copy instead of the repo root.
+            'GIT_CEILING_DIRECTORIES': p.dirname(
+              p.normalize(p.absolute(packagePath)),
+            ),
+          },
+        );
       } on ProcessException catch (error) {
         return PatchApplyResult.failure(
           Diagnostic(

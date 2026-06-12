@@ -1,0 +1,13 @@
+name: patchwork_hello_patch_example
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  greeter:
+    path: ../packages/greeter
+
+dev_dependencies:
+  patchwork:
+    path: ../../../pub/patchwork

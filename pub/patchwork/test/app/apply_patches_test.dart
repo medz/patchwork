@@ -257,6 +257,53 @@ dependency_overrides:
       },
     );
 
+    test('removes stale managed patchwork overrides', () {
+      File(
+        p.join(fixture.rootPath, 'pubspec_overrides.yaml'),
+      ).writeAsStringSync('''
+dependency_overrides:
+  collection:
+    path: .dart_tool/patchwork/store/pub/collection@1.0.0_patch_hash=aaaaaaaa
+  local_tool:
+    path: ../local_tool
+''');
+      _commitAnalyzerPatch(fixture, version: '7.4.1');
+
+      final result = const ApplyPatches().apply(
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(result.diagnostic, isNull);
+      final overrides = File(
+        p.join(fixture.rootPath, 'pubspec_overrides.yaml'),
+      ).readAsStringSync();
+      expect(overrides, isNot(contains('collection:')));
+      expect(overrides, isNot(contains('collection@1.0.0_patch_hash')));
+      expect(overrides, contains('local_tool:'));
+      expect(overrides, contains('path: ../local_tool'));
+      expect(overrides, contains('analyzer:'));
+    });
+
+    test('fails before rebuilding from an old store copy without baseline', () {
+      _commitAnalyzerPatch(fixture, version: '7.4.1');
+      final firstResult = const ApplyPatches().apply(
+        currentDirectory: fixture.rootPath,
+      );
+      expect(firstResult.diagnostic, isNull);
+      _runPubGetOffline(fixture);
+      Directory(
+        p.join(fixture.rootPath, '.dart_tool', 'patchwork', 'baseline'),
+      ).deleteSync(recursive: true);
+      _writeAnalyzerPatch(fixture, version: '7.4.2');
+
+      final result = const ApplyPatches().apply(
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(result.diagnostic?.code, 'pub.patch_source_missing');
+      expect(result.diagnostic?.message, contains('unpatched package source'));
+    });
+
     test('applies only the selected target when requested', () {
       _commitAnalyzerPatch(fixture, version: '7.4.1');
 

@@ -28,7 +28,16 @@ final class PubspecOverridesStore {
           ),
         );
       }
-      dependencyOverrides.addAll(existingDependencyOverrides);
+      for (final entry in existingDependencyOverrides.entries) {
+        if (dependencyOverridePaths.containsKey(entry.key) ||
+            _isManagedPatchworkStoreOverride(
+              entry.value,
+              workspaceRootPath: workspaceRootPath,
+            )) {
+          continue;
+        }
+        dependencyOverrides[entry.key] = entry.value;
+      }
     }
 
     for (final entry in dependencyOverridePaths.entries) {
@@ -40,6 +49,35 @@ final class PubspecOverridesStore {
       overridesPath,
     ).writeAsStringSync(_formatPubspecOverrides(overrides), flush: true);
   }
+}
+
+bool _isManagedPatchworkStoreOverride(
+  Object? value, {
+  required String workspaceRootPath,
+}) {
+  if (value is! Map<String, Object?>) {
+    return false;
+  }
+
+  final path = value['path'];
+  if (path is! String) {
+    return false;
+  }
+
+  final normalizedPath = p.posix.normalize(path.replaceAll('\\', '/'));
+  if (normalizedPath == '.dart_tool/patchwork/store/pub' ||
+      normalizedPath.startsWith('.dart_tool/patchwork/store/pub/')) {
+    return true;
+  }
+
+  final patchworkStoreRoot = p.normalize(
+    p.absolute(workspaceRootPath, '.dart_tool', 'patchwork', 'store', 'pub'),
+  );
+  final absolutePath = p.isAbsolute(path)
+      ? p.normalize(path)
+      : p.normalize(p.absolute(workspaceRootPath, path));
+  return p.equals(patchworkStoreRoot, absolutePath) ||
+      p.isWithin(patchworkStoreRoot, absolutePath);
 }
 
 final class PubspecOverridesException implements Exception {

@@ -195,6 +195,20 @@ final class PatchworkStore {
     );
   }
 
+  bool isPubPatchStorePath({
+    required String workspaceRootPath,
+    required String path,
+  }) {
+    final patchworkStoreRoot = p.normalize(
+      p.absolute(workspaceRootPath, '.dart_tool', 'patchwork', 'store', 'pub'),
+    );
+    final absolutePath = p.isAbsolute(path)
+        ? p.normalize(path)
+        : p.normalize(p.absolute(workspaceRootPath, path));
+    return p.equals(patchworkStoreRoot, absolutePath) ||
+        p.isWithin(patchworkStoreRoot, absolutePath);
+  }
+
   bool pubPatchStoreMatchesHash({
     required String storePath,
     required String patchHash,

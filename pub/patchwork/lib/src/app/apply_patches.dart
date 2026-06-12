@@ -135,12 +135,17 @@ final class ApplyPatches {
         patchHash: entry.hash,
       );
       if (!isCurrentStoreCopy) {
+        final sourcePackagePathResult = _sourcePackagePath(
+          workspaceRootPath: workspaceRootPath,
+          package: package,
+        );
+        final sourcePackagePathDiagnostic = sourcePackagePathResult.diagnostic;
+        if (sourcePackagePathDiagnostic != null) {
+          return PubPatchApplyResult.failure(sourcePackagePathDiagnostic);
+        }
         final materializeDiagnostic = _materializeStoreCopy(
           workspaceRootPath: workspaceRootPath,
-          sourcePackagePath: _sourcePackagePath(
-            workspaceRootPath: workspaceRootPath,
-            package: package,
-          ),
+          sourcePackagePath: sourcePackagePathResult.path!,
           storePath: storePath,
           patchPath: _manifestEntryAbsolutePath(
             workspaceRootPath: workspaceRootPath,
@@ -292,7 +297,7 @@ final class ApplyPatches {
     }
   }
 
-  String _sourcePackagePath({
+  _SourcePackagePathResult _sourcePackagePath({
     required String workspaceRootPath,
     required ResolvedPubPackage package,
   }) {
@@ -301,9 +306,26 @@ final class ApplyPatches {
       package: package,
     );
     if (Directory(baselinePath).existsSync()) {
-      return baselinePath;
+      return _SourcePackagePathResult.success(baselinePath);
     }
-    return package.rootPath;
+
+    if (store.isPubPatchStorePath(
+      workspaceRootPath: workspaceRootPath,
+      path: package.rootPath,
+    )) {
+      return _SourcePackagePathResult.failure(
+        Diagnostic(
+          code: 'pub.patch_source_missing',
+          message:
+              'Could not find an unpatched package source for "${package.name}".',
+          hint:
+              'Refresh pub resolution without Patchwork overrides or recreate the patch session before applying this patch.',
+          location: package.rootPath,
+        ),
+      );
+    }
+
+    return _SourcePackagePathResult.success(package.rootPath);
   }
 }
 
@@ -326,6 +348,21 @@ final class _SelectedEntriesResult {
   }
 
   final List<_SelectedEntry> entries;
+  final Diagnostic? diagnostic;
+}
+
+final class _SourcePackagePathResult {
+  const _SourcePackagePathResult._({this.path, this.diagnostic});
+
+  factory _SourcePackagePathResult.success(String path) {
+    return _SourcePackagePathResult._(path: path);
+  }
+
+  factory _SourcePackagePathResult.failure(Diagnostic diagnostic) {
+    return _SourcePackagePathResult._(diagnostic: diagnostic);
+  }
+
+  final String? path;
   final Diagnostic? diagnostic;
 }
 

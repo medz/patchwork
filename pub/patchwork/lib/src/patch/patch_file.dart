@@ -60,17 +60,29 @@ final class PatchApplyResult {
   bool get isSuccess => diagnostic == null;
 }
 
-typedef GitProcessRunner = ProcessResult Function(List<String> arguments);
+typedef GitProcessRunner =
+    ProcessResult Function(List<String> arguments, {String? workingDirectory});
 
-ProcessResult _defaultGitRunner(List<String> arguments) {
-  return Process.runSync('git', arguments);
+ProcessResult _defaultGitRunner(
+  List<String> arguments, {
+  String? workingDirectory,
+}) {
+  return Process.runSync('git', arguments, workingDirectory: workingDirectory);
 }
 
 final class PatchFileBuilder {
-  const PatchFileBuilder({GitProcessRunner? gitRunner})
-    : _gitRunner = gitRunner ?? _defaultGitRunner;
+  const PatchFileBuilder({
+    GitProcessRunner? gitRunner,
+    String? workingDirectory,
+  }) : this._(gitRunner: gitRunner, workingDirectory: workingDirectory);
+
+  const PatchFileBuilder._({
+    GitProcessRunner? gitRunner,
+    this._workingDirectory,
+  }) : _gitRunner = gitRunner ?? _defaultGitRunner;
 
   final GitProcessRunner _gitRunner;
+  final String? _workingDirectory;
 
   PatchFileBuildResult build({
     required String baselinePath,
@@ -101,6 +113,7 @@ final class PatchFileBuilder {
         baselinePath: diffRoots.baselinePath,
         editPath: diffRoots.editPath,
         mode: diffMode,
+        workingDirectory: _workingDirectory ?? diffRoots.root.path,
       );
       final diffDiagnostic = diffResult.diagnostic;
       if (diffDiagnostic != null) {
@@ -131,6 +144,7 @@ final class PatchFileBuilder {
     required String baselinePath,
     required String editPath,
     required _GitDiffMode mode,
+    required String workingDirectory,
   }) {
     final arguments = <String>[
       '-c',
@@ -149,7 +163,7 @@ final class PatchFileBuilder {
     ];
     final ProcessResult result;
     try {
-      result = _gitRunner(arguments);
+      result = _gitRunner(arguments, workingDirectory: workingDirectory);
     } on ProcessException catch (error) {
       return _GitDiffResult.failure(
         Diagnostic(
@@ -210,14 +224,16 @@ final class PatchValidator {
     required String baselinePath,
     required String patchContent,
   }) {
-    final validationRoot = Directory.systemTemp.createTempSync(
+    final validationTempRoot = Directory.systemTemp.createTempSync(
       'patchwork_patch_validate_',
     );
+    final validationRoot = Directory(p.join(validationTempRoot.path, 'root'));
     File? patchFile;
 
     try {
+      validationRoot.createSync();
       _copyDirectoryContents(baselinePath, validationRoot.path);
-      patchFile = File('${validationRoot.path}.patch');
+      patchFile = File(p.join(validationTempRoot.path, 'patch.patch'));
       patchFile.writeAsStringSync(patchContent);
       final ProcessResult result;
       try {
@@ -257,11 +273,8 @@ final class PatchValidator {
         ),
       );
     } finally {
-      if (patchFile != null && patchFile.existsSync()) {
-        patchFile.deleteSync();
-      }
-      if (validationRoot.existsSync()) {
-        validationRoot.deleteSync(recursive: true);
+      if (validationTempRoot.existsSync()) {
+        validationTempRoot.deleteSync(recursive: true);
       }
     }
   }

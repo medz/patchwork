@@ -77,9 +77,14 @@ final class PatchFileBuilder {
         baselinePath: baselinePath,
         editPath: editPath,
       );
+      final diffMode = _selectGitDiffMode(
+        baselinePath: diffRoots.baselinePath,
+        editPath: diffRoots.editPath,
+      );
       final diffResult = _gitDiffDirectories(
         baselinePath: diffRoots.baselinePath,
         editPath: diffRoots.editPath,
+        mode: diffMode,
       );
       final diffDiagnostic = diffResult.diagnostic;
       if (diffDiagnostic != null) {
@@ -109,6 +114,7 @@ final class PatchFileBuilder {
   _GitDiffResult _gitDiffDirectories({
     required String baselinePath,
     required String editPath,
+    required _GitDiffMode mode,
   }) {
     final arguments = <String>[
       '-c',
@@ -117,10 +123,10 @@ final class PatchFileBuilder {
       '--no-ext-diff',
       '--no-color',
       '--no-textconv',
-      '--text',
       '--src-prefix=a/',
       '--dst-prefix=b/',
       '--full-index',
+      if (mode == _GitDiffMode.text) '--text' else '--binary',
       '--no-index',
       _gitArgumentPath(baselinePath),
       _gitArgumentPath(editPath),
@@ -300,6 +306,149 @@ final class _GitDiffResult {
   final Diagnostic? diagnostic;
 }
 
+enum _GitDiffMode { text, binary }
+
+_GitDiffMode _selectGitDiffMode({
+  required String baselinePath,
+  required String editPath,
+}) {
+  if (_hasChangedBinaryFile(baselinePath: baselinePath, editPath: editPath)) {
+    return _GitDiffMode.binary;
+  }
+  return _GitDiffMode.text;
+}
+
+bool _hasChangedBinaryFile({
+  required String baselinePath,
+  required String editPath,
+}) {
+  final baselineEntries = _collectPatchEntries(baselinePath);
+  final editEntries = _collectPatchEntries(editPath);
+  final paths = {...baselineEntries.keys, ...editEntries.keys}.toList()..sort();
+
+  for (final relativePath in paths) {
+    final baselineType =
+        baselineEntries[relativePath] ?? FileSystemEntityType.notFound;
+    final editType = editEntries[relativePath] ?? FileSystemEntityType.notFound;
+    if (!_entryChanged(
+      relativePath: relativePath,
+      baselinePath: baselinePath,
+      baselineType: baselineType,
+      editPath: editPath,
+      editType: editType,
+    )) {
+      continue;
+    }
+
+    if (baselineType == FileSystemEntityType.file &&
+        _looksBinaryFile(_joinPatchPath(baselinePath, relativePath))) {
+      return true;
+    }
+    if (editType == FileSystemEntityType.file &&
+        _looksBinaryFile(_joinPatchPath(editPath, relativePath))) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+Map<String, FileSystemEntityType> _collectPatchEntries(String rootPath) {
+  final entries = <String, FileSystemEntityType>{};
+
+  void collect(String path) {
+    for (final entity in Directory(path).listSync(followLinks: false)) {
+      final relativePath = _patchPath(p.relative(entity.path, from: rootPath));
+      final type = FileSystemEntity.typeSync(entity.path, followLinks: false);
+      entries[relativePath] = type;
+      if (type == FileSystemEntityType.directory) {
+        collect(entity.path);
+      }
+    }
+  }
+
+  collect(rootPath);
+  return entries;
+}
+
+bool _entryChanged({
+  required String relativePath,
+  required String baselinePath,
+  required FileSystemEntityType baselineType,
+  required String editPath,
+  required FileSystemEntityType editType,
+}) {
+  if (baselineType != editType) {
+    return true;
+  }
+
+  switch (baselineType) {
+    case FileSystemEntityType.file:
+      return !_filesHaveSameBytes(
+        _joinPatchPath(baselinePath, relativePath),
+        _joinPatchPath(editPath, relativePath),
+      );
+    case FileSystemEntityType.link:
+      return Link(_joinPatchPath(baselinePath, relativePath)).targetSync() !=
+          Link(_joinPatchPath(editPath, relativePath)).targetSync();
+    case FileSystemEntityType.directory:
+    case FileSystemEntityType.notFound:
+    case FileSystemEntityType.pipe:
+    case FileSystemEntityType.unixDomainSock:
+      return false;
+  }
+
+  return false;
+}
+
+String _joinPatchPath(String rootPath, String relativePath) {
+  return p.joinAll([rootPath, ...relativePath.split('/')]);
+}
+
+bool _looksBinaryFile(String path) {
+  const probeByteCount = 8000;
+  final file = File(path).openSync();
+  try {
+    final length = file.lengthSync();
+    final count = length < probeByteCount ? length : probeByteCount;
+    return file.readSync(count).contains(0);
+  } finally {
+    file.closeSync();
+  }
+}
+
+bool _filesHaveSameBytes(String leftPath, String rightPath) {
+  const chunkSize = 8192;
+  final leftFile = File(leftPath);
+  final rightFile = File(rightPath);
+  if (leftFile.lengthSync() != rightFile.lengthSync()) {
+    return false;
+  }
+
+  final left = leftFile.openSync();
+  final right = rightFile.openSync();
+  try {
+    while (true) {
+      final leftChunk = left.readSync(chunkSize);
+      final rightChunk = right.readSync(chunkSize);
+      if (leftChunk.length != rightChunk.length) {
+        return false;
+      }
+      for (var i = 0; i < leftChunk.length; i += 1) {
+        if (leftChunk[i] != rightChunk[i]) {
+          return false;
+        }
+      }
+      if (leftChunk.length < chunkSize) {
+        return true;
+      }
+    }
+  } finally {
+    left.closeSync();
+    right.closeSync();
+  }
+}
+
 void _copyDirectoryContents(
   String sourcePath,
   String destinationPath, {
@@ -418,10 +567,13 @@ String _stripGitDiffRootPrefixes(
 }
 
 String _stripMetadataLeadingSlash(String line) {
-  const prefixes = ['rename from /', 'rename to /', 'copy from /', 'copy to /'];
+  const prefixes = ['rename from ', 'rename to ', 'copy from ', 'copy to '];
   for (final prefix in prefixes) {
-    if (line.startsWith(prefix)) {
-      return '${prefix.substring(0, prefix.length - 1)}${line.substring(prefix.length)}';
+    if (line.startsWith('$prefix/')) {
+      return '$prefix${line.substring(prefix.length + 1)}';
+    }
+    if (line.startsWith('$prefix"/')) {
+      return '$prefix"${line.substring(prefix.length + 2)}';
     }
   }
   return line;

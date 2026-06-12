@@ -235,6 +235,28 @@ void main() {
       expect(File(p.join(appliedPath, 'new.txt')).readAsStringSync(), 'same\n');
     });
 
+    test('preserves quoted file renames', () {
+      final roots = _PatchRootPair(root);
+      File(
+        p.join(roots.baselinePath, 'old\tname.txt'),
+      ).writeAsStringSync('same\n');
+      File(p.join(roots.editPath, 'new\tname.txt')).writeAsStringSync('same\n');
+
+      final buildResult = roots.build();
+
+      expect(buildResult.diagnostic, isNull);
+      expect(buildResult.hasChanges, isTrue);
+      expect(buildResult.content, contains(r'rename from "old\tname.txt"'));
+      expect(buildResult.content, contains(r'rename to "new\tname.txt"'));
+
+      final appliedPath = roots.apply(root: root, buildResult: buildResult);
+      expect(File(p.join(appliedPath, 'old\tname.txt')).existsSync(), isFalse);
+      expect(
+        File(p.join(appliedPath, 'new\tname.txt')).readAsStringSync(),
+        'same\n',
+      );
+    });
+
     test('ignores configured external diff drivers', () {
       final roots = _PatchRootPair(root);
       File(p.join(roots.baselinePath, 'file.txt')).writeAsStringSync('old\n');
@@ -328,6 +350,106 @@ void main() {
         expect(buildResult.content, contains('+new'));
         expect(buildResult.content, isNot(contains('Binary files')));
       });
+    });
+
+    test('preserves binary file changes with git binary patches', () {
+      final roots = _PatchRootPair(root);
+      File(
+        p.join(roots.baselinePath, 'asset.bin'),
+      ).writeAsBytesSync([0x00, 0x01, 0x02]);
+      File(
+        p.join(roots.editPath, 'asset.bin'),
+      ).writeAsBytesSync([0x00, 0x09, 0x02]);
+
+      final buildResult = roots.build();
+
+      expect(buildResult.diagnostic, isNull);
+      expect(buildResult.content, contains('GIT binary patch'));
+
+      final appliedPath = roots.apply(root: root, buildResult: buildResult);
+      expect(File(p.join(appliedPath, 'asset.bin')).readAsBytesSync(), [
+        0x00,
+        0x09,
+        0x02,
+      ]);
+    });
+
+    test('preserves mixed text and binary file changes', () {
+      final roots = _PatchRootPair(root);
+      File(
+        p.join(roots.baselinePath, 'asset.bin'),
+      ).writeAsBytesSync([0x00, 0x01, 0x02]);
+      File(
+        p.join(roots.editPath, 'asset.bin'),
+      ).writeAsBytesSync([0x00, 0x09, 0x02]);
+      File(p.join(roots.baselinePath, 'file.txt')).writeAsStringSync('old\n');
+      File(p.join(roots.editPath, 'file.txt')).writeAsStringSync('new\n');
+
+      final buildResult = roots.build();
+
+      expect(buildResult.diagnostic, isNull);
+      expect(buildResult.content, contains('GIT binary patch'));
+      expect(buildResult.content, contains('diff --git a/file.txt'));
+      expect(buildResult.content, contains('-old'));
+      expect(buildResult.content, contains('+new'));
+
+      final appliedPath = roots.apply(root: root, buildResult: buildResult);
+      expect(File(p.join(appliedPath, 'asset.bin')).readAsBytesSync(), [
+        0x00,
+        0x09,
+        0x02,
+      ]);
+      expect(File(p.join(appliedPath, 'file.txt')).readAsStringSync(), 'new\n');
+    });
+
+    test('preserves binary file additions and deletions', () {
+      final roots = _PatchRootPair(root);
+      File(
+        p.join(roots.baselinePath, 'deleted.bin'),
+      ).writeAsBytesSync([0x00, 0x01, 0x02]);
+      File(
+        p.join(roots.editPath, 'added.bin'),
+      ).writeAsBytesSync([0x00, 0x09, 0x02]);
+
+      final buildResult = roots.build();
+
+      expect(buildResult.diagnostic, isNull);
+      expect(buildResult.content, contains('GIT binary patch'));
+      expect(buildResult.content, contains('deleted file mode 100644'));
+      expect(buildResult.content, contains('new file mode 100644'));
+
+      final appliedPath = roots.apply(root: root, buildResult: buildResult);
+      expect(File(p.join(appliedPath, 'deleted.bin')).existsSync(), isFalse);
+      expect(File(p.join(appliedPath, 'added.bin')).readAsBytesSync(), [
+        0x00,
+        0x09,
+        0x02,
+      ]);
+    });
+
+    test('allows unchanged binary files while building text patches', () {
+      final roots = _PatchRootPair(root);
+      File(
+        p.join(roots.baselinePath, 'asset.bin'),
+      ).writeAsBytesSync([0x00, 0x01, 0x02]);
+      File(
+        p.join(roots.editPath, 'asset.bin'),
+      ).writeAsBytesSync([0x00, 0x01, 0x02]);
+      File(p.join(roots.baselinePath, 'file.txt')).writeAsStringSync('old\n');
+      File(p.join(roots.editPath, 'file.txt')).writeAsStringSync('new\n');
+
+      final buildResult = roots.build();
+
+      expect(buildResult.diagnostic, isNull);
+      expect(buildResult.content, contains('diff --git a/file.txt'));
+
+      final appliedPath = roots.apply(root: root, buildResult: buildResult);
+      expect(File(p.join(appliedPath, 'asset.bin')).readAsBytesSync(), [
+        0x00,
+        0x01,
+        0x02,
+      ]);
+      expect(File(p.join(appliedPath, 'file.txt')).readAsStringSync(), 'new\n');
     });
 
     test('allows git warnings when diff output is valid', () {

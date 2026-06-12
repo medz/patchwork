@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../diagnostics/diagnostic.dart';
+import '../session/session_file_filter.dart';
 
 final class PatchFileBuildResult {
   const PatchFileBuildResult._({this.content, this.diagnostic});
@@ -61,60 +62,39 @@ final class PatchFileBuilder {
       );
     }
 
-    final baselineEntries = _collectEntries(baselinePath);
-    final editEntries = _collectEntries(editPath);
-    final allPaths = {...baselineEntries.keys, ...editEntries.keys}.toList()
-      ..sort();
-
-    for (final relativePath in allPaths) {
-      final baselineType = baselineEntries[relativePath];
-      final editType = editEntries[relativePath];
-      if (baselineType == FileSystemEntityType.link ||
-          editType == FileSystemEntityType.link) {
-        return PatchFileBuildResult.failure(
-          Diagnostic(
-            code: 'patch.unsupported_link',
-            message: 'Symlink changes are not supported yet.',
-            location: relativePath,
-          ),
-        );
-      }
-
-      if (baselineType == FileSystemEntityType.directory ||
-          editType == FileSystemEntityType.directory) {
-        continue;
-      }
-    }
-
-    final diffResult = _gitDiffDirectories(
-      baselinePath: baselinePath,
-      editPath: editPath,
-    );
-    final diffDiagnostic = diffResult.diagnostic;
-    if (diffDiagnostic != null) {
-      return PatchFileBuildResult.failure(diffDiagnostic);
-    }
-
-    final content = diffResult.content;
-    if (content == null || content.isEmpty) {
-      return PatchFileBuildResult.noChanges();
-    }
-
-    return PatchFileBuildResult.success(content);
-  }
-
-  Map<String, FileSystemEntityType> _collectEntries(String rootPath) {
-    final entries = <String, FileSystemEntityType>{};
-    for (final entity in Directory(
-      rootPath,
-    ).listSync(recursive: true, followLinks: false)) {
-      final relativePath = _patchPath(p.relative(entity.path, from: rootPath));
-      entries[relativePath] = FileSystemEntity.typeSync(
-        entity.path,
-        followLinks: false,
+    _DiffRoots? diffRoots;
+    try {
+      diffRoots = _DiffRoots.create(
+        baselinePath: baselinePath,
+        editPath: editPath,
       );
+      final diffResult = _gitDiffDirectories(
+        baselinePath: diffRoots.baselinePath,
+        editPath: diffRoots.editPath,
+      );
+      final diffDiagnostic = diffResult.diagnostic;
+      if (diffDiagnostic != null) {
+        return PatchFileBuildResult.failure(diffDiagnostic);
+      }
+
+      final content = diffResult.content;
+      if (content == null || content.isEmpty) {
+        return PatchFileBuildResult.noChanges();
+      }
+
+      return PatchFileBuildResult.success(content);
+    } on FileSystemException catch (error) {
+      return PatchFileBuildResult.failure(
+        Diagnostic(
+          code: 'patch.diff_failed',
+          message: 'Could not prepare a patch diff.',
+          hint: error.message,
+          location: error.path,
+        ),
+      );
+    } finally {
+      diffRoots?.deleteSync();
     }
-    return entries;
   }
 
   _GitDiffResult _gitDiffDirectories({
@@ -171,13 +151,23 @@ final class PatchFileBuilder {
       );
     }
 
-    return _GitDiffResult(
-      content: _postProcessGitDiff(
-        output: output,
-        baselinePath: baselinePath,
-        editPath: editPath,
-      ),
+    final content = _postProcessGitDiff(
+      output: output,
+      baselinePath: baselinePath,
+      editPath: editPath,
     );
+    final symlinkPath = _firstSymlinkDiffPath(content);
+    if (symlinkPath != null) {
+      return _GitDiffResult.failure(
+        Diagnostic(
+          code: 'patch.unsupported_link',
+          message: 'Symlink changes are not supported yet.',
+          location: symlinkPath,
+        ),
+      );
+    }
+
+    return _GitDiffResult(content: content);
   }
 }
 
@@ -238,24 +228,48 @@ final class PatchValidator {
       }
     }
   }
+}
 
-  void _copyDirectoryContents(String sourcePath, String destinationPath) {
-    for (final entity in Directory(sourcePath).listSync(followLinks: false)) {
-      final targetPath = p.join(destinationPath, p.basename(entity.path));
-      final type = FileSystemEntity.typeSync(entity.path, followLinks: false);
-      switch (type) {
-        case FileSystemEntityType.directory:
-          Directory(targetPath).createSync(recursive: true);
-          _copyDirectoryContents(entity.path, targetPath);
-        case FileSystemEntityType.file:
-          File(entity.path).copySync(targetPath);
-        case FileSystemEntityType.link:
-          Link(targetPath).createSync(Link(entity.path).targetSync());
-        case FileSystemEntityType.notFound:
-        case FileSystemEntityType.pipe:
-        case FileSystemEntityType.unixDomainSock:
-          break;
-      }
+final class _DiffRoots {
+  _DiffRoots._({
+    required this.root,
+    required this.baselinePath,
+    required this.editPath,
+  });
+
+  factory _DiffRoots.create({
+    required String baselinePath,
+    required String editPath,
+  }) {
+    final root = Directory.systemTemp.createTempSync('patchwork_patch_diff_');
+    final baselineSnapshotPath = p.join(root.path, 'baseline');
+    final editSnapshotPath = p.join(root.path, 'edit');
+    Directory(baselineSnapshotPath).createSync();
+    Directory(editSnapshotPath).createSync();
+    _copyDirectoryContents(
+      baselinePath,
+      baselineSnapshotPath,
+      excludePatchSessionState: true,
+    );
+    _copyDirectoryContents(
+      editPath,
+      editSnapshotPath,
+      excludePatchSessionState: true,
+    );
+    return _DiffRoots._(
+      root: root,
+      baselinePath: baselineSnapshotPath,
+      editPath: editSnapshotPath,
+    );
+  }
+
+  final Directory root;
+  final String baselinePath;
+  final String editPath;
+
+  void deleteSync() {
+    if (root.existsSync()) {
+      root.deleteSync(recursive: true);
     }
   }
 }
@@ -269,6 +283,47 @@ final class _GitDiffResult {
 
   final String? content;
   final Diagnostic? diagnostic;
+}
+
+final RegExp _symlinkIndexLinePattern = RegExp(
+  r'^index [0-9a-f]+\.\.[0-9a-f]+ 120000$',
+);
+
+void _copyDirectoryContents(
+  String sourcePath,
+  String destinationPath, {
+  String? sourceRootPath,
+  bool excludePatchSessionState = false,
+}) {
+  final rootPath = sourceRootPath ?? sourcePath;
+  for (final entity in Directory(sourcePath).listSync(followLinks: false)) {
+    final targetPath = p.join(destinationPath, p.basename(entity.path));
+    final type = FileSystemEntity.typeSync(entity.path, followLinks: false);
+    final relativePath = _patchPath(p.relative(entity.path, from: rootPath));
+    if (excludePatchSessionState &&
+        shouldExcludePatchSessionPath(relativePath, type)) {
+      continue;
+    }
+
+    switch (type) {
+      case FileSystemEntityType.directory:
+        Directory(targetPath).createSync(recursive: true);
+        _copyDirectoryContents(
+          entity.path,
+          targetPath,
+          sourceRootPath: rootPath,
+          excludePatchSessionState: excludePatchSessionState,
+        );
+      case FileSystemEntityType.file:
+        File(entity.path).copySync(targetPath);
+      case FileSystemEntityType.link:
+        Link(targetPath).createSync(Link(entity.path).targetSync());
+      case FileSystemEntityType.notFound:
+      case FileSystemEntityType.pipe:
+      case FileSystemEntityType.unixDomainSock:
+        break;
+    }
+  }
 }
 
 String _patchPath(String relativePath) {
@@ -356,4 +411,39 @@ bool _containsBinaryDiff(String output) {
       .any(
         (line) => line.startsWith('Binary files ') && line.endsWith(' differ'),
       );
+}
+
+String? _firstSymlinkDiffPath(String output) {
+  String? currentPath;
+  for (final line in output.split('\n')) {
+    if (line.startsWith('diff --git ')) {
+      currentPath = _pathFromDiffGitLine(line);
+      continue;
+    }
+
+    if (line == 'new file mode 120000' ||
+        line == 'deleted file mode 120000' ||
+        line == 'old mode 120000' ||
+        line == 'new mode 120000' ||
+        _symlinkIndexLinePattern.hasMatch(line)) {
+      return currentPath;
+    }
+  }
+
+  return null;
+}
+
+String? _pathFromDiffGitLine(String line) {
+  const prefix = 'diff --git a/';
+  if (!line.startsWith(prefix)) {
+    return null;
+  }
+
+  final rest = line.substring(prefix.length);
+  final separator = rest.indexOf(' b/');
+  if (separator == -1) {
+    return null;
+  }
+
+  return rest.substring(0, separator);
 }

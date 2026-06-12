@@ -188,9 +188,9 @@ void main() {
 
     test('escapes pub patch file path components', () {
       const session = PubPatchSession(
-        target: PubTarget(name: '@scope/pkg', versionConstraint: '1.0.0+1'),
+        target: PubTarget(name: 'some_pkg', versionConstraint: '1.0.0+1'),
         package: ResolvedPubPackage(
-          name: '@scope/pkg',
+          name: 'some_pkg',
           version: '1.0.0+1',
           sourceKind: PubPackageSourceKind.unknown,
           dependencyKind: PubPackageDependencyKind.unknown,
@@ -207,7 +207,7 @@ void main() {
           workspaceRootPath: root.path,
           session: session,
         ),
-        p.join(root.path, 'patches', 'pub', '%40scope%2Fpkg@1.0.0%2B1.patch'),
+        p.join(root.path, 'patches', 'pub', 'some_pkg@1.0.0%2B1.patch'),
       );
     });
   });

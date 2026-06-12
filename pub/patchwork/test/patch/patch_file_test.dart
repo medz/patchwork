@@ -160,6 +160,88 @@ void main() {
       );
       expect(File(p.join(appliedPath, 'dead.txt')).existsSync(), isFalse);
     });
+
+    test('excludes generated session state from the patch', () {
+      final baselinePath = p.join(root.path, 'baseline');
+      final editPath = p.join(root.path, 'edit');
+      Directory(p.join(baselinePath, 'lib')).createSync(recursive: true);
+      Directory(p.join(editPath, 'lib')).createSync(recursive: true);
+      File(p.join(baselinePath, 'lib', 'file.dart')).writeAsStringSync('old\n');
+      File(p.join(editPath, 'lib', 'file.dart')).writeAsStringSync('new\n');
+      Directory(p.join(editPath, '.dart_tool')).createSync();
+      Directory(p.join(editPath, 'build')).createSync();
+      File(
+        p.join(editPath, '.dart_tool', 'package_config.json'),
+      ).writeAsStringSync('{}\n');
+      File(
+        p.join(editPath, 'build', 'generated.txt'),
+      ).writeAsStringSync('gen\n');
+      File(p.join(editPath, '.packages')).writeAsStringSync('legacy\n');
+      File(p.join(editPath, 'pubspec.lock')).writeAsStringSync('lock\n');
+
+      final buildResult = const PatchFileBuilder().build(
+        baselinePath: baselinePath,
+        editPath: editPath,
+      );
+
+      expect(buildResult.diagnostic, isNull);
+      expect(buildResult.hasChanges, isTrue);
+      expect(buildResult.content, contains('diff --git a/lib/file.dart'));
+      expect(buildResult.content, isNot(contains('.dart_tool')));
+      expect(buildResult.content, isNot(contains('build/generated.txt')));
+      expect(buildResult.content, isNot(contains('.packages')));
+      expect(buildResult.content, isNot(contains('pubspec.lock')));
+    });
+
+    test(
+      'ignores unchanged symlinks while building a patch',
+      () {
+        final baselinePath = p.join(root.path, 'baseline');
+        final editPath = p.join(root.path, 'edit');
+        Directory(baselinePath).createSync(recursive: true);
+        Directory(editPath).createSync(recursive: true);
+        Link(p.join(baselinePath, 'link')).createSync('target.txt');
+        Link(p.join(editPath, 'link')).createSync('target.txt');
+        File(p.join(baselinePath, 'file.txt')).writeAsStringSync('old\n');
+        File(p.join(editPath, 'file.txt')).writeAsStringSync('new\n');
+
+        final buildResult = const PatchFileBuilder().build(
+          baselinePath: baselinePath,
+          editPath: editPath,
+        );
+
+        expect(buildResult.diagnostic, isNull);
+        expect(buildResult.hasChanges, isTrue);
+        expect(buildResult.content, contains('diff --git a/file.txt'));
+        expect(buildResult.content, isNot(contains('link')));
+      },
+      skip: Platform.isWindows
+          ? 'Symlink creation requires privileges.'
+          : false,
+    );
+
+    test(
+      'rejects symlink changes',
+      () {
+        final baselinePath = p.join(root.path, 'baseline');
+        final editPath = p.join(root.path, 'edit');
+        Directory(baselinePath).createSync(recursive: true);
+        Directory(editPath).createSync(recursive: true);
+        Link(p.join(baselinePath, 'link')).createSync('old-target.txt');
+        Link(p.join(editPath, 'link')).createSync('new-target.txt');
+
+        final buildResult = const PatchFileBuilder().build(
+          baselinePath: baselinePath,
+          editPath: editPath,
+        );
+
+        expect(buildResult.diagnostic?.code, 'patch.unsupported_link');
+        expect(buildResult.diagnostic?.location, 'link');
+      },
+      skip: Platform.isWindows
+          ? 'Symlink creation requires privileges.'
+          : false,
+    );
   });
 
   group('PatchValidator', () {

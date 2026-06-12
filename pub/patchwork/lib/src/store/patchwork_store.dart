@@ -6,11 +6,9 @@ import 'package:path/path.dart' as p;
 import '../diagnostics/diagnostic.dart';
 import '../pub/package_resolution.dart';
 import '../pub/pub_workspace.dart';
+import '../session/session_file_filter.dart';
 import '../target/target.dart';
 import 'edit_session.dart';
-
-const _excludedDirectoryNames = {'.dart_tool', '.git', 'build'};
-const _excludedFileNames = {'.packages', 'pubspec.lock'};
 
 final class PatchworkStore {
   const PatchworkStore();
@@ -172,7 +170,7 @@ final class PatchworkStore {
 
       final relativePath = p.relative(entity.path, from: sourceRootPath);
       final type = FileSystemEntity.typeSync(entity.path, followLinks: false);
-      if (_shouldExclude(relativePath, type)) {
+      if (shouldExcludePatchSessionPath(relativePath, type)) {
         continue;
       }
 
@@ -204,19 +202,6 @@ final class PatchworkStore {
     }
 
     return p.equals(parentPath, childPath) || p.isWithin(parentPath, childPath);
-  }
-
-  bool _shouldExclude(String relativePath, FileSystemEntityType type) {
-    if (p.split(relativePath).length != 1) {
-      return false;
-    }
-
-    final name = p.basename(relativePath);
-    if (type == FileSystemEntityType.directory) {
-      return _excludedDirectoryNames.contains(name);
-    }
-
-    return _excludedFileNames.contains(name);
   }
 
   void _writeMetadata(

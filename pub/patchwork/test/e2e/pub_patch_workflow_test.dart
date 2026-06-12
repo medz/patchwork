@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -5,21 +6,25 @@ import 'package:patchwork/src/cli/command_runner.dart';
 import 'package:patchwork/src/diagnostics/exit_code.dart';
 import 'package:patchwork/src/store/patchwork_manifest.dart';
 import 'package:test/test.dart';
+import 'package:yaml/yaml.dart';
+
+const _dartProcessTimeout = Duration(seconds: 30);
+const _timeoutExitCode = -999;
 
 void main() {
   group('pub patch workflow end-to-end', () {
     late _PubPatchWorkflowFixture fixture;
 
-    setUp(() {
-      fixture = _PubPatchWorkflowFixture.create();
+    setUp(() async {
+      fixture = await _PubPatchWorkflowFixture.create();
     });
 
     tearDown(() {
       fixture.dispose();
     });
 
-    test('patches a direct dependency by bare name', () {
-      expect(fixture.runApp(), 'original');
+    test('patches a direct dependency by bare name', () async {
+      expect(await fixture.runApp(), 'original');
       final originalPubspec = fixture.appPubspec.readAsStringSync();
 
       fixture.patchAndCommit('sample_dep', message: 'patched');
@@ -28,22 +33,22 @@ void main() {
       expect(fixture.appPubspec.readAsStringSync(), originalPubspec);
       expect(fixture.appOverrides.existsSync(), isTrue);
 
-      fixture.runPubGet();
+      await fixture.runPubGet();
 
-      expect(fixture.runApp(), 'patched');
+      expect(await fixture.runApp(), 'patched');
       final status = fixture.runPatchwork(['status']);
       _expectPatchworkSuccess(status);
       expect(status.stdout, contains('pub:sample_dep@1.2.3 [clean]'));
     });
 
-    test('patches a direct dependency by name and version', () {
+    test('patches a direct dependency by name and version', () async {
       fixture.patchAndCommit('sample_dep@1.2.3', message: 'version target');
 
       final apply = fixture.runPatchwork(['apply']);
       _expectPatchworkSuccess(apply);
-      fixture.runPubGet();
+      await fixture.runPubGet();
 
-      expect(fixture.runApp(), 'version target');
+      expect(await fixture.runApp(), 'version target');
     });
 
     test('rejects unknown packages', () {
@@ -78,20 +83,24 @@ void main() {
       fixture.patchAndCommit('sample_dep', message: 'portable');
 
       final content = fixture.patchFile.readAsStringSync();
+      final normalizedContent = content.replaceAll('\\', '/');
       expect(content, contains('diff --git a/lib/sample_dep.dart'));
-      expect(content, isNot(contains(fixture.rootPath)));
-      expect(content, isNot(contains(fixture.appPath)));
-      expect(content, isNot(contains(fixture.dependencyPath)));
+      expect(normalizedContent, isNot(contains(_asPosix(fixture.rootPath))));
+      expect(normalizedContent, isNot(contains(_asPosix(fixture.appPath))));
+      expect(
+        normalizedContent,
+        isNot(contains(_asPosix(fixture.dependencyPath))),
+      );
       expect(content, isNot(contains('.pub-cache')));
     });
 
-    test('rebuilds the generated store when the patch hash changes', () {
+    test('rebuilds the generated store when the patch hash changes', () async {
       fixture.patchAndCommit('sample_dep', message: 'first');
       final firstApply = fixture.runPatchwork(['apply']);
       _expectPatchworkSuccess(firstApply);
       final firstStorePath = _appliedStorePath(firstApply);
-      fixture.runPubGet();
-      expect(fixture.runApp(), 'first');
+      await fixture.runPubGet();
+      expect(await fixture.runApp(), 'first');
 
       fixture.writeEditMessage('second');
       final commit = fixture.runPatchwork(['patch', '--commit', 'sample_dep']);
@@ -99,7 +108,7 @@ void main() {
       final secondApply = fixture.runPatchwork(['apply']);
       _expectPatchworkSuccess(secondApply);
       final secondStorePath = _appliedStorePath(secondApply);
-      fixture.runPubGet();
+      await fixture.runPubGet();
 
       expect(secondStorePath, isNot(firstStorePath));
       expect(
@@ -108,7 +117,7 @@ void main() {
         ).readAsStringSync(),
         "String sampleMessage() => 'second';\n",
       );
-      expect(fixture.runApp(), 'second');
+      expect(await fixture.runApp(), 'second');
     });
 
     test('reports missing patch files clearly', () {
@@ -178,6 +187,46 @@ String _appliedStorePath(_PatchworkRunResult result) {
   return match!.group(1)!.trim();
 }
 
+String _asPosix(String path) {
+  return p.posix.normalize(path.replaceAll('\\', '/'));
+}
+
+String _readPatchworkSdkConstraint() {
+  final pubspec = _patchworkPubspecFile();
+  final decoded = loadYaml(pubspec.readAsStringSync());
+  if (decoded is YamlMap) {
+    final environment = decoded['environment'];
+    if (environment is YamlMap) {
+      final sdk = environment['sdk'];
+      if (sdk is String) {
+        return sdk;
+      }
+    }
+  }
+
+  throw StateError('Could not read the patchwork SDK constraint.');
+}
+
+File _patchworkPubspecFile() {
+  final currentDirectory = Directory.current.path;
+  final candidates = [
+    p.join(currentDirectory, 'pub', 'patchwork', 'pubspec.yaml'),
+    p.join(currentDirectory, 'pubspec.yaml'),
+  ];
+  for (final candidate in candidates) {
+    final file = File(candidate);
+    if (!file.existsSync()) {
+      continue;
+    }
+    final decoded = loadYaml(file.readAsStringSync());
+    if (decoded is YamlMap && decoded['name'] == 'patchwork') {
+      return file;
+    }
+  }
+
+  throw StateError('Could not find the patchwork pubspec.yaml.');
+}
+
 final class _PubPatchWorkflowFixture {
   _PubPatchWorkflowFixture._(this.root);
 
@@ -234,11 +283,11 @@ final class _PubPatchWorkflowFixture {
     );
   }
 
-  static _PubPatchWorkflowFixture create() {
+  static Future<_PubPatchWorkflowFixture> create() async {
     final root = Directory.systemTemp.createTempSync('patchwork_pub_e2e_');
     final fixture = _PubPatchWorkflowFixture._(root);
     fixture.writeProject();
-    fixture.runPubGet();
+    await fixture.runPubGet();
     return fixture;
   }
 
@@ -249,13 +298,14 @@ final class _PubPatchWorkflowFixture {
   }
 
   void writeProject() {
+    final sdkConstraint = _readPatchworkSdkConstraint();
     Directory(p.join(dependencyPath, 'lib')).createSync(recursive: true);
     File(p.join(dependencyPath, 'pubspec.yaml')).writeAsStringSync('''
 name: sample_dep
 version: 1.2.3
 
 environment:
-  sdk: ^3.12.0
+  sdk: $sdkConstraint
 ''');
     File(
       p.join(dependencyPath, 'lib', 'sample_dep.dart'),
@@ -267,7 +317,7 @@ name: app
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: $sdkConstraint
 
 dependencies:
   sample_dep:
@@ -282,21 +332,44 @@ void main() {
 ''');
   }
 
-  void runPubGet() {
-    final result = Process.runSync('dart', [
-      'pub',
-      'get',
-    ], workingDirectory: appPath);
-    expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');
+  Future<void> runPubGet() async {
+    final result = await _runDart(['pub', 'get']);
+    expect(result.exitCode, 0, reason: result.combinedOutput);
   }
 
-  String runApp() {
-    final result = Process.runSync('dart', [
-      'run',
-      'bin/app.dart',
-    ], workingDirectory: appPath);
-    expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}');
-    return '${result.stdout}'.trim();
+  Future<String> runApp() async {
+    final result = await _runDart(['run', 'bin/app.dart']);
+    expect(result.exitCode, 0, reason: result.combinedOutput);
+    return result.stdout.trim();
+  }
+
+  Future<_DartRunResult> _runDart(List<String> arguments) async {
+    final process = await Process.start(
+      'dart',
+      arguments,
+      workingDirectory: appPath,
+    );
+    final stdout = process.stdout.transform(systemEncoding.decoder).join();
+    final stderr = process.stderr.transform(systemEncoding.decoder).join();
+    final exitCode = await process.exitCode.timeout(
+      _dartProcessTimeout,
+      onTimeout: () {
+        process.kill();
+        return _timeoutExitCode;
+      },
+    );
+    final result = _DartRunResult(
+      exitCode: exitCode,
+      stdout: await stdout,
+      stderr: await stderr,
+    );
+    if (exitCode == _timeoutExitCode) {
+      fail(
+        'dart ${arguments.join(' ')} timed out after '
+        '${_dartProcessTimeout.inSeconds} seconds.\n${result.combinedOutput}',
+      );
+    }
+    return result;
   }
 
   _PatchworkRunResult runPatchwork(List<String> arguments) {
@@ -328,6 +401,20 @@ void main() {
   void writeEditMessage(String message) {
     editLib.writeAsStringSync("String sampleMessage() => '$message';\n");
   }
+}
+
+final class _DartRunResult {
+  const _DartRunResult({
+    required this.exitCode,
+    required this.stdout,
+    required this.stderr,
+  });
+
+  final int exitCode;
+  final String stdout;
+  final String stderr;
+
+  String get combinedOutput => '$stdout$stderr';
 }
 
 final class _PatchworkRunResult {

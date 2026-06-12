@@ -4,77 +4,20 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../diagnostics/diagnostic.dart';
+import '../pub/package_resolution.dart';
+import '../pub/pub_workspace.dart';
 import '../target/target.dart';
-import 'package_resolution.dart';
+import 'edit_session.dart';
 
-final class PubPatchSession {
-  const PubPatchSession({
-    required this.target,
-    required this.package,
-    required this.baselinePath,
-    required this.editPath,
-    required this.metadataPath,
-  });
+final class PatchworkStore {
+  const PatchworkStore();
 
-  final PubTarget target;
-  final ResolvedPubPackage package;
-  final String baselinePath;
-  final String editPath;
-  final String metadataPath;
-
-  String get commitCommand => 'patchwork patch --commit $editPath';
-}
-
-final class PubPatchSessionCreateResult {
-  const PubPatchSessionCreateResult._({this.session, this.diagnostic});
-
-  factory PubPatchSessionCreateResult.success(PubPatchSession session) {
-    return PubPatchSessionCreateResult._(session: session);
-  }
-
-  factory PubPatchSessionCreateResult.failure(Diagnostic diagnostic) {
-    return PubPatchSessionCreateResult._(diagnostic: diagnostic);
-  }
-
-  final PubPatchSession? session;
-  final Diagnostic? diagnostic;
-
-  bool get isSuccess => session != null;
-}
-
-final class PubPatchSessionCreator {
-  const PubPatchSessionCreator({
-    this.resolutionReader = const PubResolutionReader(),
-  });
-
-  final PubResolutionReader resolutionReader;
-
-  PubPatchSessionCreateResult create(
-    PubTarget target, {
-    required String currentDirectory,
+  PubPatchSessionCreateResult createPubEditSession({
+    required PubWorkspace workspace,
+    required ResolvedPubPackage package,
   }) {
-    final resolutionResult = resolutionReader.readFromDirectory(
-      currentDirectory,
-    );
-    final resolutionDiagnostic = resolutionResult.diagnostic;
-    if (resolutionDiagnostic != null) {
-      return PubPatchSessionCreateResult.failure(resolutionDiagnostic);
-    }
-
-    final resolution = resolutionResult.resolution!;
-    final packageResult = resolution.resolve(target);
-    final packageDiagnostic = packageResult.diagnostic;
-    if (packageDiagnostic != null) {
-      return PubPatchSessionCreateResult.failure(packageDiagnostic);
-    }
-
-    final package = packageResult.package!;
     final sessionId = '${package.name}@${package.version}';
-    final patchworkRoot = p.join(
-      resolution.workspace.rootPath,
-      '.dart_tool',
-      'patchwork',
-    );
+    final patchworkRoot = p.join(workspace.rootPath, '.dart_tool', 'patchwork');
     final baselinePath = p.join(patchworkRoot, 'baseline', 'pub', sessionId);
     final editPath = p.join(patchworkRoot, 'edit', 'pub', sessionId);
     final metadataPath = p.join(
@@ -96,7 +39,7 @@ final class PubPatchSessionCreator {
       _refreshCopy(baselinePath, editPath);
       _writeMetadata(
         session,
-        workspaceRootPath: resolution.workspace.rootPath,
+        workspaceRootPath: workspace.rootPath,
         sourceRootPath: package.rootPath,
       );
     } on FileSystemException catch (error) {

@@ -2,14 +2,14 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:patchwork/src/pub/pub_patch_session.dart';
+import 'package:patchwork/src/app/start_patch_session.dart';
 import 'package:patchwork/src/target/target.dart';
 import 'package:test/test.dart';
 
-import 'pub_resolution_fixture.dart';
+import '../pub/pub_resolution_fixture.dart';
 
 void main() {
-  group('PubPatchSessionCreator', () {
+  group('StartPatchSession', () {
     late PubResolutionFixture fixture;
 
     setUp(() {
@@ -21,7 +21,7 @@ void main() {
     });
 
     test('creates baseline and edit copies without transient files', () {
-      final result = const PubPatchSessionCreator().create(
+      final result = const StartPatchSession()(
         const PubTarget(name: 'analyzer'),
         currentDirectory: fixture.rootPath,
       );
@@ -71,8 +71,8 @@ void main() {
     });
 
     test('refreshes repeat edit sessions predictably', () {
-      final creator = const PubPatchSessionCreator();
-      final first = creator.create(
+      const startPatchSession = StartPatchSession();
+      final first = startPatchSession(
         const PubTarget(name: 'analyzer'),
         currentDirectory: fixture.rootPath,
       );
@@ -83,7 +83,7 @@ void main() {
       );
       editFile.writeAsStringSync('edited');
 
-      final second = creator.create(
+      final second = startPatchSession(
         const PubTarget(name: 'analyzer'),
         currentDirectory: fixture.rootPath,
       );
@@ -97,7 +97,7 @@ void main() {
     });
 
     test('records session metadata for patch commit', () {
-      final result = const PubPatchSessionCreator().create(
+      final result = const StartPatchSession()(
         const PubTarget(name: 'analyzer'),
         currentDirectory: fixture.memberPath,
       );

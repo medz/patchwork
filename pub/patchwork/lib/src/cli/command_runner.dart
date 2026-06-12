@@ -1,8 +1,8 @@
 import 'dart:io';
 
+import '../app/start_patch_session.dart';
 import '../diagnostics/diagnostic.dart';
 import '../diagnostics/exit_code.dart';
-import '../pub/pub_patch_session.dart';
 import '../target/target_parser.dart';
 import 'command_intent.dart';
 
@@ -268,11 +268,11 @@ final class PatchworkCommandParser {
 final class PatchworkCommandRunner {
   const PatchworkCommandRunner({
     this.parser = const PatchworkCommandParser(),
-    this.patchSessionCreator = const PubPatchSessionCreator(),
+    this.startPatchSession = const StartPatchSession(),
   });
 
   final PatchworkCommandParser parser;
-  final PubPatchSessionCreator patchSessionCreator;
+  final StartPatchSession startPatchSession;
 
   int run(
     List<String> arguments, {
@@ -312,7 +312,7 @@ final class PatchworkCommandRunner {
     required StringSink stderr,
     required String currentDirectory,
   }) {
-    final result = patchSessionCreator.create(
+    final result = startPatchSession(
       intent.target!,
       currentDirectory: currentDirectory,
     );

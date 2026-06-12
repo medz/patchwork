@@ -1,5 +1,20 @@
 name: patchwork
-version: 0.0.0
+version: 0.1.0
+description: Patch management for Dart projects, starting with reviewable dependency patches for pub packages.
+homepage: https://github.com/medz/patchwork
+repository: https://github.com/medz/patchwork
+issue_tracker: https://github.com/medz/patchwork/issues
+documentation: https://github.com/medz/patchwork/tree/main/pub/patchwork#readme
+funding:
+  - https://github.com/sponsors/medz
+topics:
+  - cli
+  - dependencies
+  - patch
+  - pub
+
+executables:
+  patchwork: patchwork
 
 environment:
   sdk: ^3.12.0

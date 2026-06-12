@@ -1,5 +1,8 @@
-name: _
+name: patchwork_workspace
 publish_to: none
+description: Development workspace for the Patchwork Dart pub package.
+repository: https://github.com/medz/patchwork
+issue_tracker: https://github.com/medz/patchwork/issues
 
 environment:
   sdk: ^3.12.1

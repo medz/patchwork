@@ -1,2 +1,5 @@
 .dart_tool
 pubspec.lock
+pubspec_overrides.yaml
+examples/**/patchwork.lock
+examples/**/patches/

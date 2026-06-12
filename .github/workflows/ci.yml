@@ -27,10 +27,19 @@ jobs:
         working-directory: pub/patchwork
         run: dart pub get
 
-      - name: Verify formatting
-        run: dart format --output=none --set-exit-if-changed pub/patchwork/bin pub/patchwork/lib pub/patchwork/test
+      - name: Install example dependencies
+        working-directory: examples/hello_patch/app
+        run: dart pub get
 
-      - name: Analyze workspace
+      - name: Verify formatting
+        run: dart format --output=none --set-exit-if-changed pub/patchwork/bin pub/patchwork/lib pub/patchwork/test examples/hello_patch
+
+      - name: Analyze package
+        working-directory: pub/patchwork
+        run: dart analyze
+
+      - name: Analyze example
+        working-directory: examples/hello_patch/app
         run: dart analyze
 
       - name: Run tests

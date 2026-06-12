@@ -136,6 +136,30 @@ void main() {
       );
       expect(File(p.join(appliedPath, 'empty.txt')).existsSync(), isFalse);
     });
+
+    test('preserves non-empty file deletions', () {
+      final baselinePath = p.join(root.path, 'baseline');
+      final editPath = p.join(root.path, 'edit');
+      Directory(baselinePath).createSync(recursive: true);
+      Directory(editPath).createSync(recursive: true);
+      File(p.join(baselinePath, 'dead.txt')).writeAsStringSync('remove me\n');
+
+      final buildResult = const PatchFileBuilder().build(
+        baselinePath: baselinePath,
+        editPath: editPath,
+      );
+
+      expect(buildResult.diagnostic, isNull);
+      expect(buildResult.hasChanges, isTrue);
+      expect(buildResult.content, contains('deleted file mode 100644'));
+
+      final appliedPath = _applyPatch(
+        root: root,
+        baselinePath: baselinePath,
+        patchContent: buildResult.content!,
+      );
+      expect(File(p.join(appliedPath, 'dead.txt')).existsSync(), isFalse);
+    });
   });
 
   group('PatchValidator', () {

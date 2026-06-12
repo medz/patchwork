@@ -65,7 +65,6 @@ final class PatchFileBuilder {
     final editEntries = _collectEntries(editPath);
     final allPaths = {...baselineEntries.keys, ...editEntries.keys}.toList()
       ..sort();
-    final buffer = StringBuffer();
 
     for (final relativePath in allPaths) {
       final baselineType = baselineEntries[relativePath];
@@ -85,33 +84,23 @@ final class PatchFileBuilder {
           editType == FileSystemEntityType.directory) {
         continue;
       }
-
-      final diffResult = _diffPath(
-        relativePath: relativePath,
-        baselinePath: baselinePath,
-        editPath: editPath,
-        baselineExists: baselineType == FileSystemEntityType.file,
-        editExists: editType == FileSystemEntityType.file,
-      );
-      final diagnostic = diffResult.diagnostic;
-      if (diagnostic != null) {
-        return PatchFileBuildResult.failure(diagnostic);
-      }
-
-      final content = diffResult.content;
-      if (content != null && content.isNotEmpty) {
-        buffer.write(content);
-        if (!content.endsWith('\n')) {
-          buffer.writeln();
-        }
-      }
     }
 
-    if (buffer.isEmpty) {
+    final diffResult = _gitDiffDirectories(
+      baselinePath: baselinePath,
+      editPath: editPath,
+    );
+    final diffDiagnostic = diffResult.diagnostic;
+    if (diffDiagnostic != null) {
+      return PatchFileBuildResult.failure(diffDiagnostic);
+    }
+
+    final content = diffResult.content;
+    if (content == null || content.isEmpty) {
       return PatchFileBuildResult.noChanges();
     }
 
-    return PatchFileBuildResult.success(buffer.toString());
+    return PatchFileBuildResult.success(content);
   }
 
   Map<String, FileSystemEntityType> _collectEntries(String rootPath) {
@@ -128,68 +117,66 @@ final class PatchFileBuilder {
     return entries;
   }
 
-  _PathDiffResult _diffPath({
-    required String relativePath,
+  _GitDiffResult _gitDiffDirectories({
     required String baselinePath,
     required String editPath,
-    required bool baselineExists,
-    required bool editExists,
   }) {
-    final baselineFilePath = p.joinAll([
-      baselinePath,
-      ...relativePath.split('/'),
-    ]);
-    final editFilePath = p.joinAll([editPath, ...relativePath.split('/')]);
-    if (!baselineExists && File(editFilePath).lengthSync() == 0) {
-      return _PathDiffResult(content: _modeOnlyDiff(relativePath, 'new'));
-    }
-    if (!editExists && File(baselineFilePath).lengthSync() == 0) {
-      return _PathDiffResult(content: _modeOnlyDiff(relativePath, 'deleted'));
-    }
-
     final arguments = <String>[
-      '-u',
-      '--label',
-      baselineExists ? _patchLabel('a', relativePath) : '/dev/null',
-      '--label',
-      editExists ? _patchLabel('b', relativePath) : '/dev/null',
-      baselineExists ? baselineFilePath : '/dev/null',
-      editExists ? editFilePath : '/dev/null',
+      '-c',
+      'core.safecrlf=false',
+      'diff',
+      '--src-prefix=a/',
+      '--dst-prefix=b/',
+      '--ignore-cr-at-eol',
+      '--full-index',
+      '--no-index',
+      _gitArgumentPath(baselinePath),
+      _gitArgumentPath(editPath),
     ];
-    final result = Process.runSync('diff', arguments);
-
-    if (result.exitCode == 0) {
-      return const _PathDiffResult();
+    final ProcessResult result;
+    try {
+      result = Process.runSync('git', arguments);
+    } on ProcessException catch (error) {
+      return _GitDiffResult.failure(
+        Diagnostic(
+          code: 'patch.git_missing',
+          message: 'Git is required to generate patch files.',
+          hint: error.message,
+        ),
+      );
     }
 
-    if (result.exitCode != 1) {
-      return _PathDiffResult.failure(
+    final stderr = '${result.stderr}'.trim();
+    if (stderr.isNotEmpty || (result.exitCode != 0 && result.exitCode != 1)) {
+      return _GitDiffResult.failure(
         Diagnostic(
           code: 'patch.diff_failed',
           message: 'Could not generate a patch diff.',
-          hint: '${result.stderr}',
-          location: relativePath,
+          hint: stderr,
         ),
       );
     }
 
     final output = '${result.stdout}';
-    if (!output.startsWith('--- ')) {
-      return _PathDiffResult.failure(
-        Diagnostic(
+    if (output.isEmpty) {
+      return const _GitDiffResult();
+    }
+
+    if (_containsBinaryDiff(output)) {
+      return _GitDiffResult.failure(
+        const Diagnostic(
           code: 'patch.unsupported_binary',
           message: 'Binary file changes are not supported yet.',
-          location: relativePath,
         ),
       );
     }
 
-    return _PathDiffResult(
-      content:
-          '${_gitDiffHeader(relativePath)}'
-          '${!baselineExists ? 'new file mode 100644\n' : ''}'
-          '${!editExists ? 'deleted file mode 100644\n' : ''}'
-          '$output',
+    return _GitDiffResult(
+      content: _postProcessGitDiff(
+        output: output,
+        baselinePath: baselinePath,
+        editPath: editPath,
+      ),
     );
   }
 }
@@ -209,11 +196,22 @@ final class PatchValidator {
       _copyDirectoryContents(baselinePath, validationRoot.path);
       final patchFile = File(p.join(validationRoot.path, '.patchwork.patch'));
       patchFile.writeAsStringSync(patchContent);
-      final result = Process.runSync('git', [
-        'apply',
-        '--check',
-        patchFile.path,
-      ], workingDirectory: validationRoot.path);
+      final ProcessResult result;
+      try {
+        result = Process.runSync('git', [
+          'apply',
+          '--check',
+          patchFile.path,
+        ], workingDirectory: validationRoot.path);
+      } on ProcessException catch (error) {
+        return PatchValidationResult.failure(
+          Diagnostic(
+            code: 'patch.git_missing',
+            message: 'Git is required to validate patch files.',
+            hint: error.message,
+          ),
+        );
+      }
       if (result.exitCode == 0) {
         return PatchValidationResult.success();
       }
@@ -262,11 +260,11 @@ final class PatchValidator {
   }
 }
 
-final class _PathDiffResult {
-  const _PathDiffResult({this.content, this.diagnostic});
+final class _GitDiffResult {
+  const _GitDiffResult({this.content, this.diagnostic});
 
-  factory _PathDiffResult.failure(Diagnostic diagnostic) {
-    return _PathDiffResult(diagnostic: diagnostic);
+  factory _GitDiffResult.failure(Diagnostic diagnostic) {
+    return _GitDiffResult(diagnostic: diagnostic);
   }
 
   final String? content;
@@ -277,14 +275,85 @@ String _patchPath(String relativePath) {
   return p.split(relativePath).join('/');
 }
 
-String _patchLabel(String side, String relativePath) {
-  return '$side/$relativePath\t1970-01-01 00:00:00 +0000';
+String _gitArgumentPath(String path) {
+  return p.absolute(path).replaceAll('\\', '/');
 }
 
-String _gitDiffHeader(String relativePath) {
-  return 'diff --git a/$relativePath b/$relativePath\n';
+String _gitDiffPathPrefix(String path) {
+  final normalized = _gitArgumentPath(path);
+  if (normalized.startsWith('/')) {
+    return normalized.substring(1);
+  }
+  return normalized;
 }
 
-String _modeOnlyDiff(String relativePath, String mode) {
-  return '${_gitDiffHeader(relativePath)}$mode file mode 100644\n';
+String _postProcessGitDiff({
+  required String output,
+  required String baselinePath,
+  required String editPath,
+}) {
+  final oldPrefix = _gitDiffPathPrefix(baselinePath);
+  final newPrefix = _gitDiffPathPrefix(editPath);
+  final hasTrailingNewline = output.endsWith('\n');
+  final lines = output.split('\n');
+  if (hasTrailingNewline) {
+    lines.removeLast();
+  }
+
+  final buffer = StringBuffer();
+  for (final line in lines) {
+    final processed = _shouldRewriteGitDiffLine(line)
+        ? _stripGitDiffRootPrefixes(line, oldPrefix, newPrefix)
+        : line;
+    buffer.write(processed);
+    buffer.write('\n');
+  }
+
+  if (!hasTrailingNewline && buffer.length > 0) {
+    final content = buffer.toString();
+    return content.substring(0, content.length - 1);
+  }
+  return buffer.toString();
+}
+
+bool _shouldRewriteGitDiffLine(String line) {
+  if (line.isEmpty) {
+    return false;
+  }
+
+  final first = line.codeUnitAt(0);
+  if (first == 0x20) {
+    return false;
+  }
+  if (first == 0x2d && !line.startsWith('--- ')) {
+    return false;
+  }
+  if (first == 0x2b && !line.startsWith('+++ ')) {
+    return false;
+  }
+
+  return true;
+}
+
+String _stripGitDiffRootPrefixes(
+  String line,
+  String oldPrefix,
+  String newPrefix,
+) {
+  var result = line;
+  for (final side in const ['a', 'b']) {
+    result = result.replaceAll('$side/$oldPrefix/', '$side/');
+    result = result.replaceAll('$side/$newPrefix/', '$side/');
+  }
+  result = result.replaceAll('$oldPrefix/', '');
+  result = result.replaceAll('$newPrefix/', '');
+  return result;
+}
+
+bool _containsBinaryDiff(String output) {
+  return output
+      .split('\n')
+      .any(
+        (line) => line.startsWith('Binary files ') && line.endsWith(' differ'),
+      );
 }

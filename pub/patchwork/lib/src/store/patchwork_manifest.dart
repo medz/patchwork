@@ -146,8 +146,8 @@ final class PatchworkManifestStore {
     }
 
     if (root == null) {
-      return PatchworkManifestReadResult.success(
-        PatchworkManifest(patches: const []),
+      return PatchworkManifestReadResult.failure(
+        _malformedManifest(manifestPath),
       );
     }
 

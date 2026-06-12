@@ -105,6 +105,23 @@ patches:
       expect(result.diagnostic?.location, p.join(root.path, 'patchwork.lock'));
     });
 
+    test('rejects explicit top-level null lockfiles as malformed', () {
+      for (final content in ['null\n', '~\n']) {
+        File(p.join(root.path, 'patchwork.lock')).writeAsStringSync(content);
+
+        final result = const PatchworkManifestStore().read(
+          workspaceRootPath: root.path,
+        );
+
+        expect(result.manifest, isNull);
+        expect(result.diagnostic?.code, 'patchwork.manifest_malformed');
+        expect(
+          result.diagnostic?.location,
+          p.join(root.path, 'patchwork.lock'),
+        );
+      }
+    });
+
     test('rejects patch paths that escape the workspace patch directory', () {
       File(p.join(root.path, 'patchwork.lock')).writeAsStringSync('''
 patches:

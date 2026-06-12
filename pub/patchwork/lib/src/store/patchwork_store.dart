@@ -9,6 +9,10 @@ import '../pub/pub_workspace.dart';
 import '../target/target.dart';
 import 'edit_session.dart';
 
+const _excludedDirectoryNames = {'.dart_tool', '.git', 'build'};
+
+const _excludedFileNames = {'.packages', 'pubspec.lock'};
+
 final class PatchworkStore {
   const PatchworkStore();
 
@@ -136,7 +140,3 @@ final class PatchworkStore {
     metadataFile.writeAsStringSync('$metadata\n');
   }
 }
-
-const _excludedDirectoryNames = {'.dart_tool', '.git', 'build'};
-
-const _excludedFileNames = {'.packages', 'pubspec.lock'};

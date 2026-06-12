@@ -25,17 +25,13 @@ pub/patchwork/
     patchwork.dart
     src/
       cli/
+        command_intent.dart
         command_runner.dart
-        commands/
-          apply_command.dart
-          doctor_command.dart
-          patch_command.dart
-          status_command.dart
       app/
         apply_patches.dart
         commit_patch_session.dart
-        read_status.dart
-        run_doctor.dart
+        pub_doctor.dart
+        pub_status.dart
         start_patch_session.dart
       target/
         target.dart
@@ -55,9 +51,6 @@ pub/patchwork/
       diagnostics/
         diagnostic.dart
         exit_code.dart
-      io/
-        file_system.dart
-        process_runner.dart
   test/
     cli/
     app/
@@ -67,8 +60,8 @@ pub/patchwork/
     target/
 ```
 
-`bin/patchwork.dart` wires the real file system, process runner, command
-runner, and output streams. It should not contain command behavior.
+`bin/patchwork.dart` wires the command runner and output streams. It should not
+contain command behavior.
 
 `lib/patchwork.dart` is the public library entrypoint. For the MVP it should
 stay small and export only stable API that is useful outside the CLI.
@@ -79,17 +72,18 @@ libraries when they are testing module boundaries directly.
 ## Layer Rules
 
 The CLI layer parses arguments, selects commands, formats output, and maps typed
-diagnostics to exit codes. Command classes call application use cases instead of
-performing package resolution, file writes, diff generation, or manifest edits
-directly.
+diagnostics to exit codes. The command runner calls application use cases
+instead of performing package resolution, file writes, diff generation, or
+manifest edits directly.
 
 The application layer owns workflows:
 
 - `start_patch_session` creates a baseline and editable package copy.
 - `commit_patch_session` turns edits into a validated patch and manifest entry.
 - `apply_patches` materializes generated path overrides.
-- `read_status` reports session, manifest, hash, and apply state.
-- `run_doctor` checks local tool and workspace readiness.
+- `pub_status` reports manifest, patch hash, generated store, and override
+  state.
+- `pub_doctor` checks local tool and workspace readiness.
 
 Domain modules are narrow:
 
@@ -104,13 +98,11 @@ Domain modules are narrow:
 - `session` owns shared session file filtering rules used by store copies and
   patch diff generation.
 - `patch` owns diff creation and patch apply validation.
-- `io` contains side-effect adapters for files, processes, clocks, and
-  environment access.
 - `diagnostics` defines typed errors, hints, and exit code mapping.
 
 Pure modules must not read files, spawn processes, use global mutable state, or
-write to stdout/stderr. Root paths, clocks, process runners, and environment
-access must be passed in from the application or IO boundary.
+write to stdout/stderr. Root paths and process runners must be passed in from
+the application boundary when a workflow needs them.
 
 ## State Ownership
 
@@ -177,8 +169,8 @@ Each implementation issue should add tests at the boundary it introduces:
 - #8: manifest model validation and stable YAML round trips.
 - #9: generated `pubspec_overrides.yaml`, idempotent apply, and no primary
   `pubspec.yaml` mutation.
-- #10: `status` and `doctor` diagnostics for clean, dirty, missing, and stale
-  states.
+- #10: `status` and `doctor` diagnostics for clean, unapplied, missing, and
+  stale states.
 - #11: end-to-end CLI fixtures covering the MVP flow from `patchwork patch` to
   `patchwork status`.
 

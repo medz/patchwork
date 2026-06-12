@@ -134,6 +134,18 @@ final class PatchworkCommandParser {
   }
 
   ParseResult _parseCommitSubject(String operand) {
+    if (_hasTargetKindPrefix(operand)) {
+      final targetResult = targetParser.parsePubTarget(operand);
+      final diagnostic = targetResult.diagnostic;
+      if (diagnostic != null) {
+        return ParseResult.failure(diagnostic);
+      }
+
+      return ParseResult.success(
+        PatchIntent.commit(PatchCommitTarget(targetResult.target!)),
+      );
+    }
+
     if (_looksLikeEditDirectory(operand)) {
       return ParseResult.success(
         PatchIntent.commit(PatchCommitDirectory(operand)),
@@ -232,6 +244,21 @@ final class PatchworkCommandParser {
         operand.startsWith('./') ||
         operand.startsWith('../') ||
         operand.contains('/');
+  }
+
+  bool _hasTargetKindPrefix(String operand) {
+    final separatorIndex = operand.indexOf(':');
+    if (separatorIndex <= 0) {
+      return false;
+    }
+
+    final slashIndex = operand.indexOf('/');
+    if (slashIndex != -1 && slashIndex < separatorIndex) {
+      return false;
+    }
+
+    final kind = operand.substring(0, separatorIndex);
+    return RegExp(r'^[a-z]+$').hasMatch(kind);
   }
 }
 

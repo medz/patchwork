@@ -67,6 +67,21 @@ void main() {
       );
     });
 
+    test(
+      'rejects path targets before treating commit subjects as directories',
+      () {
+        final result = parser.parse([
+          'patch',
+          '--commit',
+          'path:../local_package',
+        ]);
+
+        expect(result.isSuccess, isFalse);
+        expect(result.diagnostic?.code, 'target.unsupportedKind');
+        expect(result.diagnostic?.message, contains('path'));
+      },
+    );
+
     test('parses apply without a target', () {
       final intent = _parseSuccess<ApplyIntent>(parser, ['apply']);
 

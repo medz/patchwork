@@ -93,6 +93,18 @@ patches:
       expect(result.diagnostic?.location, p.join(root.path, 'patchwork.lock'));
     });
 
+    test('rejects an explicit null patches list as malformed', () {
+      File(p.join(root.path, 'patchwork.lock')).writeAsStringSync('patches:\n');
+
+      final result = const PatchworkManifestStore().read(
+        workspaceRootPath: root.path,
+      );
+
+      expect(result.manifest, isNull);
+      expect(result.diagnostic?.code, 'patchwork.manifest_malformed');
+      expect(result.diagnostic?.location, p.join(root.path, 'patchwork.lock'));
+    });
+
     test('rejects patch paths that escape the workspace patch directory', () {
       File(p.join(root.path, 'patchwork.lock')).writeAsStringSync('''
 patches:

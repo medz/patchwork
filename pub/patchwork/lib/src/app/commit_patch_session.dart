@@ -119,8 +119,9 @@ final class CommitPatchSession {
         workspaceRootPath: workspaceRootPath,
         session: session,
       );
-      final patchSnapshot = _PatchFileSnapshot.capture(patchFilePath);
+      _PatchFileSnapshot? patchSnapshot;
       try {
+        patchSnapshot = _PatchFileSnapshot.capture(patchFilePath);
         store.deletePubPatchFile(
           workspaceRootPath: workspaceRootPath,
           session: session,
@@ -174,8 +175,9 @@ final class CommitPatchSession {
       from: workspaceRootPath,
     );
     final manifestPatchPath = patchworkManifestPath(relativePatchPath);
-    final patchSnapshot = _PatchFileSnapshot.capture(patchFilePath);
+    _PatchFileSnapshot? patchSnapshot;
     try {
+      patchSnapshot = _PatchFileSnapshot.capture(patchFilePath);
       store.writePubPatchFile(
         workspaceRootPath: workspaceRootPath,
         session: session,
@@ -236,7 +238,11 @@ final class _PatchFileSnapshot {
   }
 }
 
-Diagnostic? _restorePatchFile(_PatchFileSnapshot snapshot) {
+Diagnostic? _restorePatchFile(_PatchFileSnapshot? snapshot) {
+  if (snapshot == null) {
+    return null;
+  }
+
   try {
     snapshot.restore();
     return null;

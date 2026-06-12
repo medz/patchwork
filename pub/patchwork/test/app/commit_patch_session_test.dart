@@ -203,6 +203,43 @@ patches:
       expect(patchFile.readAsStringSync(), 'existing patch\n');
     });
 
+    test('reports unreadable existing patch snapshots as diagnostics', () {
+      if (Platform.isWindows) {
+        markTestSkipped('File permission checks are platform-specific.');
+      }
+
+      final startResult = const StartPatchSession()(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+      expect(startResult.diagnostic, isNull);
+      final patchFile = File(
+        p.join(fixture.rootPath, 'patches', 'pub', 'analyzer@7.4.0.patch'),
+      );
+      patchFile.parent.createSync(recursive: true);
+      patchFile.writeAsStringSync('existing patch\n');
+      File(p.join(fixture.rootPath, 'patchwork.lock')).writeAsStringSync('''
+patches:
+  - target: pub:analyzer@7.4.0
+    path: patches/pub/analyzer@7.4.0.patch
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+''');
+      _chmod('000', patchFile.path);
+      addTearDown(() {
+        if (patchFile.existsSync()) {
+          _chmod('600', patchFile.path);
+        }
+      });
+
+      final result = const CommitPatchSession().commitTarget(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(result.diagnostic?.code, 'pub.patch_commit_failed');
+      expect(result.diagnostic?.location, patchFile.path);
+    });
+
     test('restores an existing patch when lock removal write fails', () {
       final startResult = const StartPatchSession()(
         const PubTarget(name: 'analyzer'),
@@ -308,6 +345,47 @@ patches:
       expect(patchFile.readAsStringSync(), 'existing patch\n');
     });
 
+    test('reports unreadable patch snapshots before overwriting', () {
+      if (Platform.isWindows) {
+        markTestSkipped('File permission checks are platform-specific.');
+      }
+
+      final startResult = const StartPatchSession()(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+      expect(startResult.diagnostic, isNull);
+      final session = startResult.session!;
+      File(
+        p.join(session.editPath, 'lib', 'analyzer.dart'),
+      ).writeAsStringSync("String analyzerVersion() => '7.4.1';\n");
+      final patchFile = File(
+        p.join(fixture.rootPath, 'patches', 'pub', 'analyzer@7.4.0.patch'),
+      );
+      patchFile.parent.createSync(recursive: true);
+      patchFile.writeAsStringSync('existing patch\n');
+      File(p.join(fixture.rootPath, 'patchwork.lock')).writeAsStringSync('''
+patches:
+  - target: pub:analyzer@7.4.0
+    path: patches/pub/analyzer@7.4.0.patch
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+''');
+      _chmod('000', patchFile.path);
+      addTearDown(() {
+        if (patchFile.existsSync()) {
+          _chmod('600', patchFile.path);
+        }
+      });
+
+      final result = const CommitPatchSession().commitTarget(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(result.diagnostic?.code, 'pub.patch_commit_failed');
+      expect(result.diagnostic?.location, patchFile.path);
+    });
+
     test('restores an existing patch when lock update write fails', () {
       final startResult = const StartPatchSession()(
         const PubTarget(name: 'analyzer'),
@@ -371,4 +449,16 @@ patches:
       expect(result.patchPath, isNull);
     });
   });
+}
+
+void _chmod(String mode, String path) {
+  final result = Process.runSync('chmod', [mode, path]);
+  if (result.exitCode != 0) {
+    throw ProcessException(
+      'chmod',
+      [mode, path],
+      '${result.stderr}',
+      result.exitCode,
+    );
+  }
 }

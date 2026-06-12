@@ -157,13 +157,13 @@ final class PatchworkManifestStore {
       );
     }
 
-    final patchesNode = root['patches'];
-    if (patchesNode == null) {
+    if (!root.containsKey('patches')) {
       return PatchworkManifestReadResult.success(
         PatchworkManifest(patches: const []),
       );
     }
 
+    final patchesNode = root['patches'];
     if (patchesNode is! YamlList) {
       return PatchworkManifestReadResult.failure(
         _malformedManifest(manifestPath),

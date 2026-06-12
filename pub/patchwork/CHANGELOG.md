@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 - Unreleased
+## 0.1.0 - 2026-06-13
 
 - Added the pub package Patchwork MVP.
 - Added `patch`, `patch --commit`, `apply`, `status`, and `doctor` commands.

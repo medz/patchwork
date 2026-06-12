@@ -38,7 +38,11 @@ final class PatchworkStore {
     );
 
     try {
-      _refreshCopy(package.rootPath, baselinePath);
+      _refreshCopy(
+        package.rootPath,
+        baselinePath,
+        excludedSourcePath: patchworkRoot,
+      );
       _refreshCopy(baselinePath, editPath);
       _writeMetadata(
         session,
@@ -59,7 +63,13 @@ final class PatchworkStore {
     return PubPatchSessionCreateResult.success(session);
   }
 
-  void _refreshCopy(String sourcePath, String destinationPath) {
+  void _refreshCopy(
+    String sourcePath,
+    String destinationPath, {
+    String? excludedSourcePath,
+  }) {
+    final sourceRootPath = p.normalize(p.absolute(sourcePath));
+    final destinationRootPath = p.normalize(p.absolute(destinationPath));
     final destination = Directory(destinationPath);
     if (destination.existsSync()) {
       destination.deleteSync(recursive: true);
@@ -67,9 +77,12 @@ final class PatchworkStore {
 
     destination.createSync(recursive: true);
     _copyDirectoryContents(
-      sourceRootPath: sourcePath,
-      sourcePath: sourcePath,
-      destinationPath: destinationPath,
+      sourceRootPath: sourceRootPath,
+      sourcePath: sourceRootPath,
+      destinationPath: destinationRootPath,
+      excludedSourcePath: excludedSourcePath == null
+          ? null
+          : p.normalize(p.absolute(excludedSourcePath)),
     );
   }
 
@@ -77,8 +90,14 @@ final class PatchworkStore {
     required String sourceRootPath,
     required String sourcePath,
     required String destinationPath,
+    required String? excludedSourcePath,
   }) {
     for (final entity in Directory(sourcePath).listSync(followLinks: false)) {
+      final entityPath = p.normalize(p.absolute(entity.path));
+      if (_isSameOrWithin(excludedSourcePath, entityPath)) {
+        continue;
+      }
+
       final relativePath = p.relative(entity.path, from: sourceRootPath);
       final type = FileSystemEntity.typeSync(entity.path, followLinks: false);
       if (_shouldExclude(relativePath, type)) {
@@ -93,6 +112,7 @@ final class PatchworkStore {
             sourceRootPath: sourceRootPath,
             sourcePath: entity.path,
             destinationPath: targetPath,
+            excludedSourcePath: excludedSourcePath,
           );
         case FileSystemEntityType.file:
           File(entity.path).copySync(targetPath);
@@ -104,6 +124,14 @@ final class PatchworkStore {
           break;
       }
     }
+  }
+
+  bool _isSameOrWithin(String? parentPath, String childPath) {
+    if (parentPath == null) {
+      return false;
+    }
+
+    return p.equals(parentPath, childPath) || p.isWithin(parentPath, childPath);
   }
 
   bool _shouldExclude(String relativePath, FileSystemEntityType type) {

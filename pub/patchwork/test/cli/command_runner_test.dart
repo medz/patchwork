@@ -55,6 +55,30 @@ void main() {
       expect(Directory(editPath).existsSync(), isTrue);
     });
 
+    test('maps session creation failures to failure exit code', () {
+      final fixture = PubResolutionFixture.create();
+      addTearDown(fixture.dispose);
+      File(
+        p.join(fixture.rootPath, '.dart_tool', 'patchwork'),
+      ).writeAsStringSync('not a directory');
+      final stdout = StringBuffer();
+      final stderr = StringBuffer();
+
+      final exitCode = runner.run(
+        ['patch', 'analyzer@7.4.0'],
+        stdout: stdout,
+        stderr: stderr,
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(exitCode, PatchworkExitCode.failure);
+      expect(stdout.toString(), isEmpty);
+      expect(
+        stderr.toString(),
+        contains('Could not create pub patch edit session'),
+      );
+    });
+
     test('maps usage errors to usage exit code', () {
       final stdout = StringBuffer();
       final stderr = StringBuffer();

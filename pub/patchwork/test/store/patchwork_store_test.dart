@@ -117,5 +117,71 @@ void main() {
       expect(metadata['target'], 'pub:analyzer@7.4.0');
       expect(metadata['paths'], containsPair('workspaceRoot', root.path));
     });
+
+    test('skips generated patchwork state inside the source package', () {
+      final packageRoot = p.join(root.path, 'source');
+      final workspaceRoot = p.join(packageRoot, 'examples', 'app');
+      final generatedPatchworkPath = p.join(
+        workspaceRoot,
+        '.dart_tool',
+        'patchwork',
+        'edit',
+        'pub',
+        'stale@1.0.0',
+      );
+      Directory(p.join(packageRoot, 'lib')).createSync(recursive: true);
+      Directory(generatedPatchworkPath).createSync(recursive: true);
+      File(
+        p.join(packageRoot, 'lib', 'source.dart'),
+      ).writeAsStringSync('library source;');
+      File(
+        p.join(generatedPatchworkPath, 'stale.dart'),
+      ).writeAsStringSync('library stale;');
+
+      final result = const PatchworkStore().createPubEditSession(
+        workspace: PubWorkspace(
+          rootPath: workspaceRoot,
+          currentPackageRootPath: workspaceRoot,
+          packageConfigPath: p.join(
+            workspaceRoot,
+            '.dart_tool',
+            'package_config.json',
+          ),
+          lockfilePath: p.join(workspaceRoot, 'pubspec.lock'),
+          packageGraphPath: p.join(
+            workspaceRoot,
+            '.dart_tool',
+            'package_graph.json',
+          ),
+        ),
+        package: ResolvedPubPackage(
+          name: 'source',
+          version: '0.0.0',
+          sourceKind: PubPackageSourceKind.path,
+          dependencyKind: PubPackageDependencyKind.directMain,
+          rootPath: packageRoot,
+          packageUri: 'lib/',
+        ),
+      );
+
+      expect(result.diagnostic, isNull);
+      final session = result.session!;
+      expect(
+        File(p.join(session.editPath, 'lib', 'source.dart')).readAsStringSync(),
+        'library source;',
+      );
+      expect(
+        Directory(
+          p.join(
+            session.editPath,
+            'examples',
+            'app',
+            '.dart_tool',
+            'patchwork',
+          ),
+        ).existsSync(),
+        isFalse,
+      );
+    });
   });
 }

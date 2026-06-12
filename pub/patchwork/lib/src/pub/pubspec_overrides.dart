@@ -12,8 +12,14 @@ final class PubspecOverridesStore {
   void updateDependencyOverrides({
     required String workspaceRootPath,
     required Map<String, String> dependencyOverridePaths,
+    bool removeStaleManagedOverrides = true,
   }) {
     final overridesPath = p.join(workspaceRootPath, 'pubspec_overrides.yaml');
+    final overridesFile = File(overridesPath);
+    if (dependencyOverridePaths.isEmpty && !overridesFile.existsSync()) {
+      return;
+    }
+
     final overrides = _readPubspecOverrides(overridesPath);
     final existingDependencyOverrides = overrides['dependency_overrides'];
     final dependencyOverrides = <String, Object?>{};
@@ -29,7 +35,10 @@ final class PubspecOverridesStore {
         );
       }
       for (final entry in existingDependencyOverrides.entries) {
-        if (dependencyOverridePaths.containsKey(entry.key) ||
+        if (dependencyOverridePaths.containsKey(entry.key)) {
+          continue;
+        }
+        if (removeStaleManagedOverrides &&
             _isManagedPatchworkStoreOverride(
               entry.value,
               workspaceRootPath: workspaceRootPath,
@@ -45,9 +54,10 @@ final class PubspecOverridesStore {
     }
     overrides['dependency_overrides'] = dependencyOverrides;
 
-    File(
-      overridesPath,
-    ).writeAsStringSync(_formatPubspecOverrides(overrides), flush: true);
+    overridesFile.writeAsStringSync(
+      _formatPubspecOverrides(overrides),
+      flush: true,
+    );
   }
 }
 

@@ -92,10 +92,6 @@ final class ApplyPatches {
     }
 
     final selectedEntries = selectedEntriesResult.entries;
-    if (selectedEntries.isEmpty) {
-      return PubPatchApplyResult.success(const []);
-    }
-
     final applied = <AppliedPubPatch>[];
     final overridePaths = <String, String>{};
 
@@ -169,22 +165,13 @@ final class ApplyPatches {
       );
     }
 
-    try {
-      pubspecOverridesStore.updateDependencyOverrides(
-        workspaceRootPath: workspaceRootPath,
-        dependencyOverridePaths: overridePaths,
-      );
-    } on PubspecOverridesException catch (error) {
-      return PubPatchApplyResult.failure(error.diagnostic);
-    } on FileSystemException catch (error) {
-      return PubPatchApplyResult.failure(
-        Diagnostic(
-          code: 'pub.overrides_write_failed',
-          message: 'Could not write pubspec_overrides.yaml.',
-          hint: error.message,
-          location: error.path,
-        ),
-      );
+    final overridesDiagnostic = _updateDependencyOverrides(
+      workspaceRootPath: workspaceRootPath,
+      dependencyOverridePaths: overridePaths,
+      removeStaleManagedOverrides: target == null,
+    );
+    if (overridesDiagnostic != null) {
+      return PubPatchApplyResult.failure(overridesDiagnostic);
     }
 
     return PubPatchApplyResult.success(applied);
@@ -294,6 +281,30 @@ final class ApplyPatches {
       if (stagingPath != null) {
         store.deleteDirectory(stagingPath);
       }
+    }
+  }
+
+  Diagnostic? _updateDependencyOverrides({
+    required String workspaceRootPath,
+    required Map<String, String> dependencyOverridePaths,
+    required bool removeStaleManagedOverrides,
+  }) {
+    try {
+      pubspecOverridesStore.updateDependencyOverrides(
+        workspaceRootPath: workspaceRootPath,
+        dependencyOverridePaths: dependencyOverridePaths,
+        removeStaleManagedOverrides: removeStaleManagedOverrides,
+      );
+      return null;
+    } on PubspecOverridesException catch (error) {
+      return error.diagnostic;
+    } on FileSystemException catch (error) {
+      return Diagnostic(
+        code: 'pub.overrides_write_failed',
+        message: 'Could not write pubspec_overrides.yaml.',
+        hint: error.message,
+        location: error.path,
+      );
     }
   }
 

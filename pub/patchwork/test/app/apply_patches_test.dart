@@ -284,6 +284,56 @@ dependency_overrides:
       expect(overrides, contains('analyzer:'));
     });
 
+    test('cleans stale managed patchwork overrides when no patches remain', () {
+      File(
+        p.join(fixture.rootPath, 'pubspec_overrides.yaml'),
+      ).writeAsStringSync('''
+dependency_overrides:
+  collection:
+    path: .dart_tool/patchwork/store/pub/collection@1.0.0_patch_hash=aaaaaaaa
+  local_tool:
+    path: ../local_tool
+''');
+
+      final result = const ApplyPatches().apply(
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(result.diagnostic, isNull);
+      expect(result.applied, isEmpty);
+      final overrides = File(
+        p.join(fixture.rootPath, 'pubspec_overrides.yaml'),
+      ).readAsStringSync();
+      expect(overrides, isNot(contains('collection:')));
+      expect(overrides, isNot(contains('collection@1.0.0_patch_hash')));
+      expect(overrides, contains('local_tool:'));
+      expect(overrides, contains('path: ../local_tool'));
+    });
+
+    test('targeted apply preserves other managed patchwork overrides', () {
+      File(
+        p.join(fixture.rootPath, 'pubspec_overrides.yaml'),
+      ).writeAsStringSync('''
+dependency_overrides:
+  collection:
+    path: .dart_tool/patchwork/store/pub/collection@1.0.0_patch_hash=aaaaaaaa
+''');
+      _commitAnalyzerPatch(fixture, version: '7.4.1');
+
+      final result = const ApplyPatches().apply(
+        target: const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(result.diagnostic, isNull);
+      final overrides = File(
+        p.join(fixture.rootPath, 'pubspec_overrides.yaml'),
+      ).readAsStringSync();
+      expect(overrides, contains('collection:'));
+      expect(overrides, contains('collection@1.0.0_patch_hash=aaaaaaaa'));
+      expect(overrides, contains('analyzer:'));
+    });
+
     test('fails before rebuilding from an old store copy without baseline', () {
       _commitAnalyzerPatch(fixture, version: '7.4.1');
       final firstResult = const ApplyPatches().apply(

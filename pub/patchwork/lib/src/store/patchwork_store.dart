@@ -18,7 +18,7 @@ final class PatchworkStore {
     required PubWorkspace workspace,
     required ResolvedPubPackage package,
   }) {
-    final sessionId = '${package.name}@${package.version}';
+    final sessionId = _pubSessionId(package);
     final patchworkRoot = p.join(workspace.rootPath, '.dart_tool', 'patchwork');
     final baselinePath = p.join(patchworkRoot, 'baseline', 'pub', sessionId);
     final editPath = p.join(patchworkRoot, 'edit', 'pub', sessionId);
@@ -66,7 +66,7 @@ final class PatchworkStore {
     required PubWorkspace workspace,
     required ResolvedPubPackage package,
   }) {
-    final sessionId = '${package.name}@${package.version}';
+    final sessionId = _pubSessionId(package);
     final metadataPath = p.join(
       workspace.rootPath,
       '.dart_tool',
@@ -156,8 +156,7 @@ final class PatchworkStore {
       'patchwork',
       'baseline',
       'pub',
-      '${_escapePatchPathComponent(package.name)}@'
-          '${_escapePatchPathComponent(package.version)}',
+      _pubSessionId(package),
     );
   }
 
@@ -524,6 +523,11 @@ final class PatchworkStore {
       }
     }
     return buffer.toString();
+  }
+
+  String _pubSessionId(ResolvedPubPackage package) {
+    return '${_escapePatchPathComponent(package.name)}@'
+        '${_escapePatchPathComponent(package.version)}';
   }
 }
 

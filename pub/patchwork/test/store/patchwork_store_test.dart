@@ -210,5 +210,53 @@ void main() {
         p.join(root.path, 'patches', 'pub', 'some_pkg@1.0.0%2B1.patch'),
       );
     });
+
+    test('uses escaped pub session path components consistently', () {
+      final packageRoot = p.join(root.path, 'cache', 'some_pkg-1.0.0+1');
+      Directory(p.join(packageRoot, 'lib')).createSync(recursive: true);
+      File(
+        p.join(packageRoot, 'lib', 'some_pkg.dart'),
+      ).writeAsStringSync('library some_pkg;');
+      final workspace = PubWorkspace(
+        rootPath: root.path,
+        currentPackageRootPath: root.path,
+        packageConfigPath: p.join(
+          root.path,
+          '.dart_tool',
+          'package_config.json',
+        ),
+        lockfilePath: p.join(root.path, 'pubspec.lock'),
+        packageGraphPath: p.join(root.path, '.dart_tool', 'package_graph.json'),
+      );
+      final resolvedPackage = ResolvedPubPackage(
+        name: 'some_pkg',
+        version: '1.0.0+1',
+        sourceKind: PubPackageSourceKind.hosted,
+        dependencyKind: PubPackageDependencyKind.directMain,
+        rootPath: packageRoot,
+        packageUri: 'lib/',
+      );
+      const store = PatchworkStore();
+
+      final result = store.createPubEditSession(
+        workspace: workspace,
+        package: resolvedPackage,
+      );
+
+      expect(result.diagnostic, isNull);
+      final baselinePath = store.pubPatchBaselinePath(
+        workspaceRootPath: root.path,
+        package: resolvedPackage,
+      );
+      expect(result.session?.baselinePath, baselinePath);
+      expect(result.session?.baselinePath, contains('some_pkg@1.0.0%2B1'));
+      expect(Directory(baselinePath).existsSync(), isTrue);
+      final locateResult = store.locatePubEditSessionForPackage(
+        workspace: workspace,
+        package: resolvedPackage,
+      );
+      expect(locateResult.diagnostic, isNull);
+      expect(locateResult.session?.baselinePath, baselinePath);
+    });
   });
 }

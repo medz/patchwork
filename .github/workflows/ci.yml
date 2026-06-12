@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  dart:
+    name: Dart
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1.7.2
+        with:
+          sdk: stable
+
+      - name: Install dependencies
+        working-directory: pub/patchwork
+        run: dart pub get
+
+      - name: Verify formatting
+        run: dart format --output=none --set-exit-if-changed pub/patchwork/bin pub/patchwork/lib pub/patchwork/test
+
+      - name: Analyze workspace
+        run: dart analyze
+
+      - name: Run tests
+        working-directory: pub/patchwork
+        run: dart test

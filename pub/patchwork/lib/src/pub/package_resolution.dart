@@ -226,10 +226,12 @@ final class PubResolutionReader {
         return _ResolutionMetadataReadResult.failure(packageGraphDiagnostic);
       }
 
-      return _ResolutionMetadataReadResult.success({
-        ...packageGraphResult.packages,
-        ...lockfileResult.packages,
-      });
+      return _ResolutionMetadataReadResult.success(
+        _mergeResolutionMetadata(
+          graphPackages: packageGraphResult.packages,
+          lockfilePackages: lockfileResult.packages,
+        ),
+      );
     }
 
     if (packageGraph.existsSync()) {
@@ -318,6 +320,30 @@ final class PubResolutionReader {
         ),
       );
     }
+  }
+
+  Map<String, _ResolutionMetadataPackage> _mergeResolutionMetadata({
+    required Map<String, _ResolutionMetadataPackage> graphPackages,
+    required Map<String, _ResolutionMetadataPackage> lockfilePackages,
+  }) {
+    final entries = <String, _ResolutionMetadataPackage>{...lockfilePackages};
+
+    for (final entry in graphPackages.entries) {
+      final lockfilePackage = lockfilePackages[entry.key];
+      final graphPackage = entry.value;
+      if (lockfilePackage == null) {
+        entries[entry.key] = graphPackage;
+        continue;
+      }
+
+      entries[entry.key] = _ResolutionMetadataPackage(
+        version: lockfilePackage.version,
+        sourceKind: lockfilePackage.sourceKind,
+        dependencyKind: graphPackage.dependencyKind,
+      );
+    }
+
+    return entries;
   }
 
   _ResolutionMetadataReadResult _readPackageGraph(

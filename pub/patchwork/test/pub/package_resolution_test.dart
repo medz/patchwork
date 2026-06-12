@@ -71,6 +71,24 @@ void main() {
       expect(result.package?.rootPath, fixture.memberPath);
     });
 
+    test(
+      'preserves graph dependency kind when lockfile metadata is merged',
+      () {
+        fixture.writeAnalyzerLockfileDependency('transitive');
+
+        final resolution = _readResolution(fixture.rootPath);
+        final result = resolution.resolve(const PubTarget(name: 'analyzer'));
+
+        expect(result.diagnostic, isNull);
+        expect(result.package?.version, '7.4.0');
+        expect(result.package?.sourceKind, PubPackageSourceKind.hosted);
+        expect(
+          result.package?.dependencyKind,
+          PubPackageDependencyKind.directMain,
+        );
+      },
+    );
+
     test('reports an unknown package', () {
       final resolution = _readResolution(fixture.rootPath);
       final result = resolution.resolve(

@@ -216,10 +216,17 @@ final class _PatchFileSnapshot {
   final List<int>? bytes;
 
   static _PatchFileSnapshot capture(String path) {
-    final file = File(path);
+    final entityType = FileSystemEntity.typeSync(path, followLinks: false);
+    if (entityType != FileSystemEntityType.file &&
+        entityType != FileSystemEntityType.notFound) {
+      throw FileSystemException('Patch file is not a regular file.', path);
+    }
+
     return _PatchFileSnapshot._(
       path: path,
-      bytes: file.existsSync() ? file.readAsBytesSync() : null,
+      bytes: entityType == FileSystemEntityType.file
+          ? File(path).readAsBytesSync()
+          : null,
     );
   }
 

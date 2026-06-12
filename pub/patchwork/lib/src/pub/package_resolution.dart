@@ -346,7 +346,17 @@ final class PubResolutionReader {
         );
       }
 
-      final rootNames = roots.whereType<String>().toSet();
+      final rootNamesResult = _readPackageGraphStringList(
+        workspace,
+        roots,
+        'roots',
+      );
+      final rootNamesDiagnostic = rootNamesResult.diagnostic;
+      if (rootNamesDiagnostic != null) {
+        return _ResolutionMetadataReadResult.failure(rootNamesDiagnostic);
+      }
+
+      final rootNames = rootNamesResult.values.toSet();
       final rootMainDependencies = <String>{};
       final rootDevDependencies = <String>{};
       final packageObjects = <Map<String, Object?>>[];
@@ -364,9 +374,33 @@ final class PubResolutionReader {
         packageObjects.add(package);
 
         final name = package['name'];
+        final dependenciesResult = _readPackageGraphStringList(
+          workspace,
+          package['dependencies'],
+          'package dependencies',
+          allowMissing: true,
+        );
+        final dependenciesDiagnostic = dependenciesResult.diagnostic;
+        if (dependenciesDiagnostic != null) {
+          return _ResolutionMetadataReadResult.failure(dependenciesDiagnostic);
+        }
+
+        final devDependenciesResult = _readPackageGraphStringList(
+          workspace,
+          package['devDependencies'],
+          'package devDependencies',
+          allowMissing: true,
+        );
+        final devDependenciesDiagnostic = devDependenciesResult.diagnostic;
+        if (devDependenciesDiagnostic != null) {
+          return _ResolutionMetadataReadResult.failure(
+            devDependenciesDiagnostic,
+          );
+        }
+
         if (name is String && rootNames.contains(name)) {
-          rootMainDependencies.addAll(_stringList(package['dependencies']));
-          rootDevDependencies.addAll(_stringList(package['devDependencies']));
+          rootMainDependencies.addAll(dependenciesResult.values);
+          rootDevDependencies.addAll(devDependenciesResult.values);
         }
       }
 
@@ -380,6 +414,15 @@ final class PubResolutionReader {
             _malformedPackageGraph(
               workspace,
               'Expected package_graph packages to include name and version.',
+            ),
+          );
+        }
+
+        if (entries.containsKey(name)) {
+          return _ResolutionMetadataReadResult.failure(
+            _malformedPackageGraph(
+              workspace,
+              'Package "$name" appears more than once in package_graph.json.',
             ),
           );
         }
@@ -499,12 +542,40 @@ final class PubResolutionReader {
     return PubPackageDependencyKind.transitive;
   }
 
-  Iterable<String> _stringList(Object? value) {
-    if (value is! List<Object?>) {
-      return const [];
+  _PackageGraphStringListReadResult _readPackageGraphStringList(
+    PubWorkspace workspace,
+    Object? value,
+    String fieldName, {
+    bool allowMissing = false,
+  }) {
+    if (value == null && allowMissing) {
+      return _PackageGraphStringListReadResult.success(const []);
     }
 
-    return value.whereType<String>();
+    if (value is! List<Object?>) {
+      return _PackageGraphStringListReadResult.failure(
+        _malformedPackageGraph(
+          workspace,
+          'Expected package_graph $fieldName to be a list of strings.',
+        ),
+      );
+    }
+
+    final entries = <String>[];
+    for (final item in value) {
+      if (item is! String) {
+        return _PackageGraphStringListReadResult.failure(
+          _malformedPackageGraph(
+            workspace,
+            'Expected package_graph $fieldName to contain only strings.',
+          ),
+        );
+      }
+
+      entries.add(item);
+    }
+
+    return _PackageGraphStringListReadResult.success(entries);
   }
 }
 
@@ -732,5 +803,26 @@ final class _ResolutionMetadataReadResult {
   }
 
   final Map<String, _ResolutionMetadataPackage> packages;
+  final Diagnostic? diagnostic;
+}
+
+final class _PackageGraphStringListReadResult {
+  const _PackageGraphStringListReadResult._({
+    required this.values,
+    this.diagnostic,
+  });
+
+  factory _PackageGraphStringListReadResult.success(List<String> values) {
+    return _PackageGraphStringListReadResult._(values: values);
+  }
+
+  factory _PackageGraphStringListReadResult.failure(Diagnostic diagnostic) {
+    return _PackageGraphStringListReadResult._(
+      values: const [],
+      diagnostic: diagnostic,
+    );
+  }
+
+  final List<String> values;
   final Diagnostic? diagnostic;
 }

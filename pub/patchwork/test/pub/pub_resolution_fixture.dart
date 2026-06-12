@@ -69,6 +69,10 @@ final class PubResolutionFixture {
     File(lockfilePath).writeAsStringSync(content);
   }
 
+  void overwritePackageGraph(Object? value) {
+    File(packageGraphPath).writeAsStringSync(jsonEncode(value));
+  }
+
   void deleteLockfile() {
     File(lockfilePath).deleteSync();
   }

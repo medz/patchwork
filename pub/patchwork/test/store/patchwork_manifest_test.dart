@@ -1,0 +1,161 @@
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
+import 'package:patchwork/src/store/patchwork_manifest.dart';
+import 'package:test/test.dart';
+
+void main() {
+  group('PatchworkManifestStore', () {
+    late Directory root;
+
+    setUp(() {
+      root = Directory.systemTemp.createTempSync('patchwork manifest ');
+    });
+
+    tearDown(() {
+      if (root.existsSync()) {
+        root.deleteSync(recursive: true);
+      }
+    });
+
+    test('reads a missing or empty manifest as empty', () {
+      final store = const PatchworkManifestStore();
+
+      final missingResult = store.read(workspaceRootPath: root.path);
+
+      expect(missingResult.diagnostic, isNull);
+      expect(missingResult.manifest!.patches, isEmpty);
+
+      File(p.join(root.path, 'patchwork.lock')).writeAsStringSync('');
+
+      final emptyResult = store.read(workspaceRootPath: root.path);
+
+      expect(emptyResult.diagnostic, isNull);
+      expect(emptyResult.manifest!.patches, isEmpty);
+    });
+
+    test('reads valid manifest entries', () {
+      File(p.join(root.path, 'patchwork.lock')).writeAsStringSync('''
+patches:
+  - target: pub:analyzer@7.4.0
+    path: patches/pub/analyzer@7.4.0.patch
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+''');
+
+      final result = const PatchworkManifestStore().read(
+        workspaceRootPath: root.path,
+      );
+
+      expect(result.diagnostic, isNull);
+      expect(result.manifest!.patches, hasLength(1));
+      final entry = result.manifest!.patches.single;
+      expect(entry.target, 'pub:analyzer@7.4.0');
+      expect(entry.path, 'patches/pub/analyzer@7.4.0.patch');
+      expect(
+        entry.hash,
+        '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+      );
+    });
+
+    test('rejects duplicate manifest targets', () {
+      File(p.join(root.path, 'patchwork.lock')).writeAsStringSync('''
+patches:
+  - target: pub:analyzer@7.4.0
+    path: patches/pub/analyzer@7.4.0.patch
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+  - target: pub:analyzer@7.4.0
+    path: patches/pub/analyzer-copy.patch
+    hash: ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+''');
+
+      final result = const PatchworkManifestStore().read(
+        workspaceRootPath: root.path,
+      );
+
+      expect(result.manifest, isNull);
+      expect(result.diagnostic?.code, 'patchwork.manifest_duplicate_target');
+      expect(result.diagnostic?.location, p.join(root.path, 'patchwork.lock'));
+    });
+
+    test('rejects malformed manifest entries', () {
+      File(p.join(root.path, 'patchwork.lock')).writeAsStringSync('''
+patches:
+  - target: pub:analyzer@7.4.0
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+''');
+
+      final result = const PatchworkManifestStore().read(
+        workspaceRootPath: root.path,
+      );
+
+      expect(result.manifest, isNull);
+      expect(result.diagnostic?.code, 'patchwork.manifest_malformed');
+      expect(result.diagnostic?.location, p.join(root.path, 'patchwork.lock'));
+    });
+
+    test('writes entries with stable formatting and updates by target', () {
+      final store = const PatchworkManifestStore();
+
+      store.upsertPatch(
+        workspaceRootPath: root.path,
+        entry: const PatchworkManifestPatch(
+          target: 'pub:analyzer@7.4.0',
+          path: 'patches/pub/analyzer@7.4.0.patch',
+          hash:
+              '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        ),
+      );
+      store.upsertPatch(
+        workspaceRootPath: root.path,
+        entry: const PatchworkManifestPatch(
+          target: 'pub:analyzer@7.4.0',
+          path: 'patches/pub/analyzer@7.4.0.patch',
+          hash:
+              'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+        ),
+      );
+
+      expect(File(p.join(root.path, 'patchwork.lock')).readAsStringSync(), '''
+patches:
+  - target: pub:analyzer@7.4.0
+    path: patches/pub/analyzer@7.4.0.patch
+    hash: ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+''');
+      final result = store.read(workspaceRootPath: root.path);
+      expect(result.diagnostic, isNull);
+      expect(result.manifest!.patches, hasLength(1));
+    });
+
+    test('detects missing and stale patch files', () {
+      const patchPath = 'patches/pub/analyzer@7.4.0.patch';
+      final patchFile = File(p.join(root.path, patchPath));
+      patchFile.parent.createSync(recursive: true);
+      patchFile.writeAsStringSync('current patch\n');
+      final currentHash = patchworkPatchFileHash(patchFile.path);
+      File(p.join(root.path, 'patchwork.lock')).writeAsStringSync('''
+patches:
+  - target: pub:analyzer@7.4.0
+    path: $patchPath
+    hash: $currentHash
+  - target: pub:collection@1.19.1
+    path: patches/pub/collection@1.19.1.patch
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+''');
+      patchFile.writeAsStringSync('changed patch\n');
+
+      final result = const PatchworkManifestStore().inspectPatchFiles(
+        workspaceRootPath: root.path,
+      );
+
+      expect(result.diagnostic, isNull);
+      expect(result.patches, hasLength(2));
+      expect(result.patches[0].state, PatchworkManifestPatchState.stale);
+      expect(
+        result.patches[0].diagnostic?.code,
+        'patchwork.patch_hash_mismatch',
+      );
+      expect(result.patches[1].state, PatchworkManifestPatchState.missing);
+      expect(result.patches[1].diagnostic?.code, 'patchwork.patch_missing');
+    });
+  });
+}

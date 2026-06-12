@@ -6,6 +6,7 @@ import '../diagnostics/diagnostic.dart';
 import '../patch/patch_file.dart';
 import '../pub/package_resolution.dart';
 import '../store/edit_session.dart';
+import '../store/patchwork_manifest.dart';
 import '../store/patchwork_store.dart';
 import '../target/target.dart';
 
@@ -39,12 +40,14 @@ final class CommitPatchSession {
   const CommitPatchSession({
     this.resolutionReader = const PubResolutionReader(),
     this.store = const PatchworkStore(),
+    this.manifestStore = const PatchworkManifestStore(),
     this.patchBuilder = const PatchFileBuilder(),
     this.patchValidator = const PatchValidator(),
   });
 
   final PubResolutionReader resolutionReader;
   final PatchworkStore store;
+  final PatchworkManifestStore manifestStore;
   final PatchFileBuilder patchBuilder;
   final PatchValidator patchValidator;
 
@@ -109,10 +112,16 @@ final class CommitPatchSession {
           workspaceRootPath: locateResult.workspaceRootPath!,
           session: session,
         );
+        manifestStore.removePatch(
+          workspaceRootPath: locateResult.workspaceRootPath!,
+          target: session.target.toString(),
+        );
       } on FileSystemException catch (error) {
         return PubPatchSessionCommitResult.failure(
           _patchCommitDiagnostic(error),
         );
+      } on PatchworkManifestException catch (error) {
+        return PubPatchSessionCommitResult.failure(error.diagnostic);
       }
       return PubPatchSessionCommitResult.noChanges();
     }
@@ -128,25 +137,36 @@ final class CommitPatchSession {
     }
 
     final workspaceRootPath = locateResult.workspaceRootPath!;
+    final patchFilePath = store.pubPatchFilePath(
+      workspaceRootPath: workspaceRootPath,
+      session: session,
+    );
+    final relativePatchPath = p.relative(
+      patchFilePath,
+      from: workspaceRootPath,
+    );
+    final manifestPatchPath = patchworkManifestPath(relativePatchPath);
     try {
       store.writePubPatchFile(
         workspaceRootPath: workspaceRootPath,
         session: session,
         content: patchContent,
       );
+      manifestStore.upsertPatch(
+        workspaceRootPath: workspaceRootPath,
+        entry: PatchworkManifestPatch(
+          target: session.target.toString(),
+          path: manifestPatchPath,
+          hash: patchworkPatchFileHash(patchFilePath),
+        ),
+      );
     } on FileSystemException catch (error) {
       return PubPatchSessionCommitResult.failure(_patchCommitDiagnostic(error));
+    } on PatchworkManifestException catch (error) {
+      return PubPatchSessionCommitResult.failure(error.diagnostic);
     }
 
-    return PubPatchSessionCommitResult.success(
-      p.relative(
-        store.pubPatchFilePath(
-          workspaceRootPath: workspaceRootPath,
-          session: session,
-        ),
-        from: workspaceRootPath,
-      ),
-    );
+    return PubPatchSessionCommitResult.success(relativePatchPath);
   }
 }
 

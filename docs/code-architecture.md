@@ -8,7 +8,7 @@ when the implementation proves that a boundary is wrong.
 
 The first Patchwork version supports pub package patches only. It must cover
 target parsing, pub package resolution, edit sessions, patch commits,
-`patchwork.yaml`, generated path overrides, `status`, `doctor`, and end-to-end
+`patchwork.lock`, generated path overrides, `status`, `doctor`, and end-to-end
 fixtures.
 
 The MVP does not include `sdk:flutter`, `sdk:dart`, hooks integration,
@@ -101,7 +101,7 @@ Domain modules are narrow:
   package metadata.
 - `store` owns `.dart_tool/patchwork/` paths, baselines, editable copies, and
   session metadata.
-- `manifest` owns `patchwork.yaml` models and stable YAML read/write behavior.
+- `manifest` owns `patchwork.lock` models and stable YAML read/write behavior.
 - `patch` owns diff creation, patch apply validation, and content hashes.
 - `io` contains side-effect adapters for files, processes, clocks, and
   environment access.
@@ -115,7 +115,7 @@ access must be passed in from the application or IO boundary.
 
 Committed project state:
 
-- `patchwork.yaml`
+- `patchwork.lock`
 - patch files under `patches/pub/`
 - source, tests, fixtures, and documentation
 
@@ -137,12 +137,12 @@ ignored files.
 
 ## Manifest Rules
 
-`patchwork.yaml` is the committed source of truth for applied patches. Its
+`patchwork.lock` is the committed source of truth for applied patches. Its
 writer must produce stable ordering and formatting so repeated commands do not
 create noisy diffs.
 
 A patch commit must validate that the generated patch applies to a fresh
-baseline before updating `patchwork.yaml`. Hash metadata must describe the patch
+baseline before updating `patchwork.lock`. Hash metadata must describe the patch
 content that was validated, not an editable working copy.
 
 Manifest writes are all-or-nothing from the caller's perspective. A failed patch

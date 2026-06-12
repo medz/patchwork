@@ -51,6 +51,15 @@ void main() {
       expect(patchContent, contains("+String analyzerVersion() => '7.4.1';"));
       expect(patchContent, isNot(contains(fixture.rootPath)));
       expect(patchContent, isNot(contains(fixture.analyzerRootPath)));
+      final manifestContent = File(
+        p.join(fixture.rootPath, 'patchwork.lock'),
+      ).readAsStringSync();
+      expect(manifestContent, contains('target: pub:analyzer@7.4.0'));
+      expect(
+        manifestContent,
+        contains('path: patches/pub/analyzer@7.4.0.patch'),
+      );
+      expect(manifestContent, matches(RegExp(r'hash: [0-9a-f]{64}')));
     });
 
     test('commits an edit directory session', () {
@@ -115,6 +124,12 @@ void main() {
       );
       patchFile.parent.createSync(recursive: true);
       patchFile.writeAsStringSync('stale patch\n');
+      File(p.join(fixture.rootPath, 'patchwork.lock')).writeAsStringSync('''
+patches:
+  - target: pub:analyzer@7.4.0
+    path: patches/pub/analyzer@7.4.0.patch
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+''');
 
       final result = const CommitPatchSession().commitTarget(
         const PubTarget(name: 'analyzer'),
@@ -125,6 +140,47 @@ void main() {
       expect(result.noChanges, isTrue);
       expect(result.patchPath, isNull);
       expect(patchFile.existsSync(), isFalse);
+      expect(
+        File(p.join(fixture.rootPath, 'patchwork.lock')).readAsStringSync(),
+        'patches: []\n',
+      );
+    });
+
+    test('updates the existing manifest entry when recommitting', () {
+      final startResult = const StartPatchSession()(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+      expect(startResult.diagnostic, isNull);
+      final session = startResult.session!;
+      final editFile = File(p.join(session.editPath, 'lib', 'analyzer.dart'));
+      editFile.writeAsStringSync("String analyzerVersion() => '7.4.1';\n");
+
+      final firstResult = const CommitPatchSession().commitTarget(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+      expect(firstResult.diagnostic, isNull);
+      final firstManifest = File(
+        p.join(fixture.rootPath, 'patchwork.lock'),
+      ).readAsStringSync();
+
+      editFile.writeAsStringSync("String analyzerVersion() => '7.4.2';\n");
+      final secondResult = const CommitPatchSession().commitTarget(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(secondResult.diagnostic, isNull);
+      final secondManifest = File(
+        p.join(fixture.rootPath, 'patchwork.lock'),
+      ).readAsStringSync();
+      expect(secondManifest, isNot(firstManifest));
+      expect(
+        'target: pub:analyzer@7.4.0'.allMatches(secondManifest),
+        hasLength(1),
+      );
+      expect(secondManifest, matches(RegExp(r'hash: [0-9a-f]{64}')));
     });
 
     test('reports patch write failures as diagnostics', () {

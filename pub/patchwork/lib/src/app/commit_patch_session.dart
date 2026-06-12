@@ -6,6 +6,7 @@ import '../diagnostics/diagnostic.dart';
 import '../patch/patch_file.dart';
 import '../pub/package_resolution.dart';
 import '../store/edit_session.dart';
+import '../store/patchwork_manifest.dart';
 import '../store/patchwork_store.dart';
 import '../target/target.dart';
 
@@ -39,12 +40,14 @@ final class CommitPatchSession {
   const CommitPatchSession({
     this.resolutionReader = const PubResolutionReader(),
     this.store = const PatchworkStore(),
+    this.manifestStore = const PatchworkManifestStore(),
     this.patchBuilder = const PatchFileBuilder(),
     this.patchValidator = const PatchValidator(),
   });
 
   final PubResolutionReader resolutionReader;
   final PatchworkStore store;
+  final PatchworkManifestStore manifestStore;
   final PatchFileBuilder patchBuilder;
   final PatchValidator patchValidator;
 
@@ -104,15 +107,43 @@ final class CommitPatchSession {
     }
 
     if (!buildResult.hasChanges) {
+      final workspaceRootPath = locateResult.workspaceRootPath!;
+      final manifestDiagnostic = manifestStore
+          .read(workspaceRootPath: workspaceRootPath)
+          .diagnostic;
+      if (manifestDiagnostic != null) {
+        return PubPatchSessionCommitResult.failure(manifestDiagnostic);
+      }
+
+      final patchFilePath = store.pubPatchFilePath(
+        workspaceRootPath: workspaceRootPath,
+        session: session,
+      );
+      _PatchFileSnapshot? patchSnapshot;
       try {
+        patchSnapshot = _PatchFileSnapshot.capture(patchFilePath);
         store.deletePubPatchFile(
-          workspaceRootPath: locateResult.workspaceRootPath!,
+          workspaceRootPath: workspaceRootPath,
           session: session,
         );
+        manifestStore.removePatch(
+          workspaceRootPath: workspaceRootPath,
+          target: session.target.toString(),
+        );
       } on FileSystemException catch (error) {
+        final rollbackDiagnostic = _restorePatchFile(patchSnapshot);
+        if (rollbackDiagnostic != null) {
+          return PubPatchSessionCommitResult.failure(rollbackDiagnostic);
+        }
         return PubPatchSessionCommitResult.failure(
           _patchCommitDiagnostic(error),
         );
+      } on PatchworkManifestException catch (error) {
+        final rollbackDiagnostic = _restorePatchFile(patchSnapshot);
+        if (rollbackDiagnostic != null) {
+          return PubPatchSessionCommitResult.failure(rollbackDiagnostic);
+        }
+        return PubPatchSessionCommitResult.failure(error.diagnostic);
       }
       return PubPatchSessionCommitResult.noChanges();
     }
@@ -128,24 +159,106 @@ final class CommitPatchSession {
     }
 
     final workspaceRootPath = locateResult.workspaceRootPath!;
+    final manifestDiagnostic = manifestStore
+        .read(workspaceRootPath: workspaceRootPath)
+        .diagnostic;
+    if (manifestDiagnostic != null) {
+      return PubPatchSessionCommitResult.failure(manifestDiagnostic);
+    }
+
+    final patchFilePath = store.pubPatchFilePath(
+      workspaceRootPath: workspaceRootPath,
+      session: session,
+    );
+    final relativePatchPath = p.relative(
+      patchFilePath,
+      from: workspaceRootPath,
+    );
+    final manifestPatchPath = patchworkManifestPath(relativePatchPath);
+    _PatchFileSnapshot? patchSnapshot;
     try {
+      patchSnapshot = _PatchFileSnapshot.capture(patchFilePath);
       store.writePubPatchFile(
         workspaceRootPath: workspaceRootPath,
         session: session,
         content: patchContent,
       );
+      manifestStore.upsertPatch(
+        workspaceRootPath: workspaceRootPath,
+        entry: PatchworkManifestPatch(
+          target: session.target.toString(),
+          path: manifestPatchPath,
+          hash: manifestStore.hashFile(patchFilePath),
+        ),
+      );
     } on FileSystemException catch (error) {
+      final rollbackDiagnostic = _restorePatchFile(patchSnapshot);
+      if (rollbackDiagnostic != null) {
+        return PubPatchSessionCommitResult.failure(rollbackDiagnostic);
+      }
       return PubPatchSessionCommitResult.failure(_patchCommitDiagnostic(error));
+    } on PatchworkManifestException catch (error) {
+      final rollbackDiagnostic = _restorePatchFile(patchSnapshot);
+      if (rollbackDiagnostic != null) {
+        return PubPatchSessionCommitResult.failure(rollbackDiagnostic);
+      }
+      return PubPatchSessionCommitResult.failure(error.diagnostic);
     }
 
-    return PubPatchSessionCommitResult.success(
-      p.relative(
-        store.pubPatchFilePath(
-          workspaceRootPath: workspaceRootPath,
-          session: session,
-        ),
-        from: workspaceRootPath,
-      ),
+    return PubPatchSessionCommitResult.success(relativePatchPath);
+  }
+}
+
+final class _PatchFileSnapshot {
+  const _PatchFileSnapshot._({required this.path, required this.bytes});
+
+  final String path;
+  final List<int>? bytes;
+
+  static _PatchFileSnapshot capture(String path) {
+    final entityType = FileSystemEntity.typeSync(path, followLinks: false);
+    if (entityType != FileSystemEntityType.file &&
+        entityType != FileSystemEntityType.notFound) {
+      throw FileSystemException('Patch file is not a regular file.', path);
+    }
+
+    return _PatchFileSnapshot._(
+      path: path,
+      bytes: entityType == FileSystemEntityType.file
+          ? File(path).readAsBytesSync()
+          : null,
+    );
+  }
+
+  void restore() {
+    final file = File(path);
+    final bytes = this.bytes;
+    if (bytes == null) {
+      if (file.existsSync()) {
+        file.deleteSync();
+      }
+      return;
+    }
+
+    file.parent.createSync(recursive: true);
+    file.writeAsBytesSync(bytes, flush: true);
+  }
+}
+
+Diagnostic? _restorePatchFile(_PatchFileSnapshot? snapshot) {
+  if (snapshot == null) {
+    return null;
+  }
+
+  try {
+    snapshot.restore();
+    return null;
+  } on FileSystemException catch (error) {
+    return Diagnostic(
+      code: 'pub.patch_commit_failed',
+      message: 'Could not roll back the pub patch file after commit failure.',
+      hint: error.message,
+      location: error.path,
     );
   }
 }

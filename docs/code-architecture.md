@@ -8,7 +8,7 @@ when the implementation proves that a boundary is wrong.
 
 The first Patchwork version supports pub package patches only. It must cover
 target parsing, pub package resolution, edit sessions, patch commits,
-`patchwork.yaml`, generated path overrides, `status`, `doctor`, and end-to-end
+`patchwork.lock`, generated path overrides, `status`, `doctor`, and end-to-end
 fixtures.
 
 The MVP does not include `sdk:flutter`, `sdk:dart`, hooks integration,
@@ -45,14 +45,12 @@ pub/patchwork/
         pub_workspace.dart
       store/
         edit_session.dart
-        patchwork_store.dart
-      manifest/
         patchwork_manifest.dart
-        patchwork_manifest_codec.dart
+        patchwork_store.dart
+      session/
+        session_file_filter.dart
       patch/
         patch_file.dart
-        patch_hash.dart
-        patch_tool.dart
       diagnostics/
         diagnostic.dart
         exit_code.dart
@@ -61,12 +59,11 @@ pub/patchwork/
         process_runner.dart
   test/
     cli/
-    fixtures/
-    target/
+    app/
+    patch/
     pub/
     store/
-    manifest/
-    patch/
+    target/
 ```
 
 `bin/patchwork.dart` wires the real file system, process runner, command
@@ -100,9 +97,12 @@ Domain modules are narrow:
 - `pub` reads the current pub workspace and resolves package names to immutable
   package metadata.
 - `store` owns `.dart_tool/patchwork/` paths, baselines, editable copies, and
-  session metadata.
-- `manifest` owns `patchwork.yaml` models and stable YAML read/write behavior.
-- `patch` owns diff creation, patch apply validation, and content hashes.
+  session metadata. It also owns committed patch file paths under
+  `patches/pub/` and `patchwork.lock` models, stable YAML read/write behavior,
+  and patch-content hash inspection through `store/patchwork_manifest.dart`.
+- `session` owns shared session file filtering rules used by store copies and
+  patch diff generation.
+- `patch` owns diff creation and patch apply validation.
 - `io` contains side-effect adapters for files, processes, clocks, and
   environment access.
 - `diagnostics` defines typed errors, hints, and exit code mapping.
@@ -115,7 +115,7 @@ access must be passed in from the application or IO boundary.
 
 Committed project state:
 
-- `patchwork.yaml`
+- `patchwork.lock`
 - patch files under `patches/pub/`
 - source, tests, fixtures, and documentation
 
@@ -137,12 +137,12 @@ ignored files.
 
 ## Manifest Rules
 
-`patchwork.yaml` is the committed source of truth for applied patches. Its
+`patchwork.lock` is the committed source of truth for applied patches. Its
 writer must produce stable ordering and formatting so repeated commands do not
 create noisy diffs.
 
 A patch commit must validate that the generated patch applies to a fresh
-baseline before updating `patchwork.yaml`. Hash metadata must describe the patch
+baseline before updating `patchwork.lock`. Hash metadata must describe the patch
 content that was validated, not an editable working copy.
 
 Manifest writes are all-or-nothing from the caller's perspective. A failed patch

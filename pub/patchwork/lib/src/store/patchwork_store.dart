@@ -7,6 +7,7 @@ import '../diagnostics/diagnostic.dart';
 import '../pub/package_resolution.dart';
 import '../pub/pub_workspace.dart';
 import '../session/session_file_filter.dart';
+import 'patchwork_manifest.dart';
 import '../target/target.dart';
 import 'edit_session.dart';
 
@@ -142,6 +143,127 @@ final class PatchworkStore {
     );
     if (patchFile.existsSync()) {
       patchFile.deleteSync();
+    }
+  }
+
+  String pubPatchBaselinePath({
+    required String workspaceRootPath,
+    required ResolvedPubPackage package,
+  }) {
+    return p.join(
+      workspaceRootPath,
+      '.dart_tool',
+      'patchwork',
+      'baseline',
+      'pub',
+      '${_escapePatchPathComponent(package.name)}@'
+          '${_escapePatchPathComponent(package.version)}',
+    );
+  }
+
+  String pubPatchStorePath({
+    required String workspaceRootPath,
+    required ResolvedPubPackage package,
+    required String patchHash,
+  }) {
+    return p.join(
+      workspaceRootPath,
+      '.dart_tool',
+      'patchwork',
+      'store',
+      'pub',
+      '${_escapePatchPathComponent(package.name)}@'
+          '${_escapePatchPathComponent(package.version)}'
+          '_patch_hash=$patchHash',
+    );
+  }
+
+  String pubPatchStoreRelativePath({
+    required String workspaceRootPath,
+    required ResolvedPubPackage package,
+    required String patchHash,
+  }) {
+    return patchworkManifestPath(
+      p.relative(
+        pubPatchStorePath(
+          workspaceRootPath: workspaceRootPath,
+          package: package,
+          patchHash: patchHash,
+        ),
+        from: workspaceRootPath,
+      ),
+    );
+  }
+
+  bool pubPatchStoreMatchesHash({
+    required String storePath,
+    required String patchHash,
+  }) {
+    final markerFile = File(p.join(storePath, '.patchwork-patch-hash'));
+    if (!Directory(storePath).existsSync() || !markerFile.existsSync()) {
+      return false;
+    }
+
+    try {
+      return markerFile.readAsStringSync() == '$patchHash\n';
+    } on FileSystemException {
+      return false;
+    }
+  }
+
+  String createPatchworkTempDirectory({
+    required String workspaceRootPath,
+    required String prefix,
+  }) {
+    final tempRoot = Directory(
+      p.join(workspaceRootPath, '.dart_tool', 'patchwork', 'tmp'),
+    )..createSync(recursive: true);
+    return tempRoot.createTempSync(prefix).path;
+  }
+
+  void copyPubPackageToDirectory({
+    required String workspaceRootPath,
+    required String sourcePath,
+    required String destinationPath,
+  }) {
+    final patchworkRootPath = p.normalize(
+      p.absolute(workspaceRootPath, '.dart_tool', 'patchwork'),
+    );
+    final sourceRootPath = p.normalize(p.absolute(sourcePath));
+    _refreshCopy(
+      sourcePath,
+      destinationPath,
+      excludedSourcePath: _isSameOrWithin(patchworkRootPath, sourceRootPath)
+          ? null
+          : patchworkRootPath,
+    );
+  }
+
+  void writePubPatchStoreMarker({
+    required String storePath,
+    required String patchHash,
+  }) {
+    File(
+      p.join(storePath, '.patchwork-patch-hash'),
+    ).writeAsStringSync('$patchHash\n', flush: true);
+  }
+
+  void replaceDirectory({
+    required String sourcePath,
+    required String destinationPath,
+  }) {
+    final destination = Directory(destinationPath);
+    if (destination.existsSync()) {
+      destination.deleteSync(recursive: true);
+    }
+    Directory(p.dirname(destinationPath)).createSync(recursive: true);
+    Directory(sourcePath).renameSync(destinationPath);
+  }
+
+  void deleteDirectory(String path) {
+    final directory = Directory(path);
+    if (directory.existsSync()) {
+      directory.deleteSync(recursive: true);
     }
   }
 

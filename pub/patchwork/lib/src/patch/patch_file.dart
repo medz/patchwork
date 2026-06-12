@@ -44,6 +44,22 @@ final class PatchValidationResult {
   bool get isSuccess => diagnostic == null;
 }
 
+final class PatchApplyResult {
+  const PatchApplyResult._({this.diagnostic});
+
+  factory PatchApplyResult.success() {
+    return const PatchApplyResult._();
+  }
+
+  factory PatchApplyResult.failure(Diagnostic diagnostic) {
+    return PatchApplyResult._(diagnostic: diagnostic);
+  }
+
+  final Diagnostic? diagnostic;
+
+  bool get isSuccess => diagnostic == null;
+}
+
 typedef GitProcessRunner = ProcessResult Function(List<String> arguments);
 
 ProcessResult _defaultGitRunner(List<String> arguments) {
@@ -246,6 +262,81 @@ final class PatchValidator {
       }
       if (validationRoot.existsSync()) {
         validationRoot.deleteSync(recursive: true);
+      }
+    }
+  }
+}
+
+final class PatchApplier {
+  const PatchApplier();
+
+  PatchApplyResult apply({
+    required String packagePath,
+    required String patchContent,
+  }) {
+    final packageRoot = Directory(packagePath);
+    if (!packageRoot.existsSync()) {
+      return PatchApplyResult.failure(
+        Diagnostic(
+          code: 'patch.apply_failed',
+          message: 'Could not apply patch to a missing package copy.',
+          location: packagePath,
+        ),
+      );
+    }
+
+    final patchFile = File(
+      p.join(
+        Directory.systemTemp.path,
+        'patchwork_apply_$pid'
+        '_${DateTime.now().microsecondsSinceEpoch}.patch',
+      ),
+    );
+
+    try {
+      patchFile.writeAsStringSync(patchContent, flush: true);
+      final ProcessResult result;
+      try {
+        result = Process.runSync('git', [
+          'apply',
+          '--binary',
+          '--whitespace=nowarn',
+          patchFile.path,
+        ], workingDirectory: packagePath);
+      } on ProcessException catch (error) {
+        return PatchApplyResult.failure(
+          Diagnostic(
+            code: 'patch.git_missing',
+            message: 'Git is required to apply patch files.',
+            hint: error.message,
+          ),
+        );
+      }
+
+      if (result.exitCode == 0) {
+        return PatchApplyResult.success();
+      }
+
+      return PatchApplyResult.failure(
+        Diagnostic(
+          code: 'patch.apply_failed',
+          message: 'Could not apply patch to the generated package copy.',
+          hint: '${result.stderr}${result.stdout}'.trim(),
+          location: packagePath,
+        ),
+      );
+    } on FileSystemException catch (error) {
+      return PatchApplyResult.failure(
+        Diagnostic(
+          code: 'patch.apply_failed',
+          message: 'Could not prepare a patch apply operation.',
+          hint: error.message,
+          location: error.path,
+        ),
+      );
+    } finally {
+      if (patchFile.existsSync()) {
+        patchFile.deleteSync();
       }
     }
   }

@@ -608,10 +608,9 @@ final class PubResolutionReader {
 final class PubResolution {
   const PubResolution._({
     required this.workspace,
-    required Map<String, _PackageConfigPackage> packageConfigPackages,
-    required Map<String, _ResolutionMetadataPackage> metadataPackages,
-  }) : _packageConfigPackages = packageConfigPackages,
-       _metadataPackages = metadataPackages;
+    required this._packageConfigPackages,
+    required this._metadataPackages,
+  });
 
   final PubWorkspace workspace;
   final Map<String, _PackageConfigPackage> _packageConfigPackages;

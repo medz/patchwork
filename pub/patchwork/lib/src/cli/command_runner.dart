@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import '../diagnostics/diagnostic.dart';
 import '../diagnostics/exit_code.dart';
+import '../pub/pub_patch_session.dart';
 import '../target/target_parser.dart';
 import 'command_intent.dart';
 
@@ -263,14 +266,19 @@ final class PatchworkCommandParser {
 }
 
 final class PatchworkCommandRunner {
-  const PatchworkCommandRunner({this.parser = const PatchworkCommandParser()});
+  const PatchworkCommandRunner({
+    this.parser = const PatchworkCommandParser(),
+    this.patchSessionCreator = const PubPatchSessionCreator(),
+  });
 
   final PatchworkCommandParser parser;
+  final PubPatchSessionCreator patchSessionCreator;
 
   int run(
     List<String> arguments, {
     required StringSink stdout,
     required StringSink stderr,
+    String? currentDirectory,
   }) {
     final result = parser.parse(arguments);
     final diagnostic = result.diagnostic;
@@ -285,7 +293,38 @@ final class PatchworkCommandRunner {
       return PatchworkExitCode.success;
     }
 
+    if (intent is PatchIntent && !intent.isCommit) {
+      return _startPatchSession(
+        intent,
+        stdout: stdout,
+        stderr: stderr,
+        currentDirectory: currentDirectory ?? Directory.current.path,
+      );
+    }
+
     stdout.writeln('Parsed command: ${intent.summary}');
+    return PatchworkExitCode.success;
+  }
+
+  int _startPatchSession(
+    PatchIntent intent, {
+    required StringSink stdout,
+    required StringSink stderr,
+    required String currentDirectory,
+  }) {
+    final result = patchSessionCreator.create(
+      intent.target!,
+      currentDirectory: currentDirectory,
+    );
+    final diagnostic = result.diagnostic;
+    if (diagnostic != null) {
+      _writeDiagnostic(stderr, diagnostic);
+      return PatchworkExitCode.forDiagnostic(diagnostic);
+    }
+
+    final session = result.session!;
+    stdout.writeln('Edit directory: ${session.editPath}');
+    stdout.writeln('Commit changes with: ${session.commitCommand}');
     return PatchworkExitCode.success;
   }
 

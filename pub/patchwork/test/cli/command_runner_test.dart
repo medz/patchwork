@@ -1,6 +1,11 @@
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
 import 'package:patchwork/src/cli/command_runner.dart';
 import 'package:patchwork/src/diagnostics/exit_code.dart';
 import 'package:test/test.dart';
+
+import '../pub/pub_resolution_fixture.dart';
 
 void main() {
   group('PatchworkCommandRunner', () {
@@ -19,7 +24,9 @@ void main() {
       expect(stdout.toString(), contains('doctor'));
     });
 
-    test('prints parsed command intent for supported skeleton commands', () {
+    test('creates a pub patch edit session', () {
+      final fixture = PubResolutionFixture.create();
+      addTearDown(fixture.dispose);
       final stdout = StringBuffer();
       final stderr = StringBuffer();
 
@@ -27,14 +34,25 @@ void main() {
         ['patch', 'analyzer@7.4.0'],
         stdout: stdout,
         stderr: stderr,
+        currentDirectory: fixture.rootPath,
       );
 
       expect(exitCode, PatchworkExitCode.success);
       expect(stderr.toString(), isEmpty);
+      final editPath = p.join(
+        fixture.rootPath,
+        '.dart_tool',
+        'patchwork',
+        'edit',
+        'pub',
+        'analyzer@7.4.0',
+      );
       expect(
         stdout.toString(),
-        contains('Parsed command: patch pub:analyzer@7.4.0'),
+        'Edit directory: $editPath\n'
+        'Commit changes with: patchwork patch --commit $editPath\n',
       );
+      expect(Directory(editPath).existsSync(), isTrue);
     });
 
     test('maps usage errors to usage exit code', () {

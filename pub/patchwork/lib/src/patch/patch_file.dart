@@ -193,7 +193,7 @@ final class PatchValidator {
 
     try {
       _copyDirectoryContents(baselinePath, validationRoot.path);
-      final patchFile = File(p.join(validationRoot.path, '.patchwork.patch'));
+      final patchFile = File('${validationRoot.path}.patch');
       patchFile.writeAsStringSync(patchContent);
       final ProcessResult result;
       try {
@@ -408,7 +408,18 @@ String _stripGitDiffRootPrefixes(
   }
   result = result.replaceAll('$oldPrefix/', '');
   result = result.replaceAll('$newPrefix/', '');
+  result = _stripMetadataLeadingSlash(result);
   return result;
+}
+
+String _stripMetadataLeadingSlash(String line) {
+  const prefixes = ['rename from /', 'rename to /', 'copy from /', 'copy to /'];
+  for (final prefix in prefixes) {
+    if (line.startsWith(prefix)) {
+      return '${prefix.substring(0, prefix.length - 1)}${line.substring(prefix.length)}';
+    }
+  }
+  return line;
 }
 
 bool _containsBinaryDiff(String output) {

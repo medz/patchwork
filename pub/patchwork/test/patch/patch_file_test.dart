@@ -218,6 +218,23 @@ void main() {
       ]);
     });
 
+    test('preserves file renames', () {
+      final roots = _PatchRootPair(root);
+      File(p.join(roots.baselinePath, 'old.txt')).writeAsStringSync('same\n');
+      File(p.join(roots.editPath, 'new.txt')).writeAsStringSync('same\n');
+
+      final buildResult = roots.build();
+
+      expect(buildResult.diagnostic, isNull);
+      expect(buildResult.hasChanges, isTrue);
+      expect(buildResult.content, contains('rename from old.txt'));
+      expect(buildResult.content, contains('rename to new.txt'));
+
+      final appliedPath = roots.apply(root: root, buildResult: buildResult);
+      expect(File(p.join(appliedPath, 'old.txt')).existsSync(), isFalse);
+      expect(File(p.join(appliedPath, 'new.txt')).readAsStringSync(), 'same\n');
+    });
+
     test('ignores configured external diff drivers', () {
       final roots = _PatchRootPair(root);
       File(p.join(roots.baselinePath, 'file.txt')).writeAsStringSync('old\n');
@@ -523,6 +540,25 @@ index 3367afdbbf91e638efe983616377c60477cc6612..3e757656cf36eca53338e520d134963a
           '@@ -1 +1 @@',
           '-old',
           '+new   ',
+          '',
+        ].join('\n'),
+      );
+
+      expect(result.diagnostic, isNull);
+    });
+
+    test('keeps the temporary patch outside the validated tree', () {
+      File(p.join(root.path, '.patchwork.patch')).writeAsStringSync('old\n');
+
+      final result = const PatchValidator().validate(
+        baselinePath: root.path,
+        patchContent: [
+          'diff --git a/.patchwork.patch b/.patchwork.patch',
+          '--- a/.patchwork.patch',
+          '+++ b/.patchwork.patch',
+          '@@ -1 +1 @@',
+          '-old',
+          '+new',
           '',
         ].join('\n'),
       );

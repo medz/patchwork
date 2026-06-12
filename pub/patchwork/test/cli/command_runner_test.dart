@@ -55,6 +55,80 @@ void main() {
       expect(Directory(editPath).existsSync(), isTrue);
     });
 
+    test('commits a pub patch edit session', () {
+      final fixture = PubResolutionFixture.create();
+      addTearDown(fixture.dispose);
+      final startStdout = StringBuffer();
+      final startStderr = StringBuffer();
+      final startExitCode = runner.run(
+        ['patch', 'analyzer'],
+        stdout: startStdout,
+        stderr: startStderr,
+        currentDirectory: fixture.rootPath,
+      );
+      expect(startExitCode, PatchworkExitCode.success);
+      final editFile = File(
+        p.join(
+          fixture.rootPath,
+          '.dart_tool',
+          'patchwork',
+          'edit',
+          'pub',
+          'analyzer@7.4.0',
+          'lib',
+          'analyzer.dart',
+        ),
+      );
+      editFile.writeAsStringSync("String analyzerVersion() => '7.4.1';\n");
+      final stdout = StringBuffer();
+      final stderr = StringBuffer();
+
+      final exitCode = runner.run(
+        ['patch', '--commit', 'analyzer'],
+        stdout: stdout,
+        stderr: stderr,
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(exitCode, PatchworkExitCode.success);
+      expect(stderr.toString(), isEmpty);
+      expect(
+        stdout.toString(),
+        'Patch file: ${p.join('patches', 'pub', 'analyzer@7.4.0.patch')}\n',
+      );
+      expect(
+        File(
+          p.join(fixture.rootPath, 'patches', 'pub', 'analyzer@7.4.0.patch'),
+        ).existsSync(),
+        isTrue,
+      );
+    });
+
+    test('prints a clean no-op when committing an unchanged edit session', () {
+      final fixture = PubResolutionFixture.create();
+      addTearDown(fixture.dispose);
+      final startExitCode = runner.run(
+        ['patch', 'analyzer'],
+        stdout: StringBuffer(),
+        stderr: StringBuffer(),
+        currentDirectory: fixture.rootPath,
+      );
+      expect(startExitCode, PatchworkExitCode.success);
+      final stdout = StringBuffer();
+      final stderr = StringBuffer();
+
+      final exitCode = runner.run(
+        ['patch', '--commit', 'analyzer'],
+        stdout: stdout,
+        stderr: stderr,
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(exitCode, PatchworkExitCode.success);
+      expect(stderr.toString(), isEmpty);
+      expect(stdout.toString(), 'No changes to commit.\n');
+    });
+
     test('maps session creation failures to failure exit code', () {
       final fixture = PubResolutionFixture.create();
       addTearDown(fixture.dispose);

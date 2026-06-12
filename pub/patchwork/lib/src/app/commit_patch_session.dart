@@ -107,13 +107,21 @@ final class CommitPatchSession {
     }
 
     if (!buildResult.hasChanges) {
+      final workspaceRootPath = locateResult.workspaceRootPath!;
+      final manifestDiagnostic = manifestStore
+          .read(workspaceRootPath: workspaceRootPath)
+          .diagnostic;
+      if (manifestDiagnostic != null) {
+        return PubPatchSessionCommitResult.failure(manifestDiagnostic);
+      }
+
       try {
         store.deletePubPatchFile(
-          workspaceRootPath: locateResult.workspaceRootPath!,
+          workspaceRootPath: workspaceRootPath,
           session: session,
         );
         manifestStore.removePatch(
-          workspaceRootPath: locateResult.workspaceRootPath!,
+          workspaceRootPath: workspaceRootPath,
           target: session.target.toString(),
         );
       } on FileSystemException catch (error) {
@@ -137,6 +145,13 @@ final class CommitPatchSession {
     }
 
     final workspaceRootPath = locateResult.workspaceRootPath!;
+    final manifestDiagnostic = manifestStore
+        .read(workspaceRootPath: workspaceRootPath)
+        .diagnostic;
+    if (manifestDiagnostic != null) {
+      return PubPatchSessionCommitResult.failure(manifestDiagnostic);
+    }
+
     final patchFilePath = store.pubPatchFilePath(
       workspaceRootPath: workspaceRootPath,
       session: session,

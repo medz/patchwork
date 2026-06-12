@@ -93,6 +93,23 @@ patches:
       expect(result.diagnostic?.location, p.join(root.path, 'patchwork.lock'));
     });
 
+    test('rejects patch paths that escape the workspace patch directory', () {
+      File(p.join(root.path, 'patchwork.lock')).writeAsStringSync('''
+patches:
+  - target: pub:analyzer@7.4.0
+    path: ../outside.patch
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+''');
+
+      final result = const PatchworkManifestStore().read(
+        workspaceRootPath: root.path,
+      );
+
+      expect(result.manifest, isNull);
+      expect(result.diagnostic?.code, 'patchwork.manifest_invalid_path');
+      expect(result.diagnostic?.location, p.join(root.path, 'patchwork.lock'));
+    });
+
     test('writes entries with stable formatting and updates by target', () {
       final store = const PatchworkManifestStore();
 
@@ -156,6 +173,36 @@ patches:
       );
       expect(result.patches[1].state, PatchworkManifestPatchState.missing);
       expect(result.patches[1].diagnostic?.code, 'patchwork.patch_missing');
+    });
+
+    test('returns diagnostics for unreadable patch files', () {
+      const patchPath = 'patches/pub/analyzer@7.4.0.patch';
+      final patchFile = File(p.join(root.path, patchPath));
+      patchFile.parent.createSync(recursive: true);
+      patchFile.writeAsStringSync('current patch\n');
+      File(p.join(root.path, 'patchwork.lock')).writeAsStringSync('''
+patches:
+  - target: pub:analyzer@7.4.0
+    path: $patchPath
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+''');
+
+      final result = PatchworkManifestStore(
+        hashFile: (_) =>
+            throw FileSystemException('Permission denied', patchFile.path),
+      ).inspectPatchFiles(workspaceRootPath: root.path);
+
+      expect(result.diagnostic, isNull);
+      expect(result.patches, hasLength(1));
+      expect(
+        result.patches.single.state,
+        PatchworkManifestPatchState.unreadable,
+      );
+      expect(
+        result.patches.single.diagnostic?.code,
+        'patchwork.patch_unreadable',
+      );
+      expect(result.patches.single.diagnostic?.location, patchFile.path);
     });
   });
 }

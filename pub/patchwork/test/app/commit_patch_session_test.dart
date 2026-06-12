@@ -146,6 +146,32 @@ patches:
       );
     });
 
+    test('does not delete a patch when lock removal cannot be read', () {
+      final startResult = const StartPatchSession()(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+      expect(startResult.diagnostic, isNull);
+      final patchFile = File(
+        p.join(fixture.rootPath, 'patches', 'pub', 'analyzer@7.4.0.patch'),
+      );
+      patchFile.parent.createSync(recursive: true);
+      patchFile.writeAsStringSync('existing patch\n');
+      File(p.join(fixture.rootPath, 'patchwork.lock')).writeAsStringSync('''
+patches:
+  - target: pub:analyzer@7.4.0
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+''');
+
+      final result = const CommitPatchSession().commitTarget(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(result.diagnostic?.code, 'patchwork.manifest_malformed');
+      expect(patchFile.readAsStringSync(), 'existing patch\n');
+    });
+
     test('updates the existing manifest entry when recommitting', () {
       final startResult = const StartPatchSession()(
         const PubTarget(name: 'analyzer'),
@@ -181,6 +207,36 @@ patches:
         hasLength(1),
       );
       expect(secondManifest, matches(RegExp(r'hash: [0-9a-f]{64}')));
+    });
+
+    test('does not overwrite a patch when lock update cannot be read', () {
+      final startResult = const StartPatchSession()(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+      expect(startResult.diagnostic, isNull);
+      final session = startResult.session!;
+      File(
+        p.join(session.editPath, 'lib', 'analyzer.dart'),
+      ).writeAsStringSync("String analyzerVersion() => '7.4.1';\n");
+      final patchFile = File(
+        p.join(fixture.rootPath, 'patches', 'pub', 'analyzer@7.4.0.patch'),
+      );
+      patchFile.parent.createSync(recursive: true);
+      patchFile.writeAsStringSync('existing patch\n');
+      File(p.join(fixture.rootPath, 'patchwork.lock')).writeAsStringSync('''
+patches:
+  - target: pub:analyzer@7.4.0
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+''');
+
+      final result = const CommitPatchSession().commitTarget(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(result.diagnostic?.code, 'patchwork.manifest_malformed');
+      expect(patchFile.readAsStringSync(), 'existing patch\n');
     });
 
     test('reports patch write failures as diagnostics', () {

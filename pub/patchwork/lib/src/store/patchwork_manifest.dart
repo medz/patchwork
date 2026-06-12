@@ -41,7 +41,7 @@ final class PatchworkManifestReadResult {
   final Diagnostic? diagnostic;
 }
 
-enum PatchworkManifestPatchState { current, missing, stale }
+enum PatchworkManifestPatchState { current, missing, stale, unreadable }
 
 final class PatchworkManifestPatchInspection {
   const PatchworkManifestPatchInspection({
@@ -85,8 +85,12 @@ final class PatchworkManifestException implements Exception {
   final Diagnostic diagnostic;
 }
 
+typedef PatchworkPatchHasher = String Function(String path);
+
 final class PatchworkManifestStore {
-  const PatchworkManifestStore();
+  const PatchworkManifestStore({this.hashFile = patchworkPatchFileHash});
+
+  final PatchworkPatchHasher hashFile;
 
   String path({required String workspaceRootPath}) {
     return p.join(workspaceRootPath, 'patchwork.lock');
@@ -173,6 +177,18 @@ final class PatchworkManifestStore {
           _malformedManifest(manifestPath),
         );
       }
+      final normalizedPatchPath = _normalizeManifestPatchPath(patchPath);
+      if (normalizedPatchPath == null) {
+        return PatchworkManifestReadResult.failure(
+          Diagnostic(
+            code: 'patchwork.manifest_invalid_path',
+            message:
+                'patchwork.lock contains a patch path outside patches/pub.',
+            hint: 'Keep patch paths relative to the workspace patch directory.',
+            location: manifestPath,
+          ),
+        );
+      }
 
       if (!targets.add(target)) {
         return PatchworkManifestReadResult.failure(
@@ -186,7 +202,11 @@ final class PatchworkManifestStore {
       }
 
       patches.add(
-        PatchworkManifestPatch(target: target, path: patchPath, hash: hash),
+        PatchworkManifestPatch(
+          target: target,
+          path: normalizedPatchPath,
+          hash: hash,
+        ),
       );
     }
 
@@ -258,7 +278,24 @@ final class PatchworkManifestStore {
         continue;
       }
 
-      final actualHash = patchworkPatchFileHash(absolutePatchPath);
+      final String actualHash;
+      try {
+        actualHash = hashFile(absolutePatchPath);
+      } on FileSystemException catch (error) {
+        inspections.add(
+          PatchworkManifestPatchInspection(
+            entry: entry,
+            state: PatchworkManifestPatchState.unreadable,
+            diagnostic: Diagnostic(
+              code: 'patchwork.patch_unreadable',
+              message: 'Patch file listed in patchwork.lock is unreadable.',
+              hint: error.message,
+              location: absolutePatchPath,
+            ),
+          ),
+        );
+        continue;
+      }
       if (actualHash != entry.hash) {
         inspections.add(
           PatchworkManifestPatchInspection(
@@ -309,6 +346,21 @@ String patchworkPatchFileHash(String path) {
 
 String patchworkManifestPath(String path) {
   return path.replaceAll('\\', '/');
+}
+
+String? _normalizeManifestPatchPath(String path) {
+  if (p.isAbsolute(path) ||
+      p.posix.isAbsolute(path) ||
+      p.windows.isAbsolute(path)) {
+    return null;
+  }
+
+  final normalized = p.posix.normalize(patchworkManifestPath(path));
+  if (normalized == 'patches/pub' || !normalized.startsWith('patches/pub/')) {
+    return null;
+  }
+
+  return normalized;
 }
 
 String _resolveManifestPath({

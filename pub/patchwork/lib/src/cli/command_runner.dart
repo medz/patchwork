@@ -29,7 +29,7 @@ final class PatchworkCommandParser {
     if (arguments.isEmpty) {
       return ParseResult.failure(
         const Diagnostic(
-          code: 'usage.missingCommand',
+          code: 'usage.missing_command',
           message: 'Expected a command.',
           hint: 'Run patchwork --help to see available commands.',
         ),
@@ -56,7 +56,7 @@ final class PatchworkCommandParser {
         if (command.startsWith('-')) {
           return ParseResult.failure(
             Diagnostic(
-              code: 'usage.unknownOption',
+              code: 'usage.unknown_option',
               message: 'Unknown option "$command".',
               hint: 'Run patchwork --help to see available commands.',
             ),
@@ -65,7 +65,7 @@ final class PatchworkCommandParser {
 
         return ParseResult.failure(
           Diagnostic(
-            code: 'usage.unknownCommand',
+            code: 'usage.unknown_command',
             message: 'Unknown command "$command".',
             hint: 'Run patchwork --help to see available commands.',
           ),
@@ -86,7 +86,7 @@ final class PatchworkCommandParser {
         if (isCommit) {
           return ParseResult.failure(
             const Diagnostic(
-              code: 'usage.duplicateOption',
+              code: 'usage.duplicate_option',
               message: 'Option "--commit" can only be passed once.',
             ),
           );
@@ -103,7 +103,7 @@ final class PatchworkCommandParser {
     if (operands.isEmpty) {
       return ParseResult.failure(
         Diagnostic(
-          code: 'usage.missingTarget',
+          code: 'usage.missing_target',
           message: isCommit
               ? 'Expected a target or edit directory.'
               : 'Expected a target.',
@@ -218,7 +218,7 @@ final class PatchworkCommandParser {
   ParseResult _unknownOption(String option, {required String command}) {
     return ParseResult.failure(
       Diagnostic(
-        code: 'usage.unknownOption',
+        code: 'usage.unknown_option',
         message: 'Unknown option "$option" for patchwork $command.',
       ),
     );
@@ -227,7 +227,7 @@ final class PatchworkCommandParser {
   ParseResult _tooManyArguments(String command) {
     return ParseResult.failure(
       Diagnostic(
-        code: 'usage.tooManyArguments',
+        code: 'usage.too_many_arguments',
         message: 'Too many arguments for patchwork $command.',
       ),
     );

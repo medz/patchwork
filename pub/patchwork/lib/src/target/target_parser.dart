@@ -46,7 +46,7 @@ final class TargetParser {
       if (kind != 'pub') {
         return TargetParseResult.failure(
           Diagnostic(
-            code: 'target.unsupportedKind',
+            code: 'target.unsupported_kind',
             message: 'Target kind "$kind" is not supported by the pub MVP.',
             hint: 'Use a pub package target such as analyzer or pub:analyzer.',
           ),
@@ -61,7 +61,7 @@ final class TargetParser {
     if (packageRef.isEmpty) {
       return TargetParseResult.failure(
         const Diagnostic(
-          code: 'target.missingPackage',
+          code: 'target.missing_package',
           message: 'Expected a pub package name.',
           hint: 'Use a target such as analyzer or pub:analyzer.',
         ),
@@ -77,7 +77,7 @@ final class TargetParser {
     if (!_packageNamePattern.hasMatch(name)) {
       return TargetParseResult.failure(
         Diagnostic(
-          code: 'target.invalidPackageName',
+          code: 'target.invalid_package_name',
           message: 'Invalid pub package name "$name".',
           hint: 'Package names must use lowercase letters, numbers, and "_".',
         ),
@@ -87,7 +87,7 @@ final class TargetParser {
     if (versionConstraint != null && versionConstraint.isEmpty) {
       return TargetParseResult.failure(
         Diagnostic(
-          code: 'target.invalidVersionConstraint',
+          code: 'target.invalid_version_constraint',
           message: 'Invalid version constraint in "$packageRef".',
           hint: 'Use a target such as analyzer@7.4.0.',
         ),

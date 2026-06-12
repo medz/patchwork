@@ -36,7 +36,7 @@ void main() {
       final result = parser.parse(['patch', 'sdk:flutter']);
 
       expect(result.isSuccess, isFalse);
-      expect(result.diagnostic?.code, 'target.unsupportedKind');
+      expect(result.diagnostic?.code, 'target.unsupported_kind');
       expect(result.diagnostic?.message, contains('sdk'));
     });
 
@@ -77,7 +77,7 @@ void main() {
         ]);
 
         expect(result.isSuccess, isFalse);
-        expect(result.diagnostic?.code, 'target.unsupportedKind');
+        expect(result.diagnostic?.code, 'target.unsupported_kind');
         expect(result.diagnostic?.message, contains('path'));
       },
     );
@@ -121,21 +121,21 @@ void main() {
       final result = parser.parse(['unknown']);
 
       expect(result.isSuccess, isFalse);
-      expect(result.diagnostic?.code, 'usage.unknownCommand');
+      expect(result.diagnostic?.code, 'usage.unknown_command');
     });
 
     test('rejects missing patch target', () {
       final result = parser.parse(['patch']);
 
       expect(result.isSuccess, isFalse);
-      expect(result.diagnostic?.code, 'usage.missingTarget');
+      expect(result.diagnostic?.code, 'usage.missing_target');
     });
 
     test('rejects extra status arguments', () {
       final result = parser.parse(['status', 'one', 'two']);
 
       expect(result.isSuccess, isFalse);
-      expect(result.diagnostic?.code, 'usage.tooManyArguments');
+      expect(result.diagnostic?.code, 'usage.too_many_arguments');
     });
   });
 }

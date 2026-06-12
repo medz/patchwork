@@ -30,7 +30,7 @@ void main() {
       final result = parser.parsePubTarget('sdk:flutter');
 
       expect(result.isSuccess, isFalse);
-      expect(result.diagnostic?.code, 'target.unsupportedKind');
+      expect(result.diagnostic?.code, 'target.unsupported_kind');
       expect(result.diagnostic?.message, contains('sdk'));
     });
 
@@ -38,7 +38,7 @@ void main() {
       final result = parser.parsePubTarget('path:../local_package');
 
       expect(result.isSuccess, isFalse);
-      expect(result.diagnostic?.code, 'target.unsupportedKind');
+      expect(result.diagnostic?.code, 'target.unsupported_kind');
       expect(result.diagnostic?.message, contains('path'));
     });
 
@@ -46,7 +46,7 @@ void main() {
       final result = parser.parsePubTarget('Analyzer');
 
       expect(result.isSuccess, isFalse);
-      expect(result.diagnostic?.code, 'target.invalidPackageName');
+      expect(result.diagnostic?.code, 'target.invalid_package_name');
     });
   });
 }

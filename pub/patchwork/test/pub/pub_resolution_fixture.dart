@@ -16,6 +16,10 @@ final class PubResolutionFixture {
 
   String get analyzerRootPath => p.join(rootPath, 'cache', 'analyzer-7.4.0');
 
+  String get analyzerLibFilePath {
+    return p.join(analyzerRootPath, 'lib', 'analyzer.dart');
+  }
+
   String get packageConfigPath {
     return p.join(rootPath, '.dart_tool', 'package_config.json');
   }
@@ -129,6 +133,21 @@ dependencies:
 name: analyzer
 version: 7.4.0
 ''');
+    File(analyzerLibFilePath).writeAsStringSync('''
+String analyzerVersion() => '7.4.0';
+''');
+    File(p.join(analyzerRootPath, '.packages')).writeAsStringSync('');
+    File(p.join(analyzerRootPath, 'pubspec.lock')).writeAsStringSync('');
+    Directory(
+      p.join(analyzerRootPath, '.dart_tool'),
+    ).createSync(recursive: true);
+    File(
+      p.join(analyzerRootPath, '.dart_tool', 'package_config.json'),
+    ).writeAsStringSync('{}');
+    Directory(p.join(analyzerRootPath, 'build')).createSync(recursive: true);
+    File(
+      p.join(analyzerRootPath, 'build', 'generated.txt'),
+    ).writeAsStringSync('generated');
 
     _writePackageConfig();
     _writeLockfile();

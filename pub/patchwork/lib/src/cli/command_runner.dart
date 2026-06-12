@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import '../app/start_patch_session.dart';
 import '../diagnostics/diagnostic.dart';
 import '../diagnostics/exit_code.dart';
 import '../target/target_parser.dart';
@@ -134,6 +137,12 @@ final class PatchworkCommandParser {
   }
 
   ParseResult _parseCommitSubject(String operand) {
+    if (_looksLikeWindowsEditDirectory(operand)) {
+      return ParseResult.success(
+        PatchIntent.commit(PatchCommitDirectory(operand)),
+      );
+    }
+
     if (_hasTargetKindPrefix(operand)) {
       final targetResult = targetParser.parsePubTarget(operand);
       final diagnostic = targetResult.diagnostic;
@@ -243,7 +252,16 @@ final class PatchworkCommandParser {
     return operand.startsWith('/') ||
         operand.startsWith('./') ||
         operand.startsWith('../') ||
-        operand.contains('/');
+        operand.contains('/') ||
+        _looksLikeWindowsEditDirectory(operand);
+  }
+
+  bool _looksLikeWindowsEditDirectory(String operand) {
+    return RegExp(r'^[A-Za-z]:[\\/]').hasMatch(operand) ||
+        operand.startsWith('.\\') ||
+        operand.startsWith('..\\') ||
+        operand.startsWith('\\\\') ||
+        operand.contains('\\');
   }
 
   bool _hasTargetKindPrefix(String operand) {
@@ -263,14 +281,19 @@ final class PatchworkCommandParser {
 }
 
 final class PatchworkCommandRunner {
-  const PatchworkCommandRunner({this.parser = const PatchworkCommandParser()});
+  const PatchworkCommandRunner({
+    this.parser = const PatchworkCommandParser(),
+    this.startPatchSession = const StartPatchSession(),
+  });
 
   final PatchworkCommandParser parser;
+  final StartPatchSession startPatchSession;
 
   int run(
     List<String> arguments, {
     required StringSink stdout,
     required StringSink stderr,
+    String? currentDirectory,
   }) {
     final result = parser.parse(arguments);
     final diagnostic = result.diagnostic;
@@ -285,7 +308,38 @@ final class PatchworkCommandRunner {
       return PatchworkExitCode.success;
     }
 
+    if (intent is PatchIntent && !intent.isCommit) {
+      return _startPatchSession(
+        intent,
+        stdout: stdout,
+        stderr: stderr,
+        currentDirectory: currentDirectory ?? Directory.current.path,
+      );
+    }
+
     stdout.writeln('Parsed command: ${intent.summary}');
+    return PatchworkExitCode.success;
+  }
+
+  int _startPatchSession(
+    PatchIntent intent, {
+    required StringSink stdout,
+    required StringSink stderr,
+    required String currentDirectory,
+  }) {
+    final result = startPatchSession(
+      intent.target!,
+      currentDirectory: currentDirectory,
+    );
+    final diagnostic = result.diagnostic;
+    if (diagnostic != null) {
+      _writeDiagnostic(stderr, diagnostic);
+      return PatchworkExitCode.forDiagnostic(diagnostic);
+    }
+
+    final session = result.session!;
+    stdout.writeln('Edit directory: ${session.editPath}');
+    stdout.writeln('Commit changes with: ${session.commitCommand}');
     return PatchworkExitCode.success;
   }
 

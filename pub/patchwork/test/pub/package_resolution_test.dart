@@ -48,6 +48,17 @@ void main() {
       expect(result.package?.rootPath, fixture.analyzerRootPath);
     });
 
+    test('resolves a dependency by a semver constraint it satisfies', () {
+      final resolution = _readResolution(fixture.rootPath);
+      final result = resolution.resolve(
+        const PubTarget(name: 'analyzer', versionConstraint: '^7.0.0'),
+      );
+
+      expect(result.diagnostic, isNull);
+      expect(result.package?.name, 'analyzer');
+      expect(result.package?.version, '7.4.0');
+    });
+
     test('resolves a workspace member when pubspec.lock is present', () {
       final resolution = _readResolution(fixture.rootPath);
       final result = resolution.resolve(const PubTarget(name: 'app'));

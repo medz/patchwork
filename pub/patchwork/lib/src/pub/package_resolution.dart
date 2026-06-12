@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:pub_semver/pub_semver.dart';
 import 'package:yaml/yaml.dart';
 
 import '../diagnostics/diagnostic.dart';
@@ -544,16 +545,36 @@ final class PubResolution {
     }
 
     final requestedVersion = target.versionConstraint;
-    if (requestedVersion != null && requestedVersion != metadata.version) {
-      return PubPackageResolveResult.failure(
-        Diagnostic(
-          code: 'pub.version_not_selected',
-          message:
-              'Package "${target.name}" is selected at ${metadata.version}, not $requestedVersion.',
-          hint:
-              'Use ${target.name}@${metadata.version} or update pub resolution.',
-        ),
+    if (requestedVersion != null) {
+      final selectedVersionResult = _parseSelectedVersion(metadata.version);
+      final selectedVersionDiagnostic = selectedVersionResult.diagnostic;
+      if (selectedVersionDiagnostic != null) {
+        return PubPackageResolveResult.failure(selectedVersionDiagnostic);
+      }
+
+      final requestedConstraintResult = _parseRequestedVersionConstraint(
+        target.name,
+        requestedVersion,
       );
+      final requestedConstraintDiagnostic =
+          requestedConstraintResult.diagnostic;
+      if (requestedConstraintDiagnostic != null) {
+        return PubPackageResolveResult.failure(requestedConstraintDiagnostic);
+      }
+
+      if (!requestedConstraintResult.constraint!.allows(
+        selectedVersionResult.version!,
+      )) {
+        return PubPackageResolveResult.failure(
+          Diagnostic(
+            code: 'pub.version_not_selected',
+            message:
+                'Package "${target.name}" is selected at ${metadata.version}, which does not satisfy $requestedVersion.',
+            hint:
+                'Use ${target.name}@${metadata.version} or update pub resolution.',
+          ),
+        );
+      }
     }
 
     if (!Directory(packageConfig.rootPath).existsSync()) {
@@ -579,6 +600,72 @@ final class PubResolution {
       ),
     );
   }
+
+  _SelectedVersionParseResult _parseSelectedVersion(String selectedVersion) {
+    try {
+      return _SelectedVersionParseResult.success(
+        Version.parse(selectedVersion),
+      );
+    } on FormatException catch (error) {
+      return _SelectedVersionParseResult.failure(
+        Diagnostic(
+          code: 'pub.invalid_selected_version',
+          message: 'Selected package version "$selectedVersion" is invalid.',
+          hint: error.message,
+        ),
+      );
+    }
+  }
+
+  _VersionConstraintParseResult _parseRequestedVersionConstraint(
+    String packageName,
+    String requestedVersion,
+  ) {
+    try {
+      return _VersionConstraintParseResult.success(
+        VersionConstraint.parse(requestedVersion),
+      );
+    } on FormatException catch (error) {
+      return _VersionConstraintParseResult.failure(
+        Diagnostic(
+          code: 'pub.invalid_version_constraint',
+          message:
+              'Requested version constraint "$requestedVersion" for "$packageName" is invalid.',
+          hint: error.message,
+        ),
+      );
+    }
+  }
+}
+
+final class _SelectedVersionParseResult {
+  const _SelectedVersionParseResult._({this.version, this.diagnostic});
+
+  factory _SelectedVersionParseResult.success(Version version) {
+    return _SelectedVersionParseResult._(version: version);
+  }
+
+  factory _SelectedVersionParseResult.failure(Diagnostic diagnostic) {
+    return _SelectedVersionParseResult._(diagnostic: diagnostic);
+  }
+
+  final Version? version;
+  final Diagnostic? diagnostic;
+}
+
+final class _VersionConstraintParseResult {
+  const _VersionConstraintParseResult._({this.constraint, this.diagnostic});
+
+  factory _VersionConstraintParseResult.success(VersionConstraint constraint) {
+    return _VersionConstraintParseResult._(constraint: constraint);
+  }
+
+  factory _VersionConstraintParseResult.failure(Diagnostic diagnostic) {
+    return _VersionConstraintParseResult._(diagnostic: diagnostic);
+  }
+
+  final VersionConstraint? constraint;
+  final Diagnostic? diagnostic;
 }
 
 final class _PackageConfigPackage {

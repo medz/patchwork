@@ -193,6 +193,31 @@ void main() {
       expect(buildResult.content, isNot(contains('pubspec.lock')));
     });
 
+    test('preserves CRLF-only line ending changes', () {
+      final roots = _PatchRootPair(root);
+      File(
+        p.join(roots.baselinePath, 'file.txt'),
+      ).writeAsBytesSync([0x6c, 0x69, 0x6e, 0x65, 0x0a]);
+      File(
+        p.join(roots.editPath, 'file.txt'),
+      ).writeAsBytesSync([0x6c, 0x69, 0x6e, 0x65, 0x0d, 0x0a]);
+
+      final buildResult = roots.build();
+
+      expect(buildResult.diagnostic, isNull);
+      expect(buildResult.hasChanges, isTrue);
+
+      final appliedPath = roots.apply(root: root, buildResult: buildResult);
+      expect(File(p.join(appliedPath, 'file.txt')).readAsBytesSync(), [
+        0x6c,
+        0x69,
+        0x6e,
+        0x65,
+        0x0d,
+        0x0a,
+      ]);
+    });
+
     test(
       'ignores unchanged symlinks while building a patch',
       () {

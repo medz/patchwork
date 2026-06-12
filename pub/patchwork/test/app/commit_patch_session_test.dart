@@ -103,5 +103,28 @@ void main() {
         isFalse,
       );
     });
+
+    test('removes an existing patch when the edit session has no changes', () {
+      final startResult = const StartPatchSession()(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+      expect(startResult.diagnostic, isNull);
+      final patchFile = File(
+        p.join(fixture.rootPath, 'patches', 'pub', 'analyzer@7.4.0.patch'),
+      );
+      patchFile.parent.createSync(recursive: true);
+      patchFile.writeAsStringSync('stale patch\n');
+
+      final result = const CommitPatchSession().commitTarget(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(result.diagnostic, isNull);
+      expect(result.noChanges, isTrue);
+      expect(result.patchPath, isNull);
+      expect(patchFile.existsSync(), isFalse);
+    });
   });
 }

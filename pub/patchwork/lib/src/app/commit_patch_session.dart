@@ -102,6 +102,10 @@ final class CommitPatchSession {
     }
 
     if (!buildResult.hasChanges) {
+      store.deletePubPatchFile(
+        workspaceRootPath: locateResult.workspaceRootPath!,
+        session: session,
+      );
       return PubPatchSessionCommitResult.noChanges();
     }
 

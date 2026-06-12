@@ -107,7 +107,6 @@ final class PatchFileBuilder {
       'diff',
       '--src-prefix=a/',
       '--dst-prefix=b/',
-      '--ignore-cr-at-eol',
       '--full-index',
       '--no-index',
       _gitArgumentPath(baselinePath),

@@ -133,6 +133,18 @@ final class PatchworkStore {
     patchFile.writeAsStringSync(content);
   }
 
+  void deletePubPatchFile({
+    required String workspaceRootPath,
+    required PubPatchSession session,
+  }) {
+    final patchFile = File(
+      pubPatchFilePath(workspaceRootPath: workspaceRootPath, session: session),
+    );
+    if (patchFile.existsSync()) {
+      patchFile.deleteSync();
+    }
+  }
+
   void _refreshCopy(
     String sourcePath,
     String destinationPath, {

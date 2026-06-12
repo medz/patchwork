@@ -12,7 +12,7 @@ void main() {
     late Directory root;
 
     setUp(() {
-      root = Directory.systemTemp.createTempSync('patchwork_store_');
+      root = Directory.systemTemp.createTempSync('patchwork store ');
     });
 
     tearDown(() {
@@ -24,13 +24,23 @@ void main() {
     test('owns pub edit-session paths, copies, exclusions, and metadata', () {
       final packageRoot = p.join(root.path, 'cache', 'analyzer-7.4.0');
       Directory(p.join(packageRoot, 'lib')).createSync(recursive: true);
+      Directory(
+        p.join(packageRoot, 'lib', 'src', 'build'),
+      ).createSync(recursive: true);
       Directory(p.join(packageRoot, '.dart_tool')).createSync(recursive: true);
+      Directory(p.join(packageRoot, 'build')).createSync(recursive: true);
       File(
         p.join(packageRoot, 'lib', 'analyzer.dart'),
       ).writeAsStringSync('library analyzer;');
       File(
+        p.join(packageRoot, 'lib', 'src', 'build', 'keep.dart'),
+      ).writeAsStringSync('library nested_build;');
+      File(
         p.join(packageRoot, '.dart_tool', 'package_config.json'),
       ).writeAsStringSync('{}');
+      File(
+        p.join(packageRoot, 'build', 'generated.txt'),
+      ).writeAsStringSync('generated');
       File(p.join(packageRoot, 'pubspec.lock')).writeAsStringSync('');
 
       final result = const PatchworkStore().createPubEditSession(
@@ -79,12 +89,26 @@ void main() {
         'library analyzer;',
       );
       expect(
+        File(
+          p.join(session.editPath, 'lib', 'src', 'build', 'keep.dart'),
+        ).readAsStringSync(),
+        'library nested_build;',
+      );
+      expect(
         Directory(p.join(session.editPath, '.dart_tool')).existsSync(),
+        isFalse,
+      );
+      expect(
+        Directory(p.join(session.editPath, 'build')).existsSync(),
         isFalse,
       );
       expect(
         File(p.join(session.editPath, 'pubspec.lock')).existsSync(),
         isFalse,
+      );
+      expect(
+        session.commitCommand,
+        "patchwork patch --commit '${session.editPath}'",
       );
 
       final metadata =

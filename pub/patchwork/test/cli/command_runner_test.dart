@@ -50,7 +50,7 @@ void main() {
       expect(
         stdout.toString(),
         'Edit directory: $editPath\n'
-        'Commit changes with: patchwork patch --commit $editPath\n',
+        "Commit changes with: patchwork patch --commit '$editPath'\n",
       );
       expect(Directory(editPath).existsSync(), isTrue);
     });

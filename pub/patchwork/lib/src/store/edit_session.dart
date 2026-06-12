@@ -17,7 +17,12 @@ final class PubPatchSession {
   final String editPath;
   final String metadataPath;
 
-  String get commitCommand => 'patchwork patch --commit $editPath';
+  String get commitCommand =>
+      'patchwork patch --commit ${_shellQuote(editPath)}';
+}
+
+String _shellQuote(String value) {
+  return "'${value.replaceAll("'", r"'\''")}'";
 }
 
 final class PubPatchSessionCreateResult {

@@ -10,7 +10,6 @@ import '../target/target.dart';
 import 'edit_session.dart';
 
 const _excludedDirectoryNames = {'.dart_tool', '.git', 'build'};
-
 const _excludedFileNames = {'.packages', 'pubspec.lock'};
 
 final class PatchworkStore {
@@ -108,6 +107,10 @@ final class PatchworkStore {
   }
 
   bool _shouldExclude(String relativePath, FileSystemEntityType type) {
+    if (p.split(relativePath).length != 1) {
+      return false;
+    }
+
     final name = p.basename(relativePath);
     if (type == FileSystemEntityType.directory) {
       return _excludedDirectoryNames.contains(name);

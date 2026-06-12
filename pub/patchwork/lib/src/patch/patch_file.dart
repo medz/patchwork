@@ -156,17 +156,6 @@ final class PatchFileBuilder {
       baselinePath: baselinePath,
       editPath: editPath,
     );
-    final symlinkPath = _firstSymlinkDiffPath(content);
-    if (symlinkPath != null) {
-      return _GitDiffResult.failure(
-        Diagnostic(
-          code: 'patch.unsupported_link',
-          message: 'Symlink changes are not supported yet.',
-          location: symlinkPath,
-        ),
-      );
-    }
-
     return _GitDiffResult(content: content);
   }
 }
@@ -284,10 +273,6 @@ final class _GitDiffResult {
   final String? content;
   final Diagnostic? diagnostic;
 }
-
-final RegExp _symlinkIndexLinePattern = RegExp(
-  r'^index [0-9a-f]+\.\.[0-9a-f]+ 120000$',
-);
 
 void _copyDirectoryContents(
   String sourcePath,
@@ -411,39 +396,4 @@ bool _containsBinaryDiff(String output) {
       .any(
         (line) => line.startsWith('Binary files ') && line.endsWith(' differ'),
       );
-}
-
-String? _firstSymlinkDiffPath(String output) {
-  String? currentPath;
-  for (final line in output.split('\n')) {
-    if (line.startsWith('diff --git ')) {
-      currentPath = _pathFromDiffGitLine(line);
-      continue;
-    }
-
-    if (line == 'new file mode 120000' ||
-        line == 'deleted file mode 120000' ||
-        line == 'old mode 120000' ||
-        line == 'new mode 120000' ||
-        _symlinkIndexLinePattern.hasMatch(line)) {
-      return currentPath;
-    }
-  }
-
-  return null;
-}
-
-String? _pathFromDiffGitLine(String line) {
-  const prefix = 'diff --git a/';
-  if (!line.startsWith(prefix)) {
-    return null;
-  }
-
-  final rest = line.substring(prefix.length);
-  final separator = rest.indexOf(' b/');
-  if (separator == -1) {
-    return null;
-  }
-
-  return rest.substring(0, separator);
 }

@@ -196,19 +196,13 @@ void main() {
     test(
       'ignores unchanged symlinks while building a patch',
       () {
-        final baselinePath = p.join(root.path, 'baseline');
-        final editPath = p.join(root.path, 'edit');
-        Directory(baselinePath).createSync(recursive: true);
-        Directory(editPath).createSync(recursive: true);
-        Link(p.join(baselinePath, 'link')).createSync('target.txt');
-        Link(p.join(editPath, 'link')).createSync('target.txt');
-        File(p.join(baselinePath, 'file.txt')).writeAsStringSync('old\n');
-        File(p.join(editPath, 'file.txt')).writeAsStringSync('new\n');
+        final roots = _PatchRootPair(root);
+        Link(p.join(roots.baselinePath, 'link')).createSync('target.txt');
+        Link(p.join(roots.editPath, 'link')).createSync('target.txt');
+        File(p.join(roots.baselinePath, 'file.txt')).writeAsStringSync('old\n');
+        File(p.join(roots.editPath, 'file.txt')).writeAsStringSync('new\n');
 
-        final buildResult = const PatchFileBuilder().build(
-          baselinePath: baselinePath,
-          editPath: editPath,
-        );
+        final buildResult = roots.build();
 
         expect(buildResult.diagnostic, isNull);
         expect(buildResult.hasChanges, isTrue);
@@ -221,22 +215,114 @@ void main() {
     );
 
     test(
-      'rejects symlink changes',
+      'preserves symlink target changes',
       () {
-        final baselinePath = p.join(root.path, 'baseline');
-        final editPath = p.join(root.path, 'edit');
-        Directory(baselinePath).createSync(recursive: true);
-        Directory(editPath).createSync(recursive: true);
-        Link(p.join(baselinePath, 'link')).createSync('old-target.txt');
-        Link(p.join(editPath, 'link')).createSync('new-target.txt');
+        final roots = _PatchRootPair(root);
+        Link(p.join(roots.baselinePath, 'link')).createSync('old-target.txt');
+        Link(p.join(roots.editPath, 'link')).createSync('new-target.txt');
 
-        final buildResult = const PatchFileBuilder().build(
-          baselinePath: baselinePath,
-          editPath: editPath,
+        final buildResult = roots.build();
+
+        expect(buildResult.diagnostic, isNull);
+        expect(buildResult.hasChanges, isTrue);
+        expect(buildResult.content, contains('index '));
+        expect(buildResult.content, contains(' 120000'));
+
+        final appliedPath = roots.apply(root: root, buildResult: buildResult);
+        _expectLinkTarget(p.join(appliedPath, 'link'), 'new-target.txt');
+      },
+      skip: Platform.isWindows
+          ? 'Symlink creation requires privileges.'
+          : false,
+    );
+
+    test(
+      'preserves symlink additions',
+      () {
+        final roots = _PatchRootPair(root);
+        Link(p.join(roots.editPath, 'link')).createSync('target.txt');
+
+        final buildResult = roots.build();
+
+        expect(buildResult.diagnostic, isNull);
+        expect(buildResult.hasChanges, isTrue);
+        expect(buildResult.content, contains('new file mode 120000'));
+
+        final appliedPath = roots.apply(root: root, buildResult: buildResult);
+        _expectLinkTarget(p.join(appliedPath, 'link'), 'target.txt');
+      },
+      skip: Platform.isWindows
+          ? 'Symlink creation requires privileges.'
+          : false,
+    );
+
+    test(
+      'preserves symlink deletions',
+      () {
+        final roots = _PatchRootPair(root);
+        Link(p.join(roots.baselinePath, 'link')).createSync('target.txt');
+
+        final buildResult = roots.build();
+
+        expect(buildResult.diagnostic, isNull);
+        expect(buildResult.hasChanges, isTrue);
+        expect(buildResult.content, contains('deleted file mode 120000'));
+
+        final appliedPath = roots.apply(root: root, buildResult: buildResult);
+        expect(
+          FileSystemEntity.typeSync(
+            p.join(appliedPath, 'link'),
+            followLinks: false,
+          ),
+          FileSystemEntityType.notFound,
         );
+      },
+      skip: Platform.isWindows
+          ? 'Symlink creation requires privileges.'
+          : false,
+    );
 
-        expect(buildResult.diagnostic?.code, 'patch.unsupported_link');
-        expect(buildResult.diagnostic?.location, 'link');
+    test(
+      'preserves file to symlink conversions',
+      () {
+        final roots = _PatchRootPair(root);
+        File(
+          p.join(roots.baselinePath, 'entry'),
+        ).writeAsStringSync('old file\n');
+        Link(p.join(roots.editPath, 'entry')).createSync('target.txt');
+
+        final buildResult = roots.build();
+
+        expect(buildResult.diagnostic, isNull);
+        expect(buildResult.hasChanges, isTrue);
+        expect(buildResult.content, contains('deleted file mode 100644'));
+        expect(buildResult.content, contains('new file mode 120000'));
+
+        final appliedPath = roots.apply(root: root, buildResult: buildResult);
+        _expectLinkTarget(p.join(appliedPath, 'entry'), 'target.txt');
+      },
+      skip: Platform.isWindows
+          ? 'Symlink creation requires privileges.'
+          : false,
+    );
+
+    test(
+      'preserves symlink to file conversions',
+      () {
+        final roots = _PatchRootPair(root);
+        Link(p.join(roots.baselinePath, 'entry')).createSync('target.txt');
+        File(p.join(roots.editPath, 'entry')).writeAsStringSync('new file\n');
+
+        final buildResult = roots.build();
+
+        expect(buildResult.diagnostic, isNull);
+        expect(buildResult.hasChanges, isTrue);
+        expect(buildResult.content, contains('deleted file mode 120000'));
+        expect(buildResult.content, contains('new file mode 100644'));
+
+        final appliedPath = roots.apply(root: root, buildResult: buildResult);
+        final entry = File(p.join(appliedPath, 'entry'));
+        expect(entry.readAsStringSync(), 'new file\n');
       },
       skip: Platform.isWindows
           ? 'Symlink creation requires privileges.'
@@ -292,6 +378,44 @@ String _applyPatch({
   ], workingDirectory: applyPath);
   expect(result.exitCode, 0, reason: '${result.stderr}${result.stdout}'.trim());
   return applyPath;
+}
+
+void _expectLinkTarget(String path, String target) {
+  expect(
+    FileSystemEntity.typeSync(path, followLinks: false),
+    FileSystemEntityType.link,
+  );
+  expect(Link(path).targetSync(), target);
+}
+
+final class _PatchRootPair {
+  _PatchRootPair(Directory root)
+    : baselinePath = p.join(root.path, 'baseline'),
+      editPath = p.join(root.path, 'edit') {
+    Directory(baselinePath).createSync(recursive: true);
+    Directory(editPath).createSync(recursive: true);
+  }
+
+  final String baselinePath;
+  final String editPath;
+
+  PatchFileBuildResult build() {
+    return const PatchFileBuilder().build(
+      baselinePath: baselinePath,
+      editPath: editPath,
+    );
+  }
+
+  String apply({
+    required Directory root,
+    required PatchFileBuildResult buildResult,
+  }) {
+    return _applyPatch(
+      root: root,
+      baselinePath: baselinePath,
+      patchContent: buildResult.content!,
+    );
+  }
 }
 
 void _copyDirectoryContents(String sourcePath, String destinationPath) {

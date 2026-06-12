@@ -44,8 +44,17 @@ final class PatchValidationResult {
   bool get isSuccess => diagnostic == null;
 }
 
+typedef GitProcessRunner = ProcessResult Function(List<String> arguments);
+
+ProcessResult _defaultGitRunner(List<String> arguments) {
+  return Process.runSync('git', arguments);
+}
+
 final class PatchFileBuilder {
-  const PatchFileBuilder();
+  const PatchFileBuilder({GitProcessRunner? gitRunner})
+    : _gitRunner = gitRunner ?? _defaultGitRunner;
+
+  final GitProcessRunner _gitRunner;
 
   PatchFileBuildResult build({
     required String baselinePath,
@@ -105,6 +114,7 @@ final class PatchFileBuilder {
       '-c',
       'core.safecrlf=false',
       'diff',
+      '--no-ext-diff',
       '--src-prefix=a/',
       '--dst-prefix=b/',
       '--full-index',
@@ -114,7 +124,7 @@ final class PatchFileBuilder {
     ];
     final ProcessResult result;
     try {
-      result = Process.runSync('git', arguments);
+      result = _gitRunner(arguments);
     } on ProcessException catch (error) {
       return _GitDiffResult.failure(
         Diagnostic(
@@ -126,7 +136,7 @@ final class PatchFileBuilder {
     }
 
     final stderr = '${result.stderr}'.trim();
-    if (stderr.isNotEmpty || (result.exitCode != 0 && result.exitCode != 1)) {
+    if (result.exitCode != 0 && result.exitCode != 1) {
       return _GitDiffResult.failure(
         Diagnostic(
           code: 'patch.diff_failed',
@@ -138,6 +148,15 @@ final class PatchFileBuilder {
 
     final output = '${result.stdout}';
     if (output.isEmpty) {
+      if (stderr.isNotEmpty && result.exitCode != 0) {
+        return _GitDiffResult.failure(
+          Diagnostic(
+            code: 'patch.diff_failed',
+            message: 'Could not generate a patch diff.',
+            hint: stderr,
+          ),
+        );
+      }
       return const _GitDiffResult();
     }
 

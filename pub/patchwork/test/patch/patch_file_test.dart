@@ -218,6 +218,49 @@ void main() {
       ]);
     });
 
+    test('ignores configured external diff drivers', () {
+      final roots = _PatchRootPair(root);
+      File(p.join(roots.baselinePath, 'file.txt')).writeAsStringSync('old\n');
+      File(p.join(roots.editPath, 'file.txt')).writeAsStringSync('new\n');
+
+      _withLocalGitConfig(root, {'diff.external': 'echo EXTERNAL'}, () {
+        final buildResult = roots.build();
+
+        expect(buildResult.diagnostic, isNull);
+        expect(buildResult.content, contains('diff --git a/file.txt'));
+        expect(buildResult.content, isNot(contains('EXTERNAL')));
+      });
+    });
+
+    test('allows git warnings when diff output is valid', () {
+      final roots = _PatchRootPair(root);
+      File(p.join(roots.baselinePath, 'file.txt')).writeAsStringSync('old\n');
+      File(p.join(roots.editPath, 'file.txt')).writeAsStringSync('new\n');
+
+      final buildResult = PatchFileBuilder(
+        gitRunner: (arguments) {
+          expect(arguments, contains('--no-ext-diff'));
+          final oldPrefix = _gitDiffFixturePathPrefix(
+            arguments[arguments.length - 2],
+          );
+          final newPrefix = _gitDiffFixturePathPrefix(arguments.last);
+          return ProcessResult(0, 1, '''
+diff --git a/$oldPrefix/file.txt b/$newPrefix/file.txt
+index 3367afdbbf91e638efe983616377c60477cc6612..3e757656cf36eca53338e520d134963a44f793f8 100644
+--- a/$oldPrefix/file.txt
++++ b/$newPrefix/file.txt
+@@ -1 +1 @@
+-old
++new
+''', 'warning: LF will be replaced by CRLF\n');
+        },
+      ).build(baselinePath: roots.baselinePath, editPath: roots.editPath);
+
+      expect(buildResult.diagnostic, isNull);
+      expect(buildResult.content, contains('diff --git a/file.txt'));
+      expect(buildResult.content, contains('+new'));
+    });
+
     test(
       'ignores unchanged symlinks while building a patch',
       () {
@@ -441,6 +484,54 @@ final class _PatchRootPair {
       patchContent: buildResult.content!,
     );
   }
+}
+
+void _withLocalGitConfig(
+  Directory root,
+  Map<String, String> entries,
+  void Function() body,
+) {
+  final previousCurrentDirectory = Directory.current;
+  final configRoot = Directory(p.join(root.path, 'git-config'));
+  configRoot.createSync(recursive: true);
+  final initResult = Process.runSync('git', [
+    'init',
+    '-q',
+  ], workingDirectory: configRoot.path);
+  expect(
+    initResult.exitCode,
+    0,
+    reason: '${initResult.stderr}${initResult.stdout}'.trim(),
+  );
+
+  for (final entry in entries.entries) {
+    final configResult = Process.runSync('git', [
+      'config',
+      '--local',
+      entry.key,
+      entry.value,
+    ], workingDirectory: configRoot.path);
+    expect(
+      configResult.exitCode,
+      0,
+      reason: '${configResult.stderr}${configResult.stdout}'.trim(),
+    );
+  }
+
+  Directory.current = configRoot.path;
+  try {
+    body();
+  } finally {
+    Directory.current = previousCurrentDirectory;
+  }
+}
+
+String _gitDiffFixturePathPrefix(String path) {
+  final normalized = path.replaceAll('\\', '/');
+  if (normalized.startsWith('/')) {
+    return normalized.substring(1);
+  }
+  return normalized;
 }
 
 void _copyDirectoryContents(String sourcePath, String destinationPath) {

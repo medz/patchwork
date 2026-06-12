@@ -232,6 +232,20 @@ void main() {
       });
     });
 
+    test('disables configured colored diff output', () {
+      final roots = _PatchRootPair(root);
+      File(p.join(roots.baselinePath, 'file.txt')).writeAsStringSync('old\n');
+      File(p.join(roots.editPath, 'file.txt')).writeAsStringSync('new\n');
+
+      _withLocalGitConfig(root, {'color.ui': 'always'}, () {
+        final buildResult = roots.build();
+
+        expect(buildResult.diagnostic, isNull);
+        expect(buildResult.content, contains('diff --git a/file.txt'));
+        expect(buildResult.content, isNot(contains('\x1B[')));
+      });
+    });
+
     test('allows git warnings when diff output is valid', () {
       final roots = _PatchRootPair(root);
       File(p.join(roots.baselinePath, 'file.txt')).writeAsStringSync('old\n');

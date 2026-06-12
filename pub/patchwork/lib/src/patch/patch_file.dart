@@ -115,6 +115,7 @@ final class PatchFileBuilder {
       'core.safecrlf=false',
       'diff',
       '--no-ext-diff',
+      '--no-color',
       '--src-prefix=a/',
       '--dst-prefix=b/',
       '--full-index',

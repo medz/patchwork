@@ -44,17 +44,45 @@ final class PatchValidationResult {
   bool get isSuccess => diagnostic == null;
 }
 
-typedef GitProcessRunner = ProcessResult Function(List<String> arguments);
+final class PatchApplyResult {
+  const PatchApplyResult._({this.diagnostic});
 
-ProcessResult _defaultGitRunner(List<String> arguments) {
-  return Process.runSync('git', arguments);
+  factory PatchApplyResult.success() {
+    return const PatchApplyResult._();
+  }
+
+  factory PatchApplyResult.failure(Diagnostic diagnostic) {
+    return PatchApplyResult._(diagnostic: diagnostic);
+  }
+
+  final Diagnostic? diagnostic;
+
+  bool get isSuccess => diagnostic == null;
+}
+
+typedef GitProcessRunner =
+    ProcessResult Function(List<String> arguments, {String? workingDirectory});
+
+ProcessResult _defaultGitRunner(
+  List<String> arguments, {
+  String? workingDirectory,
+}) {
+  return Process.runSync('git', arguments, workingDirectory: workingDirectory);
 }
 
 final class PatchFileBuilder {
-  const PatchFileBuilder({GitProcessRunner? gitRunner})
-    : _gitRunner = gitRunner ?? _defaultGitRunner;
+  const PatchFileBuilder({
+    GitProcessRunner? gitRunner,
+    String? workingDirectory,
+  }) : this._(gitRunner: gitRunner, workingDirectory: workingDirectory);
+
+  const PatchFileBuilder._({
+    GitProcessRunner? gitRunner,
+    this._workingDirectory,
+  }) : _gitRunner = gitRunner ?? _defaultGitRunner;
 
   final GitProcessRunner _gitRunner;
+  final String? _workingDirectory;
 
   PatchFileBuildResult build({
     required String baselinePath,
@@ -85,6 +113,7 @@ final class PatchFileBuilder {
         baselinePath: diffRoots.baselinePath,
         editPath: diffRoots.editPath,
         mode: diffMode,
+        workingDirectory: _workingDirectory ?? diffRoots.root.path,
       );
       final diffDiagnostic = diffResult.diagnostic;
       if (diffDiagnostic != null) {
@@ -115,6 +144,7 @@ final class PatchFileBuilder {
     required String baselinePath,
     required String editPath,
     required _GitDiffMode mode,
+    required String workingDirectory,
   }) {
     final arguments = <String>[
       '-c',
@@ -133,7 +163,7 @@ final class PatchFileBuilder {
     ];
     final ProcessResult result;
     try {
-      result = _gitRunner(arguments);
+      result = _gitRunner(arguments, workingDirectory: workingDirectory);
     } on ProcessException catch (error) {
       return _GitDiffResult.failure(
         Diagnostic(
@@ -194,14 +224,16 @@ final class PatchValidator {
     required String baselinePath,
     required String patchContent,
   }) {
-    final validationRoot = Directory.systemTemp.createTempSync(
+    final validationTempRoot = Directory.systemTemp.createTempSync(
       'patchwork_patch_validate_',
     );
+    final validationRoot = Directory(p.join(validationTempRoot.path, 'root'));
     File? patchFile;
 
     try {
+      validationRoot.createSync();
       _copyDirectoryContents(baselinePath, validationRoot.path);
-      patchFile = File('${validationRoot.path}.patch');
+      patchFile = File(p.join(validationTempRoot.path, 'patch.patch'));
       patchFile.writeAsStringSync(patchContent);
       final ProcessResult result;
       try {
@@ -241,11 +273,83 @@ final class PatchValidator {
         ),
       );
     } finally {
-      if (patchFile != null && patchFile.existsSync()) {
-        patchFile.deleteSync();
+      if (validationTempRoot.existsSync()) {
+        validationTempRoot.deleteSync(recursive: true);
       }
-      if (validationRoot.existsSync()) {
-        validationRoot.deleteSync(recursive: true);
+    }
+  }
+}
+
+final class PatchApplier {
+  const PatchApplier();
+
+  PatchApplyResult apply({
+    required String packagePath,
+    required String patchContent,
+  }) {
+    final packageRoot = Directory(packagePath);
+    if (!packageRoot.existsSync()) {
+      return PatchApplyResult.failure(
+        Diagnostic(
+          code: 'patch.apply_failed',
+          message: 'Could not apply patch to a missing package copy.',
+          location: packagePath,
+        ),
+      );
+    }
+
+    final patchFile = File(
+      p.join(
+        Directory.systemTemp.path,
+        'patchwork_apply_$pid'
+        '_${DateTime.now().microsecondsSinceEpoch}.patch',
+      ),
+    );
+
+    try {
+      patchFile.writeAsStringSync(patchContent, flush: true);
+      final ProcessResult result;
+      try {
+        result = Process.runSync('git', [
+          'apply',
+          '--binary',
+          '--whitespace=nowarn',
+          patchFile.path,
+        ], workingDirectory: packagePath);
+      } on ProcessException catch (error) {
+        return PatchApplyResult.failure(
+          Diagnostic(
+            code: 'patch.git_missing',
+            message: 'Git is required to apply patch files.',
+            hint: error.message,
+          ),
+        );
+      }
+
+      if (result.exitCode == 0) {
+        return PatchApplyResult.success();
+      }
+
+      return PatchApplyResult.failure(
+        Diagnostic(
+          code: 'patch.apply_failed',
+          message: 'Could not apply patch to the generated package copy.',
+          hint: '${result.stderr}${result.stdout}'.trim(),
+          location: packagePath,
+        ),
+      );
+    } on FileSystemException catch (error) {
+      return PatchApplyResult.failure(
+        Diagnostic(
+          code: 'patch.apply_failed',
+          message: 'Could not prepare a patch apply operation.',
+          hint: error.message,
+          location: error.path,
+        ),
+      );
+    } finally {
+      if (patchFile.existsSync()) {
+        patchFile.deleteSync();
       }
     }
   }

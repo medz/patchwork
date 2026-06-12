@@ -42,6 +42,7 @@ pub/patchwork/
         target_parser.dart
       pub/
         package_resolution.dart
+        pubspec_overrides.dart
         pub_workspace.dart
       store/
         edit_session.dart
@@ -94,8 +95,8 @@ Domain modules are narrow:
 
 - `target` parses strings such as `foo` and `pub:foo`. A missing prefix means
   `pub:` for the MVP. Parsing must be pure and unit-testable.
-- `pub` reads the current pub workspace and resolves package names to immutable
-  package metadata.
+- `pub` reads the current pub workspace, resolves package names to immutable
+  package metadata, and owns generated `pubspec_overrides.yaml` formatting.
 - `store` owns `.dart_tool/patchwork/` paths, baselines, editable copies, and
   session metadata. It also owns committed patch file paths under
   `patches/pub/` and `patchwork.lock` models, stable YAML read/write behavior,
@@ -122,9 +123,9 @@ Committed project state:
 Internal generated state:
 
 - `.dart_tool/patchwork/sessions/`
-- `.dart_tool/patchwork/baselines/`
+- `.dart_tool/patchwork/baseline/`
+- `.dart_tool/patchwork/store/`
 - `.dart_tool/patchwork/tmp/`
-- `.dart_tool/patchwork/cache/`
 
 The only generated integration output allowed outside `.dart_tool/patchwork/`
 is `pubspec_overrides.yaml`, written by `patchwork apply` so pub can resolve

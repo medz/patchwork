@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import '../app/apply_patches.dart';
 import '../app/commit_patch_session.dart';
 import '../app/start_patch_session.dart';
 import '../diagnostics/diagnostic.dart';
@@ -286,11 +287,13 @@ final class PatchworkCommandRunner {
     this.parser = const PatchworkCommandParser(),
     this.startPatchSession = const StartPatchSession(),
     this.commitPatchSession = const CommitPatchSession(),
+    this.applyPatches = const ApplyPatches(),
   });
 
   final PatchworkCommandParser parser;
   final StartPatchSession startPatchSession;
   final CommitPatchSession commitPatchSession;
+  final ApplyPatches applyPatches;
 
   int run(
     List<String> arguments, {
@@ -322,6 +325,15 @@ final class PatchworkCommandRunner {
 
     if (intent is PatchIntent && intent.isCommit) {
       return _commitPatchSession(
+        intent,
+        stdout: stdout,
+        stderr: stderr,
+        currentDirectory: currentDirectory ?? Directory.current.path,
+      );
+    }
+
+    if (intent is ApplyIntent) {
+      return _applyPatches(
         intent,
         stdout: stdout,
         stderr: stderr,
@@ -385,6 +397,36 @@ final class PatchworkCommandRunner {
     }
 
     stdout.writeln('Patch file: ${result.patchPath}');
+    return PatchworkExitCode.success;
+  }
+
+  int _applyPatches(
+    ApplyIntent intent, {
+    required StringSink stdout,
+    required StringSink stderr,
+    required String currentDirectory,
+  }) {
+    final result = applyPatches.apply(
+      target: intent.target,
+      currentDirectory: currentDirectory,
+    );
+    final diagnostic = result.diagnostic;
+    if (diagnostic != null) {
+      _writeDiagnostic(stderr, diagnostic);
+      return PatchworkExitCode.forDiagnostic(diagnostic);
+    }
+
+    if (result.applied.isEmpty) {
+      stdout.writeln('No pub patches to apply.');
+      return PatchworkExitCode.success;
+    }
+
+    for (final patch in result.applied) {
+      stdout.writeln(
+        'Applied ${patch.target}: ${patch.storePath}'
+        '${patch.rebuilt ? '' : ' (already current)'}',
+      );
+    }
     return PatchworkExitCode.success;
   }
 

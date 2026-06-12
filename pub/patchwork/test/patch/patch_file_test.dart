@@ -262,8 +262,8 @@ void main() {
       File(p.join(roots.baselinePath, 'file.txt')).writeAsStringSync('old\n');
       File(p.join(roots.editPath, 'file.txt')).writeAsStringSync('new\n');
 
-      _withLocalGitConfig(root, {'diff.external': 'echo EXTERNAL'}, () {
-        final buildResult = roots.build();
+      _withLocalGitConfig(root, {'diff.external': 'echo EXTERNAL'}, (builder) {
+        final buildResult = roots.build(builder: builder);
 
         expect(buildResult.diagnostic, isNull);
         expect(buildResult.content, contains('diff --git a/file.txt'));
@@ -276,8 +276,8 @@ void main() {
       File(p.join(roots.baselinePath, 'file.txt')).writeAsStringSync('old\n');
       File(p.join(roots.editPath, 'file.txt')).writeAsStringSync('new\n');
 
-      _withLocalGitConfig(root, {'color.ui': 'always'}, () {
-        final buildResult = roots.build();
+      _withLocalGitConfig(root, {'color.ui': 'always'}, (builder) {
+        final buildResult = roots.build(builder: builder);
 
         expect(buildResult.diagnostic, isNull);
         expect(buildResult.content, contains('diff --git a/file.txt'));
@@ -318,8 +318,8 @@ void main() {
             'core.attributesFile': attributesPath,
             'diff.upper.textconv': textconvPath,
           },
-          () {
-            final buildResult = roots.build();
+          (builder) {
+            final buildResult = roots.build(builder: builder);
 
             expect(buildResult.diagnostic, isNull);
             expect(buildResult.content, contains('-old'));
@@ -341,8 +341,10 @@ void main() {
       final attributesPath = p.join(root.path, 'attributes');
       File(attributesPath).writeAsStringSync('*.txt binary\n');
 
-      _withLocalGitConfig(root, {'core.attributesFile': attributesPath}, () {
-        final buildResult = roots.build();
+      _withLocalGitConfig(root, {'core.attributesFile': attributesPath}, (
+        builder,
+      ) {
+        final buildResult = roots.build(builder: builder);
 
         expect(buildResult.diagnostic, isNull);
         expect(buildResult.content, contains('diff --git a/file.txt'));
@@ -458,8 +460,9 @@ void main() {
       File(p.join(roots.editPath, 'file.txt')).writeAsStringSync('new\n');
 
       final buildResult = PatchFileBuilder(
-        gitRunner: (arguments) {
+        gitRunner: (arguments, {workingDirectory}) {
           expect(arguments, contains('--no-ext-diff'));
+          expect(workingDirectory, isNotNull);
           final oldPrefix = _gitDiffFixturePathPrefix(
             arguments[arguments.length - 2],
           );
@@ -791,11 +794,10 @@ final class _PatchRootPair {
   final String baselinePath;
   final String editPath;
 
-  PatchFileBuildResult build() {
-    return const PatchFileBuilder().build(
-      baselinePath: baselinePath,
-      editPath: editPath,
-    );
+  PatchFileBuildResult build({
+    PatchFileBuilder builder = const PatchFileBuilder(),
+  }) {
+    return builder.build(baselinePath: baselinePath, editPath: editPath);
   }
 
   String apply({
@@ -813,9 +815,8 @@ final class _PatchRootPair {
 void _withLocalGitConfig(
   Directory root,
   Map<String, String> entries,
-  void Function() body,
+  void Function(PatchFileBuilder builder) body,
 ) {
-  final previousCurrentDirectory = Directory.current;
   final configRoot = Directory(p.join(root.path, 'git-config'));
   configRoot.createSync(recursive: true);
   final initResult = Process.runSync('git', [
@@ -842,12 +843,7 @@ void _withLocalGitConfig(
     );
   }
 
-  Directory.current = configRoot.path;
-  try {
-    body();
-  } finally {
-    Directory.current = previousCurrentDirectory;
-  }
+  body(PatchFileBuilder(workingDirectory: configRoot.path));
 }
 
 String _gitDiffFixturePathPrefix(String path) {

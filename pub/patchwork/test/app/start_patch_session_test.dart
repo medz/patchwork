@@ -130,6 +130,46 @@ void main() {
         ),
       });
     });
+
+    test('rejects generated store copies as patch session sources', () {
+      final storePath = p.join(
+        fixture.rootPath,
+        '.dart_tool',
+        'patchwork',
+        'store',
+        'pub',
+        'analyzer@7.4.0_patch_hash=aaaaaaaa',
+      );
+      Directory(p.join(storePath, 'lib')).createSync(recursive: true);
+      File(
+        p.join(storePath, 'lib', 'analyzer.dart'),
+      ).writeAsStringSync("String analyzerVersion() => 'patched';\n");
+      fixture.overwritePackageConfig(
+        jsonEncode({
+          'configVersion': 2,
+          'packages': [
+            {
+              'name': 'app',
+              'rootUri': p.toUri(fixture.memberPath).toString(),
+              'packageUri': 'lib/',
+            },
+            {
+              'name': 'analyzer',
+              'rootUri': p.toUri(storePath).toString(),
+              'packageUri': 'lib/',
+            },
+          ],
+        }),
+      );
+
+      final result = const StartPatchSession()(
+        const PubTarget(name: 'analyzer'),
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(result.diagnostic?.code, 'pub.patch_source_generated');
+      expect(result.session, isNull);
+    });
   });
 }
 

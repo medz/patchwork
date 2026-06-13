@@ -366,6 +366,43 @@ dependency_overrides:
       expect(result.applied.single.target, 'pub:analyzer@7.4.0');
     });
 
+    test('rejects targeted root packages before looking for patches', () {
+      final result = const ApplyPatches().apply(
+        target: const PubTarget(name: 'app'),
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(result.diagnostic?.code, 'pub.patch_target_root_package');
+      expect(result.diagnostic?.location, fixture.memberPath);
+      expect(result.applied, isEmpty);
+      expect(
+        File(p.join(fixture.rootPath, 'pubspec_overrides.yaml')).existsSync(),
+        isFalse,
+      );
+    });
+
+    test('rejects manifest entries that point at root packages', () {
+      _writeRootPatchManifest(fixture);
+
+      final result = const ApplyPatches().apply(
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(result.diagnostic?.code, 'pub.patch_target_root_package');
+      expect(result.diagnostic?.location, fixture.memberPath);
+      expect(result.applied, isEmpty);
+      expect(
+        Directory(
+          p.join(fixture.rootPath, '.dart_tool', 'patchwork', 'store'),
+        ).existsSync(),
+        isFalse,
+      );
+      expect(
+        File(p.join(fixture.rootPath, 'pubspec_overrides.yaml')).existsSync(),
+        isFalse,
+      );
+    });
+
     test('does not write overrides when there are no committed patches', () {
       final result = const ApplyPatches().apply(
         currentDirectory: fixture.rootPath,
@@ -399,6 +436,26 @@ void _commitAnalyzerPatch(
     currentDirectory: fixture.rootPath,
   );
   expect(commitResult.diagnostic, isNull);
+}
+
+void _writeRootPatchManifest(PubResolutionFixture fixture) {
+  final patchFile = File(
+    p.join(fixture.rootPath, 'patches', 'pub', 'app@0.0.0.patch'),
+  );
+  patchFile.parent.createSync(recursive: true);
+  patchFile.writeAsStringSync(
+    'not applied because root targets are rejected\n',
+  );
+
+  const manifestStore = PatchworkManifestStore();
+  manifestStore.upsertPatch(
+    workspaceRootPath: fixture.rootPath,
+    entry: PatchworkManifestPatch(
+      target: 'pub:app@0.0.0',
+      path: 'patches/pub/app@0.0.0.patch',
+      hash: manifestStore.hashFile(patchFile.path),
+    ),
+  );
 }
 
 void _writeAnalyzerPatch(

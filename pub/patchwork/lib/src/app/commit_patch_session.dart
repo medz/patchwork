@@ -9,6 +9,7 @@ import '../store/edit_session.dart';
 import '../store/patchwork_manifest.dart';
 import '../store/patchwork_store.dart';
 import '../target/target.dart';
+import 'pub_patch_target_resolution.dart';
 
 final class PubPatchSessionCommitResult {
   const PubPatchSessionCommitResult._({
@@ -43,6 +44,7 @@ final class CommitPatchSession {
     this.manifestStore = const PatchworkManifestStore(),
     this.patchBuilder = const PatchFileBuilder(),
     this.patchValidator = const PatchValidator(),
+    this.targetResolver = const PubPatchTargetResolver(),
   });
 
   final PubResolutionReader resolutionReader;
@@ -50,6 +52,7 @@ final class CommitPatchSession {
   final PatchworkManifestStore manifestStore;
   final PatchFileBuilder patchBuilder;
   final PatchValidator patchValidator;
+  final PubPatchTargetResolver targetResolver;
 
   PubPatchSessionCommitResult commitTarget(
     PubTarget target, {
@@ -64,15 +67,17 @@ final class CommitPatchSession {
     }
 
     final resolution = resolutionResult.resolution!;
-    final packageResult = resolution.resolve(target);
-    final packageDiagnostic = packageResult.diagnostic;
-    if (packageDiagnostic != null) {
-      return PubPatchSessionCommitResult.failure(packageDiagnostic);
+    final targetResult = targetResolver.resolve(resolution, target);
+    final targetDiagnostic = targetResult.diagnostic;
+    if (targetDiagnostic != null) {
+      return PubPatchSessionCommitResult.failure(targetDiagnostic);
     }
+
+    final package = targetResult.target!.package;
 
     final locateResult = store.locatePubEditSessionForPackage(
       workspace: resolution.workspace,
-      package: packageResult.package!,
+      package: package,
     );
     return _commitLocatedSession(locateResult);
   }
@@ -85,6 +90,27 @@ final class CommitPatchSession {
       editPath: editPath,
       currentDirectory: currentDirectory,
     );
+    final locateDiagnostic = locateResult.diagnostic;
+    if (locateDiagnostic != null) {
+      return PubPatchSessionCommitResult.failure(locateDiagnostic);
+    }
+
+    final resolutionResult = resolutionReader.readFromDirectory(
+      locateResult.workspaceRootPath!,
+    );
+    final resolutionDiagnostic = resolutionResult.diagnostic;
+    if (resolutionDiagnostic != null) {
+      return PubPatchSessionCommitResult.failure(resolutionDiagnostic);
+    }
+
+    final sessionDiagnostic = targetResolver.validateSession(
+      resolutionResult.resolution!,
+      locateResult.session!,
+    );
+    if (sessionDiagnostic != null) {
+      return PubPatchSessionCommitResult.failure(sessionDiagnostic);
+    }
+
     return _commitLocatedSession(locateResult);
   }
 

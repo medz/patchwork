@@ -3,15 +3,18 @@ import '../pub/package_resolution.dart';
 import '../store/edit_session.dart';
 import '../store/patchwork_store.dart';
 import '../target/target.dart';
+import 'pub_patch_target_resolution.dart';
 
 final class StartPatchSession {
   const StartPatchSession({
     this.resolutionReader = const PubResolutionReader(),
     this.store = const PatchworkStore(),
+    this.targetResolver = const PubPatchTargetResolver(),
   });
 
   final PubResolutionReader resolutionReader;
   final PatchworkStore store;
+  final PubPatchTargetResolver targetResolver;
 
   PubPatchSessionCreateResult call(
     PubTarget target, {
@@ -26,13 +29,14 @@ final class StartPatchSession {
     }
 
     final resolution = resolutionResult.resolution!;
-    final packageResult = resolution.resolve(target);
-    final packageDiagnostic = packageResult.diagnostic;
-    if (packageDiagnostic != null) {
-      return PubPatchSessionCreateResult.failure(packageDiagnostic);
+    final targetResult = targetResolver.resolve(resolution, target);
+    final targetDiagnostic = targetResult.diagnostic;
+    if (targetDiagnostic != null) {
+      return PubPatchSessionCreateResult.failure(targetDiagnostic);
     }
 
-    final package = packageResult.package!;
+    final package = targetResult.target!.package;
+
     if (store.isPubPatchStorePath(
       workspaceRootPath: resolution.workspace.rootPath,
       path: package.rootPath,

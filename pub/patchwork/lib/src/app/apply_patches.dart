@@ -10,6 +10,7 @@ import '../store/patchwork_manifest.dart';
 import '../store/patchwork_store.dart';
 import '../target/target.dart';
 import '../target/target_parser.dart';
+import 'pub_patch_target_resolution.dart';
 
 final class PubPatchApplyResult {
   const PubPatchApplyResult._({this.applied = const [], this.diagnostic});
@@ -49,6 +50,7 @@ final class ApplyPatches {
     this.manifestStore = const PatchworkManifestStore(),
     this.pubspecOverridesStore = const PubspecOverridesStore(),
     this.targetParser = const TargetParser(),
+    this.targetResolver,
     this.patchApplier = const PatchApplier(),
   });
 
@@ -57,7 +59,12 @@ final class ApplyPatches {
   final PatchworkManifestStore manifestStore;
   final PubspecOverridesStore pubspecOverridesStore;
   final TargetParser targetParser;
+  final PubPatchTargetResolver? targetResolver;
   final PatchApplier patchApplier;
+
+  PubPatchTargetResolver get _targetResolver {
+    return targetResolver ?? PubPatchTargetResolver(targetParser: targetParser);
+  }
 
   PubPatchApplyResult apply({
     PubTarget? target,
@@ -182,22 +189,23 @@ final class ApplyPatches {
     required List<PatchworkManifestPatchInspection> inspections,
     PubTarget? target,
   }) {
+    final targetResolver = _targetResolver;
+
     if (target != null) {
-      final packageResult = resolution.resolve(target);
-      final packageDiagnostic = packageResult.diagnostic;
-      if (packageDiagnostic != null) {
-        return _SelectedEntriesResult.failure(packageDiagnostic);
+      final targetResult = targetResolver.resolve(resolution, target);
+      final targetDiagnostic = targetResult.diagnostic;
+      if (targetDiagnostic != null) {
+        return _SelectedEntriesResult.failure(targetDiagnostic);
       }
 
-      final package = packageResult.package!;
-      final resolvedTarget = PubTarget(
-        name: package.name,
-        versionConstraint: package.version,
-      ).toString();
+      final resolvedTarget = targetResult.target!;
       for (final inspection in inspections) {
-        if (inspection.entry.target == resolvedTarget) {
+        if (inspection.entry.target == resolvedTarget.manifestTarget) {
           return _SelectedEntriesResult.success([
-            _SelectedEntry(inspection: inspection, package: package),
+            _SelectedEntry(
+              inspection: inspection,
+              package: resolvedTarget.package,
+            ),
           ]);
         }
       }
@@ -205,28 +213,30 @@ final class ApplyPatches {
       return _SelectedEntriesResult.failure(
         Diagnostic(
           code: 'pub.patch_not_found',
-          message: 'No committed pub patch found for "$resolvedTarget".',
-          hint: 'Run patchwork patch --commit ${package.name} first.',
+          message:
+              'No committed pub patch found for "${resolvedTarget.manifestTarget}".',
+          hint:
+              'Run patchwork patch --commit ${resolvedTarget.package.name} first.',
         ),
       );
     }
 
     final selected = <_SelectedEntry>[];
     for (final inspection in inspections) {
-      final targetResult = targetParser.parsePubTarget(inspection.entry.target);
+      final targetResult = targetResolver.resolveManifestTarget(
+        resolution,
+        inspection.entry.target,
+      );
       final targetDiagnostic = targetResult.diagnostic;
       if (targetDiagnostic != null) {
         return _SelectedEntriesResult.failure(targetDiagnostic);
       }
 
-      final packageResult = resolution.resolve(targetResult.target!);
-      final packageDiagnostic = packageResult.diagnostic;
-      if (packageDiagnostic != null) {
-        return _SelectedEntriesResult.failure(packageDiagnostic);
-      }
-
       selected.add(
-        _SelectedEntry(inspection: inspection, package: packageResult.package!),
+        _SelectedEntry(
+          inspection: inspection,
+          package: targetResult.target!.package,
+        ),
       );
     }
 

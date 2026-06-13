@@ -6,6 +6,7 @@ import '../pub/pubspec_overrides.dart';
 import '../store/patchwork_manifest.dart';
 import '../store/patchwork_store.dart';
 import '../target/target_parser.dart';
+import 'pub_patch_target_resolution.dart';
 
 enum PubPatchStatusState { clean, stale, missing, unapplied, broken }
 
@@ -91,6 +92,7 @@ final class PubStatus {
     this.overridesStore = const PubspecOverridesStore(),
     this.store = const PatchworkStore(),
     this.targetParser = const TargetParser(),
+    this.targetResolver,
   });
 
   final PubResolutionReader resolutionReader;
@@ -98,6 +100,11 @@ final class PubStatus {
   final PubspecOverridesStore overridesStore;
   final PatchworkStore store;
   final TargetParser targetParser;
+  final PubPatchTargetResolver? targetResolver;
+
+  PubPatchTargetResolver get _targetResolver {
+    return targetResolver ?? PubPatchTargetResolver(targetParser: targetParser);
+  }
 
   PubStatusResult read({required String currentDirectory}) {
     final resolutionResult = resolutionReader.readFromDirectory(
@@ -129,16 +136,19 @@ final class PubStatus {
 
     final patches = <PubPatchStatus>[];
     final manifestPackageNames = <String>{};
+    final targetResolver = _targetResolver;
     for (final inspection in inspectionResult.patches) {
-      final targetResult = targetParser.parsePubTarget(inspection.entry.target);
-      final target = targetResult.target;
-      if (target != null) {
-        manifestPackageNames.add(target.name);
+      final packageName = targetResolver.packageNameFromManifestTarget(
+        inspection.entry.target,
+      );
+      if (packageName != null) {
+        manifestPackageNames.add(packageName);
       }
       patches.add(
         _inspectPatch(
           workspaceRootPath: workspaceRootPath,
           resolution: resolution,
+          targetResolver: targetResolver,
           inspection: inspection,
           overridePaths: overridePaths,
         ),
@@ -185,6 +195,7 @@ final class PubStatus {
   PubPatchStatus _inspectPatch({
     required String workspaceRootPath,
     required PubResolution resolution,
+    required PubPatchTargetResolver targetResolver,
     required PatchworkManifestPatchInspection inspection,
     required Map<String, String> overridePaths,
   }) {
@@ -203,7 +214,10 @@ final class PubStatus {
       );
     }
 
-    final targetResult = targetParser.parsePubTarget(entry.target);
+    final targetResult = targetResolver.resolveManifestTarget(
+      resolution,
+      entry.target,
+    );
     final targetDiagnostic = targetResult.diagnostic;
     if (targetDiagnostic != null) {
       return PubPatchStatus(
@@ -217,21 +231,7 @@ final class PubStatus {
       );
     }
 
-    final packageResult = resolution.resolve(targetResult.target!);
-    final packageDiagnostic = packageResult.diagnostic;
-    if (packageDiagnostic != null) {
-      return PubPatchStatus(
-        target: entry.target,
-        state: PubPatchStatusState.broken,
-        patchPath: patchPath,
-        manifestHash: entry.hash,
-        patchState: inspection.state,
-        actualHash: inspection.actualHash,
-        diagnostic: packageDiagnostic,
-      );
-    }
-
-    final package = packageResult.package!;
+    final package = targetResult.target!.package;
     final storePath = store.pubPatchStorePath(
       workspaceRootPath: workspaceRootPath,
       package: package,

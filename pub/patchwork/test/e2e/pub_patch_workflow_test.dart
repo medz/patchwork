@@ -67,6 +67,28 @@ void main() {
       expect(result.stderr, contains('Target kind "sdk" is not supported'));
     });
 
+    test('rejects the current root package as a patch target', () {
+      final result = fixture.runPatchwork(['patch', 'app']);
+
+      expect(result.exitCode, PatchworkExitCode.failure);
+      expect(result.stdout, isEmpty);
+      expect(result.stderr, contains('Cannot patch the current package'));
+      expect(result.stderr, contains('pubspec.lock'));
+      expect(
+        Directory(
+          p.join(
+            fixture.appPath,
+            '.dart_tool',
+            'patchwork',
+            'edit',
+            'pub',
+            'app@0.0.0',
+          ),
+        ).existsSync(),
+        isFalse,
+      );
+    });
+
     test('commits no changes as a clean no-op', () {
       final patch = fixture.runPatchwork(['patch', 'sample_dep']);
       _expectPatchworkSuccess(patch);

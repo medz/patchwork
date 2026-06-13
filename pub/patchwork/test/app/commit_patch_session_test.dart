@@ -121,6 +121,75 @@ void main() {
       expect(patchContent, contains('+++ b/lib/new.dart'));
     });
 
+    test('rejects stale root package sessions by target', () {
+      fixture.writeRootEditSession();
+
+      final result = const CommitPatchSession().commitTarget(
+        const PubTarget(name: 'app'),
+        currentDirectory: fixture.memberPath,
+      );
+
+      expect(result.diagnostic?.code, 'pub.patch_target_root_package');
+      expect(result.diagnostic?.location, fixture.memberPath);
+      expect(result.patchPath, isNull);
+      expect(
+        File(p.join(fixture.rootPath, 'patchwork.lock')).existsSync(),
+        isFalse,
+      );
+      expect(
+        File(
+          p.join(fixture.rootPath, 'patches', 'pub', 'app@0.0.0.patch'),
+        ).existsSync(),
+        isFalse,
+      );
+    });
+
+    test('rejects stale root package sessions by edit directory', () {
+      final editPath = fixture.writeRootEditSession();
+
+      final result = const CommitPatchSession().commitEditDirectory(
+        editPath,
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(result.diagnostic?.code, 'pub.patch_target_root_package');
+      expect(result.diagnostic?.location, fixture.memberPath);
+      expect(result.patchPath, isNull);
+      expect(
+        File(p.join(fixture.rootPath, 'patchwork.lock')).existsSync(),
+        isFalse,
+      );
+      expect(
+        File(
+          p.join(fixture.rootPath, 'patches', 'pub', 'app@0.0.0.patch'),
+        ).existsSync(),
+        isFalse,
+      );
+    });
+
+    test('rejects unresolved root edit directory sessions', () {
+      final editPath = fixture.writeRootEditSession();
+      File(fixture.packageGraphPath).deleteSync();
+
+      final result = const CommitPatchSession().commitEditDirectory(
+        editPath,
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(result.diagnostic?.code, 'pub.package_version_not_found');
+      expect(result.patchPath, isNull);
+      expect(
+        File(p.join(fixture.rootPath, 'patchwork.lock')).existsSync(),
+        isFalse,
+      );
+      expect(
+        File(
+          p.join(fixture.rootPath, 'patches', 'pub', 'app@0.0.0.patch'),
+        ).existsSync(),
+        isFalse,
+      );
+    });
+
     test('returns a clean no-op when the edit session has no changes', () {
       final startResult = const StartPatchSession()(
         const PubTarget(name: 'analyzer'),

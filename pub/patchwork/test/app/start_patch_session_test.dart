@@ -170,6 +170,32 @@ void main() {
       expect(result.diagnostic?.code, 'pub.patch_source_generated');
       expect(result.session, isNull);
     });
+
+    test('rejects root packages as patch session targets', () {
+      final result = const StartPatchSession()(
+        const PubTarget(name: 'app'),
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(result.diagnostic?.code, 'pub.patch_target_root_package');
+      expect(result.diagnostic?.message, contains('current package'));
+      expect(result.diagnostic?.hint, contains('pubspec.lock'));
+      expect(result.diagnostic?.location, fixture.memberPath);
+      expect(result.session, isNull);
+      expect(
+        Directory(
+          p.join(
+            fixture.rootPath,
+            '.dart_tool',
+            'patchwork',
+            'edit',
+            'pub',
+            'app@0.0.0',
+          ),
+        ).existsSync(),
+        isFalse,
+      );
+    });
   });
 }
 

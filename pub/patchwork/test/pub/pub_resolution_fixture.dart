@@ -101,6 +101,58 @@ sdks:
     Directory(analyzerRootPath).deleteSync(recursive: true);
   }
 
+  String writeRootEditSession() {
+    final baselinePath = p.join(
+      rootPath,
+      '.dart_tool',
+      'patchwork',
+      'baseline',
+      'pub',
+      'app@0.0.0',
+    );
+    final editPath = p.join(
+      rootPath,
+      '.dart_tool',
+      'patchwork',
+      'edit',
+      'pub',
+      'app@0.0.0',
+    );
+    Directory(p.join(baselinePath, 'lib')).createSync(recursive: true);
+    Directory(p.join(editPath, 'lib')).createSync(recursive: true);
+    File(p.join(baselinePath, 'lib', 'app.dart')).writeAsStringSync('''
+String appVersion() => 'before';
+''');
+    File(p.join(editPath, 'lib', 'app.dart')).writeAsStringSync('''
+String appVersion() => 'after';
+''');
+
+    final metadataPath = p.join(
+      rootPath,
+      '.dart_tool',
+      'patchwork',
+      'sessions',
+      'pub',
+      'app@0.0.0.json',
+    );
+    final metadata = const JsonEncoder.withIndent('  ').convert({
+      'schemaVersion': 1,
+      'target': 'pub:app@0.0.0',
+      'package': {'name': 'app', 'version': '0.0.0'},
+      'paths': {
+        'workspaceRoot': rootPath,
+        'sourceRoot': memberPath,
+        'baseline': p.relative(baselinePath, from: rootPath),
+        'edit': p.relative(editPath, from: rootPath),
+      },
+    });
+    File(metadataPath)
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync('$metadata\n');
+
+    return editPath;
+  }
+
   void _write() {
     Directory(p.join(rootPath, '.dart_tool')).createSync(recursive: true);
     Directory(memberLibPath).createSync(recursive: true);

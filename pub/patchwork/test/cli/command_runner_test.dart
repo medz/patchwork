@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:patchwork/src/cli/command_runner.dart';
 import 'package:patchwork/src/diagnostics/exit_code.dart';
+import 'package:patchwork/src/store/patchwork_manifest.dart';
 import 'package:test/test.dart';
 
 import '../pub/pub_resolution_fixture.dart';
@@ -306,6 +307,26 @@ dependency_overrides:
       expect(stdout.toString(), contains('(missing)'));
     });
 
+    test('reports root package manifest entries as broken status', () {
+      final fixture = PubResolutionFixture.create();
+      addTearDown(fixture.dispose);
+      _writeRootPatchManifest(fixture);
+      final stdout = StringBuffer();
+      final stderr = StringBuffer();
+
+      final exitCode = runner.run(
+        ['status'],
+        stdout: stdout,
+        stderr: stderr,
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(exitCode, PatchworkExitCode.failure);
+      expect(stderr.toString(), isEmpty);
+      expect(stdout.toString(), contains('pub:app@0.0.0 [broken]'));
+      expect(stdout.toString(), contains('Cannot patch the current package'));
+    });
+
     test('reports doctor checks for a ready pub workspace', () {
       final fixture = PubResolutionFixture.create();
       addTearDown(fixture.dispose);
@@ -484,4 +505,24 @@ void _commitAnalyzerPatch(
     currentDirectory: fixture.rootPath,
   );
   expect(commitExitCode, PatchworkExitCode.success);
+}
+
+void _writeRootPatchManifest(PubResolutionFixture fixture) {
+  final patchFile = File(
+    p.join(fixture.rootPath, 'patches', 'pub', 'app@0.0.0.patch'),
+  );
+  patchFile.parent.createSync(recursive: true);
+  patchFile.writeAsStringSync(
+    'not applied because root targets are rejected\n',
+  );
+
+  const manifestStore = PatchworkManifestStore();
+  manifestStore.upsertPatch(
+    workspaceRootPath: fixture.rootPath,
+    entry: PatchworkManifestPatch(
+      target: 'pub:app@0.0.0',
+      path: 'patches/pub/app@0.0.0.patch',
+      hash: manifestStore.hashFile(patchFile.path),
+    ),
+  );
 }

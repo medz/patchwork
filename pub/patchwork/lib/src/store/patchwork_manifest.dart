@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
 import '../diagnostics/diagnostic.dart';
+import '../io/atomic_file_writer.dart';
 
 final class PatchworkManifest {
   PatchworkManifest({required List<PatchworkManifestPatch> patches})
@@ -97,7 +98,7 @@ typedef PatchworkManifestWriter = void Function(String path, String content);
 final class PatchworkManifestStore {
   const PatchworkManifestStore({
     this.hashFile = patchworkPatchFileHash,
-    this.writeFile = _atomicWriteManifestFile,
+    this.writeFile = writeStringFileAtomically,
   });
 
   final PatchworkPatchHasher hashFile;
@@ -395,28 +396,6 @@ String patchworkPatchFileHash(String path) {
 
 String patchworkManifestPath(String path) {
   return path.replaceAll('\\', '/');
-}
-
-void _atomicWriteManifestFile(String manifestPath, String content) {
-  final manifestFile = File(manifestPath);
-  manifestFile.parent.createSync(recursive: true);
-  final tempFile = File(
-    p.join(
-      manifestFile.parent.path,
-      '.${p.basename(manifestPath)}.$pid.'
-      '${DateTime.now().microsecondsSinceEpoch}.tmp',
-    ),
-  );
-
-  try {
-    tempFile.writeAsStringSync(content, flush: true);
-    tempFile.renameSync(manifestPath);
-  } catch (_) {
-    if (tempFile.existsSync()) {
-      tempFile.deleteSync();
-    }
-    rethrow;
-  }
 }
 
 PatchworkManifestPatch _normalizeEntryForWrite({

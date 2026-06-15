@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:patchwork/src/io/atomic_file_writer.dart';
 import 'package:patchwork/src/pub/package_resolution.dart';
 import 'package:patchwork/src/pub/pub_workspace.dart';
 import 'package:patchwork/src/store/edit_session.dart';
@@ -209,6 +210,54 @@ void main() {
         ),
         p.join(root.path, 'patches', 'pub', 'some_pkg@1.0.0%2B1.patch'),
       );
+    });
+
+    test('keeps an existing pub patch file when atomic rename fails', () {
+      const session = PubPatchSession(
+        target: PubTarget(name: 'analyzer', versionConstraint: '7.4.0'),
+        package: ResolvedPubPackage(
+          name: 'analyzer',
+          version: '7.4.0',
+          sourceKind: PubPackageSourceKind.hosted,
+          dependencyKind: PubPackageDependencyKind.directMain,
+          rootPath: '/cache/analyzer',
+          packageUri: 'lib/',
+        ),
+        baselinePath: '/workspace/.dart_tool/patchwork/baseline/pub/analyzer',
+        editPath: '/workspace/.dart_tool/patchwork/edit/pub/analyzer',
+        metadataPath:
+            '/workspace/.dart_tool/patchwork/sessions/pub/analyzer.json',
+      );
+      final existingStore = const PatchworkStore();
+      final patchPath = existingStore.pubPatchFilePath(
+        workspaceRootPath: root.path,
+        session: session,
+      );
+      File(patchPath)
+        ..parent.createSync(recursive: true)
+        ..writeAsStringSync('existing patch\n');
+      late String tempPath;
+      final store = PatchworkStore(
+        fileWriter: AtomicFileWriter(
+          renameFile: (sourcePath, destinationPath) {
+            tempPath = sourcePath;
+            expect(destinationPath, patchPath);
+            throw FileSystemException('rename failed', destinationPath);
+          },
+        ),
+      );
+
+      expect(
+        () => store.writePubPatchFile(
+          workspaceRootPath: root.path,
+          session: session,
+          content: 'new patch\n',
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      expect(File(patchPath).readAsStringSync(), 'existing patch\n');
+      expect(File(tempPath).existsSync(), isFalse);
     });
 
     test('uses escaped pub session path components consistently', () {

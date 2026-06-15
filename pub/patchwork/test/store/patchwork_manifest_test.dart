@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:patchwork/src/io/atomic_file_writer.dart';
 import 'package:patchwork/src/store/patchwork_manifest.dart';
 import 'package:test/test.dart';
 
@@ -194,6 +195,44 @@ patches:
       final result = store.read(workspaceRootPath: root.path);
       expect(result.diagnostic, isNull);
       expect(result.manifest!.patches, hasLength(1));
+    });
+
+    test('keeps an existing manifest when atomic rename fails', () {
+      final manifestPath = p.join(root.path, 'patchwork.lock');
+      const existingContent = '''
+patches:
+  - target: pub:analyzer@7.4.0
+    path: patches/pub/analyzer@7.4.0.patch
+    hash: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+''';
+      File(manifestPath).writeAsStringSync(existingContent);
+      late String tempPath;
+      final writer = AtomicFileWriter(
+        renameFile: (sourcePath, destinationPath) {
+          tempPath = sourcePath;
+          expect(destinationPath, manifestPath);
+          throw FileSystemException('rename failed', destinationPath);
+        },
+      );
+      final store = PatchworkManifestStore(
+        writeFile: (path, content) => writer.writeString(path, content),
+      );
+
+      expect(
+        () => store.upsertPatch(
+          workspaceRootPath: root.path,
+          entry: const PatchworkManifestPatch(
+            target: 'pub:collection@1.19.1',
+            path: 'patches/pub/collection@1.19.1.patch',
+            hash:
+                'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+          ),
+        ),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      expect(File(manifestPath).readAsStringSync(), existingContent);
+      expect(File(tempPath).existsSync(), isFalse);
     });
 
     test('writes entries in stable target order', () {

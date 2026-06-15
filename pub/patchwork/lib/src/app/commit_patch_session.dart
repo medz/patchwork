@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../diagnostics/diagnostic.dart';
+import '../io/atomic_file_writer.dart';
 import '../patch/patch_file.dart';
 import '../pub/package_resolution.dart';
 import '../store/edit_session.dart';
@@ -266,8 +267,7 @@ final class _PatchFileSnapshot {
       return;
     }
 
-    file.parent.createSync(recursive: true);
-    file.writeAsBytesSync(bytes, flush: true);
+    writeBytesFileAtomically(path, bytes);
   }
 }
 

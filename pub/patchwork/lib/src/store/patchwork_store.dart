@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../diagnostics/diagnostic.dart';
+import '../io/atomic_file_writer.dart';
 import '../pub/package_resolution.dart';
 import '../pub/pub_workspace.dart';
 import '../session/session_file_filter.dart';
@@ -12,7 +13,9 @@ import '../target/target.dart';
 import 'edit_session.dart';
 
 final class PatchworkStore {
-  const PatchworkStore();
+  const PatchworkStore({this.fileWriter = const AtomicFileWriter()});
+
+  final AtomicFileWriter fileWriter;
 
   PubPatchSessionCreateResult createPubEditSession({
     required PubWorkspace workspace,
@@ -127,11 +130,10 @@ final class PatchworkStore {
     required PubPatchSession session,
     required String content,
   }) {
-    final patchFile = File(
+    fileWriter.writeString(
       pubPatchFilePath(workspaceRootPath: workspaceRootPath, session: session),
+      content,
     );
-    patchFile.parent.createSync(recursive: true);
-    patchFile.writeAsStringSync(content);
   }
 
   void deletePubPatchFile({

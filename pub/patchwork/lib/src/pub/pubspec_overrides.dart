@@ -5,9 +5,12 @@ import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
 import '../diagnostics/diagnostic.dart';
+import '../io/atomic_file_writer.dart';
 
 final class PubspecOverridesStore {
-  const PubspecOverridesStore();
+  const PubspecOverridesStore({this.fileWriter = const AtomicFileWriter()});
+
+  final AtomicFileWriter fileWriter;
 
   PubspecOverridePathsReadResult readDependencyOverridePaths({
     required String workspaceRootPath,
@@ -101,10 +104,7 @@ final class PubspecOverridesStore {
     }
     overrides['dependency_overrides'] = dependencyOverrides;
 
-    overridesFile.writeAsStringSync(
-      _formatPubspecOverrides(overrides),
-      flush: true,
-    );
+    fileWriter.writeString(overridesPath, _formatPubspecOverrides(overrides));
   }
 }
 

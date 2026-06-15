@@ -45,3 +45,18 @@ jobs:
       - name: Run tests
         working-directory: pub/patchwork
         run: dart test
+
+      - name: Validate publish archive
+        working-directory: pub/patchwork
+        run: dart pub publish --dry-run
+
+      - name: Run example release smoke
+        run: |
+          temp_dir="$(mktemp -d)"
+          trap 'rm -rf "$temp_dir"' EXIT
+          git archive HEAD | tar -x -C "$temp_dir"
+          cd "$temp_dir/examples/hello_patch/app"
+          dart pub get
+          dart run patchwork doctor
+          dart run patchwork status
+          dart run bin/app.dart

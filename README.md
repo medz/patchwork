@@ -9,7 +9,6 @@ generated `pubspec_overrides.yaml` path overrides.
 
 ```text
 pub/patchwork/       Dart package implementation
-docs/                Architecture notes for the pub MVP
 examples/            Workspace-level runnable examples
 .github/             CI and repository metadata
 ```

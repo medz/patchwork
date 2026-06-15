@@ -30,6 +30,10 @@ void main() {
       fixture.patchAndCommit('sample_dep', message: 'patched');
       final apply = fixture.runPatchwork(['apply']);
       _expectPatchworkSuccess(apply);
+      expect(
+        apply.stdout,
+        contains('Run dart pub get to refresh pub resolution.'),
+      );
       expect(fixture.appPubspec.readAsStringSync(), originalPubspec);
       expect(fixture.appOverrides.existsSync(), isTrue);
 
@@ -173,6 +177,7 @@ void main() {
       final apply = fixture.runPatchwork(['apply']);
 
       expect(apply.exitCode, PatchworkExitCode.failure);
+      expect(apply.stdout, isNot(contains('Run dart pub get')));
       expect(
         apply.stderr,
         contains('Could not apply patch to the generated package copy'),

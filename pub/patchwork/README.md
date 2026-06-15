@@ -54,6 +54,9 @@ dart pub get
 dart run patchwork status
 ```
 
+After a successful apply, Patchwork prints the `dart pub get` next step so pub
+refreshes dependency resolution through the generated overrides.
+
 ## Commands
 
 ```text

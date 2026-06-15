@@ -149,9 +149,32 @@ void main() {
       expect(stderr.toString(), isEmpty);
       expect(stdout.toString(), contains('Applied pub:analyzer@7.4.0:'));
       expect(
+        stdout.toString(),
+        contains('Run dart pub get to refresh pub resolution.'),
+      );
+      expect(
         File(p.join(fixture.rootPath, 'pubspec_overrides.yaml')).existsSync(),
         isTrue,
       );
+    });
+
+    test('does not print the pub get hint when apply has no patches', () {
+      final fixture = PubResolutionFixture.create();
+      addTearDown(fixture.dispose);
+      final stdout = StringBuffer();
+      final stderr = StringBuffer();
+
+      final exitCode = runner.run(
+        ['apply'],
+        stdout: stdout,
+        stderr: stderr,
+        currentDirectory: fixture.rootPath,
+      );
+
+      expect(exitCode, PatchworkExitCode.success);
+      expect(stderr.toString(), isEmpty);
+      expect(stdout.toString(), 'No pub patches to apply.\n');
+      expect(stdout.toString(), isNot(contains('Run dart pub get')));
     });
 
     test('reports clean status after applying pub patches', () {

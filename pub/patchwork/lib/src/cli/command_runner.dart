@@ -455,6 +455,7 @@ final class PatchworkCommandRunner {
         '${patch.rebuilt ? '' : ' (already current)'}',
       );
     }
+    stdout.writeln('Run dart pub get to refresh pub resolution.');
     return PatchworkExitCode.success;
   }
 

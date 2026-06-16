@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'project_sandbox.dart';
@@ -111,10 +114,13 @@ void main() {
       );
       project.editDirectoryFor('0.1.1').deleteSync(recursive: true);
 
-      await project.patchwork(['patch', 'greeter', '--continue', '0.1.0']);
-      expect(
-        project.editFileFor('0.1.1').readAsStringSync(),
-        contains('Hello from a carried patch'),
+      File(
+        p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
+      ).writeAsStringSync('tampered\n');
+      await project.patchwork(
+        ['patch', 'greeter', '--continue', '0.1.0'],
+        exitCodes: {1},
+        stderrContains: 'no committed patch record',
       );
     },
     timeout: const Timeout(Duration(minutes: 3)),

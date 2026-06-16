@@ -90,6 +90,13 @@ final class LockfileStore {
         location: path,
       );
     }
+    if (!_isPlainPackageName(package) || !_isSafePathSegment(version)) {
+      throw PatchworkException(
+        'patchwork.lock package "$package" must use safe package names and versions.',
+        code: 'lock.malformed',
+        location: path,
+      );
+    }
 
     return LockfilePackage(
       version: version,
@@ -261,4 +268,16 @@ final class AppliedPatchRecord {
 
 Map<String, Object?> _sourceToYaml(PackageSource source) {
   return {'type': source.type, ...source.fields, 'sha256': source.sha256};
+}
+
+bool _isPlainPackageName(String value) {
+  return RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(value);
+}
+
+bool _isSafePathSegment(String value) {
+  return value.isNotEmpty &&
+      value != '.' &&
+      value != '..' &&
+      !value.contains('/') &&
+      !value.contains(r'\');
 }

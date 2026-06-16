@@ -80,6 +80,11 @@ final class Patchwork {
     final resolution = _readResolution();
     final resolved = _resolveRealPackage(resolution, package);
     final editPath = _layout.editPath(package, resolved.version);
+    _rejectBlockingOverride(
+      package: package,
+      version: resolved.version,
+      command: 'patch',
+    );
 
     String? continuedFromVersion;
     String? continuedFromPatchPath;
@@ -367,10 +372,7 @@ final class Patchwork {
     required String patchPath,
   }) {
     final record = _lockStore.read().packages[package];
-    if (record != null && record.version != version) {
-      return;
-    }
-    if (record == null || record.patch == null) {
+    if (record == null || record.version != version || record.patch == null) {
       throw PatchworkException(
         'patchwork.lock has no committed patch record for "$package@$version".',
         code: 'patch.continue_patch_unlocked',
@@ -385,6 +387,28 @@ final class Patchwork {
         location: patchPath,
       );
     }
+  }
+
+  void _rejectBlockingOverride({
+    required String package,
+    required String version,
+    required String command,
+  }) {
+    if (!_pubspecOverrides.hasBlockingPathOverride(
+      workspaceRootPath: _rootPath,
+      package: package,
+      path: _layout.relativeAppliedPath(package, version),
+    )) {
+      return;
+    }
+
+    throw PatchworkException(
+      'pubspec_overrides.yaml already has a dependency override for "$package".',
+      code: 'pub.override_conflict',
+      hint:
+          'Remove or resolve the existing override before running patchwork $command $package.',
+      location: p.join(_rootPath, 'pubspec_overrides.yaml'),
+    );
   }
 
   PackageVersionPath _singleEditDirectory(String package) {

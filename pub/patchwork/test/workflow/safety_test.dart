@@ -40,6 +40,62 @@ void main() {
   );
 
   test(
+    'undo refuses unsafe lockfile package versions before deleting',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      final victim = File(p.join(project.stateRoot, 'victim', 'sentinel'));
+      victim.parent.createSync(recursive: true);
+      victim.writeAsStringSync('do not delete');
+      project.lockfile.writeAsStringSync('''
+version: 2
+packages:
+  greeter:
+    version: "0.1.0/../../../victim"
+    source:
+      type: "path"
+      sha256: "source"
+    patch:
+      edit-sha256: "edit"
+      sha256: "patch"
+    applied:
+      patch-sha256: "patch"
+      path: ".dart_tool/patchwork/greeter@0.1.0/../../../victim"
+''');
+
+      await project.patchwork(
+        ['undo', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'safe package names and versions',
+      );
+      expect(victim.existsSync(), isTrue);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'patch refuses to use a same-package user override as source',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      project.writeManualOverride();
+      await project.pubGet();
+
+      await project.patchwork(
+        ['patch', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'already has a dependency override',
+      );
+      expect(project.editDirectoryFor('0.1.0').existsSync(), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'doctor reports ambiguous edit directories before commit fails',
     () async {
       final project = await ProjectSandbox.standalone();

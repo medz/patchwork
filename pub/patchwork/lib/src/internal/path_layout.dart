@@ -43,9 +43,14 @@ final class PathLayout {
   }
 
   bool isExpectedAppliedPath(String package, String version, String path) {
+    if (!_isSafePackageVersionName(package, version)) {
+      return false;
+    }
     final absolutePath = p.normalize(p.absolute(rootPath, path));
+    final absoluteAppliedRoot = p.normalize(p.absolute(appliedRootPath));
     final expectedPath = p.normalize(p.absolute(appliedPath(package, version)));
-    return p.equals(absolutePath, expectedPath);
+    return p.equals(absolutePath, expectedPath) &&
+        p.isWithin(absoluteAppliedRoot, absolutePath);
   }
 
   List<PackageVersionPath> editDirectories() {
@@ -115,4 +120,9 @@ final class PackageVersion {
 
   final String package;
   final String version;
+}
+
+bool _isSafePackageVersionName(String package, String version) {
+  final name = packageVersionName(package, version);
+  return p.basename(name) == name && !name.contains(r'\');
 }

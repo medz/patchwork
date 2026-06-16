@@ -37,6 +37,7 @@ dart run patchwork doctor
 dart run patchwork patch greeter
 dart run patchwork commit greeter
 dart run patchwork apply greeter
+dart pub get
 ```
 
 See `examples/README.md` for the complete walkthrough.

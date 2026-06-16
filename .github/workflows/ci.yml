@@ -40,3 +40,15 @@ jobs:
       - name: Check publish package
         working-directory: pub/patchwork
         run: dart pub publish --dry-run
+
+      - name: Install example dependencies
+        working-directory: examples/hello_patch/app
+        run: dart pub get
+
+      - name: Analyze example
+        working-directory: examples/hello_patch/app
+        run: dart analyze
+
+      - name: Smoke example
+        working-directory: examples/hello_patch/app
+        run: dart run patchwork doctor && dart run bin/app.dart

@@ -79,7 +79,12 @@ void writeYamlNestedValue(StringBuffer buffer, Object? value, int indent) {
   buffer.writeln('${' ' * indent}${formatYamlScalar(value)}');
 }
 
-String formatYamlKey(String value) => formatYamlScalar(value);
+String formatYamlKey(String value) {
+  if (RegExp(r'^[A-Za-z0-9._/@:%+=-]+$').hasMatch(value)) {
+    return value;
+  }
+  return jsonEncode(value);
+}
 
 String formatYamlScalar(Object? value) {
   if (value == null) {
@@ -88,9 +93,8 @@ String formatYamlScalar(Object? value) {
   if (value is num || value is bool) {
     return value.toString();
   }
-  final string = value.toString();
-  if (RegExp(r'^[A-Za-z0-9._/@:%+=-]+$').hasMatch(string)) {
-    return string;
+  if (value is String) {
+    return jsonEncode(value);
   }
-  return jsonEncode(string);
+  return jsonEncode(value.toString());
 }

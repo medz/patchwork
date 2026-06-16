@@ -10,6 +10,7 @@ final class ProjectSandbox {
     required this.stateRoot,
     required this.commandRoot,
     required this.appRoot,
+    required this.greeterRoot,
     required this.manualOverrideRoot,
   });
 
@@ -17,13 +18,28 @@ final class ProjectSandbox {
   final String stateRoot;
   final String commandRoot;
   final String appRoot;
+  final String greeterRoot;
   final String manualOverrideRoot;
 
-  File get editFile {
+  File get editFile => editFileFor('0.1.0');
+
+  File editFileFor(String version) {
     return File(
-      p.join(stateRoot, '.patchwork', 'greeter@0.1.0', 'lib', 'greeter.dart'),
+      p.join(
+        stateRoot,
+        '.patchwork',
+        'greeter@$version',
+        'lib',
+        'greeter.dart',
+      ),
     );
   }
+
+  Directory editDirectoryFor(String version) {
+    return Directory(p.join(stateRoot, '.patchwork', 'greeter@$version'));
+  }
+
+  File get lockfile => File(p.join(stateRoot, 'patchwork.lock'));
 
   File get overrideFile => File(p.join(stateRoot, 'pubspec_overrides.yaml'));
 
@@ -50,6 +66,7 @@ final class ProjectSandbox {
       stateRoot: appRoot,
       commandRoot: appRoot,
       appRoot: appRoot,
+      greeterRoot: dependencyRoot,
       manualOverrideRoot: manualRoot,
     );
   }
@@ -78,6 +95,40 @@ final class ProjectSandbox {
       stateRoot: workspaceRoot,
       commandRoot: appRoot,
       appRoot: appRoot,
+      greeterRoot: dependencyRoot,
+      manualOverrideRoot: manualRoot,
+    );
+  }
+
+  static Future<ProjectSandbox> gitDependency() async {
+    final root = Directory.systemTemp.createTempSync('patchwork_git_');
+    final patchworkRoot = await _patchworkPackageRoot();
+    final appRoot = p.join(root.path, 'app');
+    final repoRoot = p.join(root.path, 'greeter_repo');
+    final manualRoot = p.join(root.path, 'manual_greeter');
+
+    _writeGreeterPackage(repoRoot, 'Hello, \$name!');
+    _writeGreeterPackage(manualRoot, 'Hello from a manual override, \$name!');
+    await _run('git', ['init', '-b', 'main'], cwd: repoRoot);
+    await _run('git', ['add', '.'], cwd: repoRoot);
+    await _run(
+      'git',
+      ['commit', '-m', 'initial greeter'],
+      cwd: repoRoot,
+      environment: _gitEnvironment,
+    );
+    _writeGitApp(
+      appRoot,
+      greeterGitUrl: Directory(repoRoot).absolute.uri.toString(),
+    );
+    _writePatchworkDevDependency(appRoot, patchworkPath: patchworkRoot);
+
+    return ProjectSandbox._(
+      root: root,
+      stateRoot: appRoot,
+      commandRoot: appRoot,
+      appRoot: appRoot,
+      greeterRoot: repoRoot,
       manualOverrideRoot: manualRoot,
     );
   }
@@ -117,6 +168,13 @@ String greeting(String name) {
   return '$greetingPrefix, \$name!';
 }
 ''');
+  }
+
+  void updateGreeterPackage({
+    required String version,
+    required String greeting,
+  }) {
+    _writeGreeterPackage(greeterRoot, greeting, version: version);
   }
 
   void writeManualOverride() {
@@ -190,6 +248,30 @@ void main() {
 ''');
 }
 
+void _writeGitApp(String root, {required String greeterGitUrl}) {
+  Directory(p.join(root, 'bin')).createSync(recursive: true);
+  File(p.join(root, 'pubspec.yaml')).writeAsStringSync('''
+name: patchwork_test_app
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  greeter:
+    git:
+      url: $greeterGitUrl
+      ref: main
+''');
+  File(p.join(root, 'bin', 'app.dart')).writeAsStringSync('''
+import 'package:greeter/greeter.dart';
+
+void main() {
+  print(greeting('Patchwork'));
+}
+''');
+}
+
 void _writePatchworkDevDependency(
   String root, {
   required String patchworkPath,
@@ -202,11 +284,15 @@ dev_dependencies:
 ''');
 }
 
-void _writeGreeterPackage(String root, String greeting) {
+void _writeGreeterPackage(
+  String root,
+  String greeting, {
+  String version = '0.1.0',
+}) {
   Directory(p.join(root, 'lib')).createSync(recursive: true);
   File(p.join(root, 'pubspec.yaml')).writeAsStringSync('''
 name: greeter
-version: 0.1.0
+version: $version
 publish_to: none
 
 environment:
@@ -243,11 +329,13 @@ Future<_RunResult> _run(
   List<String> arguments, {
   required String cwd,
   Set<int> exitCodes = const {0},
+  Map<String, String>? environment,
 }) async {
   final result = await Process.run(
     executable,
     arguments,
     workingDirectory: cwd,
+    environment: environment,
   );
   if (!exitCodes.contains(result.exitCode)) {
     fail(
@@ -265,6 +353,13 @@ Future<_RunResult> _run(
     stderr: result.stderr.toString(),
   );
 }
+
+const _gitEnvironment = {
+  'GIT_AUTHOR_NAME': 'Patchwork Test',
+  'GIT_AUTHOR_EMAIL': 'patchwork@example.invalid',
+  'GIT_COMMITTER_NAME': 'Patchwork Test',
+  'GIT_COMMITTER_EMAIL': 'patchwork@example.invalid',
+};
 
 final class _RunResult {
   const _RunResult({required this.stdout, required this.stderr});

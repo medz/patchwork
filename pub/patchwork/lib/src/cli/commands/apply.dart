@@ -12,12 +12,12 @@ Future<int> runApplyCommand(
   final package = singlePackage('apply', arguments, required: false);
   final packages = package == null
       ? (await patchwork.inspect()).packages
-            .where((status) => status.hasCommittedPatch)
+            .where((status) => status.needsApply)
             .map((status) => status.package)
       : [package];
 
   if (packages.isEmpty) {
-    out.writeln('No committed patches.');
+    out.writeln('No patches need apply.');
     return 0;
   }
 

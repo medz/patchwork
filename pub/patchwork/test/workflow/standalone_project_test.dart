@@ -26,6 +26,9 @@ void main() {
       await project.patchwork([
         'doctor',
       ], stdoutContains: 'applied: .dart_tool/patchwork/greeter@0.1.0');
+      await project.patchwork([
+        'apply',
+      ], stdoutContains: 'No patches need apply.');
       await project.runApp('Hello from a standalone patch, Patchwork!');
 
       await project.patchwork(['undo', 'greeter']);
@@ -56,8 +59,47 @@ void main() {
       await project.patchwork(['patch', 'greeter']);
       project.editFile.writeAsStringSync('dirty edit\n');
       await project.patchwork(['patch', 'greeter'], exitCodes: {1});
+      await project.patchwork(
+        ['patch', 'greeter', '--force', '--continue', '9.9.9'],
+        exitCodes: {1},
+        stderrContains: 'Patch file does not exist',
+      );
+      expect(project.editFile.readAsStringSync(), 'dirty edit\n');
       await project.patchwork(['patch', 'greeter', '--force']);
       expect(project.editFile.readAsStringSync(), contains('Hello, \$name!'));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'can continue an old version patch after the dependency version changes',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a carried patch');
+      await project.patchwork(['commit', 'greeter']);
+
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      await project.pubGet();
+
+      await project.patchwork(['patch', 'greeter', '--continue', '0.1.0']);
+      expect(
+        project.editFileFor('0.1.1').readAsStringSync(),
+        contains('Hello from a carried patch'),
+      );
+      project.editDirectoryFor('0.1.1').deleteSync(recursive: true);
+
+      await project.patchwork(['patch', 'greeter', '--continue', '0.1.0']);
+      expect(
+        project.editFileFor('0.1.1').readAsStringSync(),
+        contains('Hello from a carried patch'),
+      );
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

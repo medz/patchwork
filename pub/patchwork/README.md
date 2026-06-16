@@ -97,17 +97,17 @@ looks like this:
 version: 2
 packages:
   collection:
-    version: 1.19.1
+    version: "1.19.1"
     source:
-      type: hosted
-      url: https://pub.dev
-      sha256: <source-tree-sha>
+      type: "hosted"
+      url: "https://pub.dev"
+      sha256: "<source-tree-sha>"
     patch:
-      edit-sha256: <edit-tree-sha>
-      sha256: <patch-file-sha>
+      edit-sha256: "<edit-tree-sha>"
+      sha256: "<patch-file-sha>"
     applied:
-      patch-sha256: <applied-patch-file-sha>
-      path: .dart_tool/patchwork/collection@1.19.1
+      patch-sha256: "<applied-patch-file-sha>"
+      path: ".dart_tool/patchwork/collection@1.19.1"
 ```
 
 `source` may describe hosted or custom hosted packages, path dependencies, or
@@ -116,19 +116,19 @@ git dependencies. Git sources record `branch` when pub resolves a ref and
 
 ```yaml
 source:
-  type: path
-  path: ../packages/foo
-  sha256: <source-tree-sha>
+  type: "path"
+  path: "../packages/foo"
+  sha256: "<source-tree-sha>"
 ```
 
 ```yaml
 source:
-  type: git
-  url: https://example.com/foo.git
-  branch: main
-  commit: <resolved-commit>
-  path: packages/foo
-  sha256: <source-tree-sha>
+  type: "git"
+  url: "https://example.com/foo.git"
+  branch: "main"
+  commit: "<resolved-commit>"
+  path: "packages/foo"
+  sha256: "<source-tree-sha>"
 ```
 
 ## What Stays Generated

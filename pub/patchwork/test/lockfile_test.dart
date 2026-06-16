@@ -63,4 +63,25 @@ void main() {
       ),
     );
   });
+
+  test('quotes package versions that YAML could parse as numbers', () {
+    final root = Directory.systemTemp.createTempSync('patchwork_lockfile_');
+    addTearDown(() => root.deleteSync(recursive: true));
+
+    final path = p.join(root.path, 'patchwork.lock');
+    final store = LockfileStore(path: path);
+    store.write(
+      Lockfile(
+        packages: {
+          'foo': const LockfilePackage(
+            version: '1.0',
+            source: PackageSource(type: 'hosted', sha256: 'source-sha'),
+          ),
+        },
+      ),
+    );
+
+    expect(File(path).readAsStringSync(), contains('version: "1.0"'));
+    expect(store.read().packages['foo']!.version, '1.0');
+  });
 }

@@ -81,19 +81,6 @@ final class Patchwork {
     final resolved = _resolveRealPackage(resolution, package);
     final editPath = _layout.editPath(package, resolved.version);
 
-    if (Directory(editPath).existsSync()) {
-      if (!replaceExisting) {
-        throw PatchworkException(
-          'Edit directory already exists for "$package".',
-          code: 'patch.edit_exists',
-          hint:
-              'Run patchwork commit $package, delete $editPath, or pass --force.',
-          location: editPath,
-        );
-      }
-      _packageTree.deleteDirectory(editPath);
-    }
-
     String? continuedFromVersion;
     String? continuedFromPatchPath;
     String? continuedFromPatchContent;
@@ -102,7 +89,6 @@ final class Patchwork {
       final patchPath = _layout.patchPath(package, patchVersion);
       final patch = File(patchPath);
       if (!patch.existsSync()) {
-        _packageTree.deleteDirectory(editPath);
         throw PatchworkException(
           'Patch file does not exist for "$package@$patchVersion".',
           code: 'patch.continue_patch_missing',
@@ -119,18 +105,39 @@ final class Patchwork {
       continuedFromVersion = patchVersion;
     }
 
-    _packageTree.copy(resolved.rootPath, editPath);
+    final editExists = Directory(editPath).existsSync();
+    if (editExists) {
+      if (!replaceExisting) {
+        throw PatchworkException(
+          'Edit directory already exists for "$package".',
+          code: 'patch.edit_exists',
+          hint:
+              'Run patchwork commit $package, delete $editPath, or pass --force.',
+          location: editPath,
+        );
+      }
+    }
 
-    if (continuedFromPatchContent != null) {
-      try {
+    final tempEditPath = p.join(
+      _layout.editRootPath,
+      '.$package@${resolved.version}.$pid.${DateTime.now().microsecondsSinceEpoch}',
+    );
+    _packageTree.deleteDirectory(tempEditPath);
+    try {
+      _packageTree.copy(resolved.rootPath, tempEditPath);
+      if (continuedFromPatchContent != null) {
         _patchFile.apply(
-          packagePath: editPath,
+          packagePath: tempEditPath,
           patchContent: continuedFromPatchContent,
         );
-      } on PatchworkException {
-        _packageTree.deleteDirectory(editPath);
-        rethrow;
       }
+      if (editExists) {
+        _packageTree.deleteDirectory(editPath);
+      }
+      Directory(tempEditPath).renameSync(editPath);
+    } catch (_) {
+      _packageTree.deleteDirectory(tempEditPath);
+      rethrow;
     }
 
     final lock = _lockStore.read();
@@ -360,7 +367,10 @@ final class Patchwork {
     required String patchPath,
   }) {
     final record = _lockStore.read().packages[package];
-    if (record == null || record.version != version || record.patch == null) {
+    if (record != null && record.version != version) {
+      return;
+    }
+    if (record == null || record.patch == null) {
       throw PatchworkException(
         'patchwork.lock has no committed patch record for "$package@$version".',
         code: 'patch.continue_patch_unlocked',
@@ -518,6 +528,17 @@ final class Patchwork {
     required PatchworkException? resolutionError,
   }) {
     final problems = <PatchProblem>[];
+    if (edit.length > 1) {
+      problems.add(
+        PatchProblem(
+          code: 'commit.ambiguous_edit',
+          message: 'More than one edit directory exists for "$package".',
+          hint:
+              'Commit or delete the extra .patchwork/$package@<version> directories.',
+        ),
+      );
+    }
+
     final patchPath = _layout.patchPath(package, version);
     final patchFileOnDisk = File(patchPath);
     final hasPatchFile = patchFileOnDisk.existsSync();

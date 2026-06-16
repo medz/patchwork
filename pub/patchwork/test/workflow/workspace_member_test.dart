@@ -47,6 +47,13 @@ void main() {
       ], stdoutContains: 'action: patchwork apply greeter');
       await project.runApp('Hello, Patchwork!');
 
+      await project.patchwork(['apply']);
+      await project.pubGet();
+      await project.runApp('Hello from a workspace patch, Patchwork!');
+      await project.patchwork(['undo', 'greeter']);
+      await project.pubGet();
+      await project.runApp('Hello, Patchwork!');
+
       await project.patchwork(['patch', 'greeter', '--continue']);
       expect(
         project.editFile.readAsStringSync(),

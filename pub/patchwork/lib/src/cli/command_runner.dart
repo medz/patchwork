@@ -1,7 +1,5 @@
 import 'dart:io' as io;
 
-import 'package:path/path.dart' as p;
-
 import '../error.dart';
 import '../model.dart';
 import '../patchwork.dart';
@@ -126,7 +124,7 @@ final class PatchworkCommandRunner {
     );
     if (edit.continuedFromVersion != null) {
       out.writeln(
-        'Applied ${_relative(patchwork, patchwork.layout.patchPath(package, edit.continuedFromVersion!))}.',
+        'Applied ${_relative(patchwork, edit.continuedFromPatchPath!)}.',
       );
     }
     return 0;
@@ -186,7 +184,7 @@ final class PatchworkCommandRunner {
     final package = _singleOptionalOperand('apply', arguments);
     final packages = package == null
         ? (await patchwork.inspect()).packages
-              .where((status) => status.hasPatch)
+              .where((status) => status.hasPatchRecord)
               .map((status) => status.package)
               .toList()
         : [package];
@@ -328,15 +326,7 @@ bool _isHelpOnly(List<String> arguments) {
 }
 
 String _relative(Patchwork patchwork, String path) {
-  final absolute = p.normalize(p.absolute(path));
-  final root = p.normalize(p.absolute(patchwork.rootPath));
-  if (p.equals(root, absolute)) {
-    return '.';
-  }
-  if (p.isWithin(root, absolute)) {
-    return p.posix.joinAll(p.split(p.relative(absolute, from: root)));
-  }
-  return path;
+  return patchwork.relativePath(path);
 }
 
 void _printError(io.IOSink err, PatchworkException error) {

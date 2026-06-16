@@ -66,6 +66,27 @@ void main() {
     expect(result.exitCode, 64);
     expect(result.stderr, contains('Expected a plain package name'));
   });
+
+  test(
+    'apply without a package fails when a committed patch file is missing',
+    () async {
+      await _run(['patch', 'foo'], fixture: fixture, outputRoot: outputRoot);
+      File(
+        p.join(fixture.rootPath, '.patchwork', 'foo@0.1.0', 'lib', 'foo.dart'),
+      ).writeAsStringSync("String foo() => 'cli';\n");
+      await _run(['commit', 'foo'], fixture: fixture, outputRoot: outputRoot);
+      File(p.join(fixture.rootPath, 'patches', 'foo@0.1.0.patch')).deleteSync();
+
+      final result = await _run(
+        ['apply'],
+        fixture: fixture,
+        outputRoot: outputRoot,
+      );
+
+      expect(result.exitCode, 1);
+      expect(result.stderr, contains('Committed patch file is missing'));
+    },
+  );
 }
 
 Future<_CommandResult> _run(

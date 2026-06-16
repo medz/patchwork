@@ -23,40 +23,5 @@ jobs:
         with:
           sdk: stable
 
-      - name: Install dependencies
-        working-directory: pub/patchwork
-        run: dart pub get
-
-      - name: Install example dependencies
-        working-directory: examples/hello_patch/app
-        run: dart pub get
-
-      - name: Verify formatting
-        run: dart format --output=none --set-exit-if-changed pub/patchwork/bin pub/patchwork/lib pub/patchwork/test examples/hello_patch
-
-      - name: Analyze package
-        working-directory: pub/patchwork
-        run: dart analyze
-
-      - name: Analyze example
-        working-directory: examples/hello_patch/app
-        run: dart analyze
-
-      - name: Run tests
-        working-directory: pub/patchwork
-        run: dart test
-
-      - name: Validate publish archive
-        working-directory: pub/patchwork
-        run: dart pub publish --dry-run
-
-      - name: Run example release smoke
-        run: |
-          temp_dir="$(mktemp -d)"
-          trap 'rm -rf "$temp_dir"' EXIT
-          git archive HEAD | tar -x -C "$temp_dir"
-          cd "$temp_dir/examples/hello_patch/app"
-          dart pub get
-          dart run patchwork doctor
-          dart run patchwork status
-          dart run bin/app.dart
+      - name: Run quality guard
+        run: dart tool/quality_guard.dart

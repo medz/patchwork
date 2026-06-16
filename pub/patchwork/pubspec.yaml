@@ -4,7 +4,6 @@ description: Patch management for Dart projects, starting with reviewable depend
 homepage: https://github.com/medz/patchwork
 repository: https://github.com/medz/patchwork
 issue_tracker: https://github.com/medz/patchwork/issues
-documentation: https://github.com/medz/patchwork/tree/main/pub/patchwork#readme
 funding:
   - https://github.com/sponsors/medz
 topics:

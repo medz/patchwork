@@ -27,8 +27,8 @@ dart pub publish --dry-run
 
 ## Example
 
-The workspace example demonstrates the MVP flow against a small app and a local
-pub dependency:
+The workspace example demonstrates the 0.2 patch flow against a small app and a
+local pub dependency:
 
 ```sh
 cd examples/hello_patch/app

@@ -52,6 +52,7 @@ final class PreparedEdit {
     required this.sourcePath,
     required this.source,
     this.continuedFromVersion,
+    this.continuedFromPatchPath,
   });
 
   final String package;
@@ -60,6 +61,7 @@ final class PreparedEdit {
   final String sourcePath;
   final PackageSource source;
   final String? continuedFromVersion;
+  final String? continuedFromPatchPath;
 }
 
 enum PatchWriteStatus { written, unchanged, removed }
@@ -128,6 +130,7 @@ final class PatchStatus {
     required this.patchPath,
     required this.appliedPath,
     required this.hasOpenEdit,
+    required this.hasPatchRecord,
     required this.hasPatch,
     required this.isApplied,
     required this.needsApply,
@@ -143,6 +146,7 @@ final class PatchStatus {
   final String patchPath;
   final String? appliedPath;
   final bool hasOpenEdit;
+  final bool hasPatchRecord;
   final bool hasPatch;
   final bool isApplied;
   final bool needsApply;

@@ -23,13 +23,11 @@ long-lived, security-sensitive, or needs its own release process.
 
 Add Patchwork as a dev dependency in the project that owns the patch files.
 
-After the package is published:
-
 ```sh
 dart pub add dev:patchwork
 ```
 
-For repository development or unpublished testing:
+For local repository development:
 
 ```yaml
 dev_dependencies:
@@ -176,9 +174,9 @@ It does not support:
 ## Migrating From Cache Patches
 
 If you currently use a cache patch tool or manual `.pub-cache` edits, restore a
-clean dependency copy before starting a Patchwork session. Patchwork should
-diff from the original dependency source, not from a package that already has
-local cache edits applied.
+clean dependency copy before creating a Patchwork edit. Patchwork should diff
+from the original dependency source, not from a package that already has local
+cache edits applied.
 
 Patchwork does not import other patch formats yet. Recreate the dependency edit
 with `patchwork patch <package>`, then commit it with

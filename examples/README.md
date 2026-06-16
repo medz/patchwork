@@ -1,6 +1,6 @@
 # Patchwork Example: Local Greeter Patch
 
-This example shows the pub MVP workflow with a small Dart app and a local pub
+This example shows the pub patch workflow with a small Dart app and a local pub
 dependency named `greeter`.
 
 The app starts by printing the dependency output:
@@ -11,7 +11,7 @@ dart pub get
 dart run bin/app.dart
 ```
 
-Start a Patchwork edit session for the resolved pub package:
+Create a fresh editable copy for the resolved pub package:
 
 ```sh
 dart run patchwork patch greeter

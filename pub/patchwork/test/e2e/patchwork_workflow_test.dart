@@ -165,6 +165,90 @@ void main() {
     );
   });
 
+  test(
+    'continue rejects patch files that do not match the lock hash',
+    () async {
+      final edit = await patchwork.prepareEdit('foo');
+      File(
+        p.join(edit.path, 'lib', 'foo.dart'),
+      ).writeAsStringSync("String foo() => 'patched';\n");
+      await patchwork.writePatch('foo');
+
+      File(
+        p.join(fixture.rootPath, 'patches', 'foo@0.1.0.patch'),
+      ).writeAsStringSync('''
+diff --git a/lib/foo.dart b/lib/foo.dart
+index 7f5c17ebfe2e1c63d2d3d90a0b4d1fd9231be0d8..0687f67a386acb09c490df385580358343e343e3 100644
+--- a/lib/foo.dart
++++ b/lib/foo.dart
+@@ -1 +1 @@
+-String foo() => 'old';
++String foo() => 'tampered';
+''');
+
+      expect(
+        () => patchwork.prepareEdit('foo', fromPatch: const PatchRef.current()),
+        throwsA(
+          isA<PatchworkException>().having(
+            (error) => error.code,
+            'code',
+            'patch.continue_patch_sha_mismatch',
+          ),
+        ),
+      );
+      expect(
+        Directory(
+          p.join(fixture.rootPath, '.patchwork', 'foo@0.1.0'),
+        ).existsSync(),
+        isFalse,
+      );
+    },
+  );
+
+  test(
+    'undo refuses applied paths outside generated patchwork state',
+    () async {
+      final edit = await patchwork.prepareEdit('foo');
+      File(
+        p.join(edit.path, 'lib', 'foo.dart'),
+      ).writeAsStringSync("String foo() => 'patched';\n");
+      await patchwork.writePatch('foo');
+      await patchwork.applyPatch('foo');
+
+      final victim = Directory(p.join(fixture.rootPath, '..', 'victim'));
+      victim.createSync(recursive: true);
+      addTearDown(() {
+        if (victim.existsSync()) {
+          victim.deleteSync(recursive: true);
+        }
+      });
+      final store = PatchworkLockStore(
+        path: p.join(fixture.rootPath, 'patchwork.lock'),
+      );
+      final lock = store.read();
+      final record = lock.packages['foo']!;
+      lock.packages['foo'] = record.copyWith(
+        applied: LockApplied(
+          patchSha256: record.applied!.patchSha256,
+          path: '../victim',
+        ),
+      );
+      store.write(lock);
+
+      expect(
+        () => patchwork.unapplyPatch('foo'),
+        throwsA(
+          isA<PatchworkException>().having(
+            (error) => error.code,
+            'code',
+            'undo.unsafe_applied_path',
+          ),
+        ),
+      );
+      expect(victim.existsSync(), isTrue);
+    },
+  );
+
   test('status reports stale applied patches after a new commit', () async {
     var edit = await patchwork.prepareEdit('foo');
     File(
@@ -187,6 +271,28 @@ void main() {
       contains('applied.patch_stale'),
     );
   });
+
+  test(
+    'status reports when dart pub get has not activated an applied patch',
+    () async {
+      final edit = await patchwork.prepareEdit('foo');
+      File(
+        p.join(edit.path, 'lib', 'foo.dart'),
+      ).writeAsStringSync("String foo() => 'patched';\n");
+      await patchwork.writePatch('foo');
+      await patchwork.applyPatch('foo');
+
+      final state = await patchwork.inspect();
+      final foo = state.packages.singleWhere(
+        (status) => status.package == 'foo',
+      );
+      expect(foo.isApplied, isFalse);
+      expect(
+        foo.problems.map((problem) => problem.code),
+        contains('applied.pub_get_required'),
+      );
+    },
+  );
 
   test(
     'status reports applied output when the committed patch is removed',

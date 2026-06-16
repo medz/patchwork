@@ -14,7 +14,7 @@ void main() {
 
       await project.patchwork(['patch', 'greeter']);
       project.writeEdit('Hello from a standalone patch');
-      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['commit']);
       await project.patchwork(['apply']);
       await project.patchwork(
         ['doctor'],

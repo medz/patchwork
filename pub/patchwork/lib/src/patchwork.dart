@@ -180,6 +180,19 @@ final class Patchwork {
 
   Future<AppliedPatch> applyPatch(String package) async {
     _checkPlainPackageName(package);
+    final openEdits = _layout
+        .editDirectories()
+        .where((edit) => edit.package == package)
+        .toList();
+    if (openEdits.isNotEmpty) {
+      throw PatchworkException(
+        'Package "$package" has an open edit directory.',
+        code: 'apply.open_edit',
+        hint: 'Run patchwork commit $package before applying.',
+        location: openEdits.first.path,
+      );
+    }
+
     final lock = _lockStore.read();
     final record = lock.packages[package];
     if (record == null || record.patch == null) {
@@ -783,6 +796,7 @@ final class Patchwork {
       needsApply:
           lockPatch != null &&
           hasPatchFile &&
+          edit.isEmpty &&
           pubResolutionMatchesSource &&
           !hasBlockingOverride &&
           (applied == null ||

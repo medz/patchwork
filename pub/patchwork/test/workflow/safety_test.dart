@@ -115,6 +115,31 @@ packages:
   );
 
   test(
+    'apply refuses to apply while the package has an open edit',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a committed patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['patch', 'greeter', '--continue']);
+      project.writeEdit('Hello from an uncommitted edit');
+
+      await project.patchwork(
+        ['apply', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'open edit directory',
+      );
+      await project.patchwork([
+        'apply',
+      ], stdoutContains: 'No patches need apply.');
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'apply-all skips stale applied records until pub resolves the source',
     () async {
       final project = await ProjectSandbox.standalone();

@@ -240,9 +240,9 @@ final class Patchwork {
       return UnappliedPatch(package: package, changed: false);
     }
 
-    if (!_layout.isAppliedPath(applied.path)) {
+    if (!_layout.isExpectedAppliedPath(package, record.version, applied.path)) {
       throw PatchworkException(
-        'patchwork.lock applied path is outside Patchwork generated state.',
+        'patchwork.lock applied path does not match the package being undone.',
         code: 'undo.unsafe_applied_path',
         location: applied.path,
       );

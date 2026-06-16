@@ -45,6 +45,12 @@ final class PathLayout {
         p.isWithin(absoluteAppliedRoot, absolutePath);
   }
 
+  bool isExpectedAppliedPath(String package, String version, String path) {
+    final absolutePath = p.normalize(p.absolute(rootPath, path));
+    final expectedPath = p.normalize(p.absolute(appliedPath(package, version)));
+    return p.equals(absolutePath, expectedPath);
+  }
+
   List<PackageVersionPath> editDirectories() {
     final root = Directory(editRootPath);
     if (!root.existsSync()) {

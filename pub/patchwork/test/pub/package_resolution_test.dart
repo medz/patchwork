@@ -45,6 +45,11 @@ void main() {
       'commit': 'abc123',
       'sha256': isNotEmpty,
     });
+    expect(resolution.resolvePackage('qux').source.toYaml(), {
+      'type': 'hosted',
+      'url': 'https://pub.example.test',
+      'sha256': isNotEmpty,
+    });
   });
 
   test('rejects workspace root packages', () {

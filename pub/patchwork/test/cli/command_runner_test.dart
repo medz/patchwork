@@ -87,6 +87,27 @@ void main() {
       expect(result.stderr, contains('Committed patch file is missing'));
     },
   );
+
+  test(
+    'doctor exits non-zero when dart pub get has not activated apply',
+    () async {
+      await _run(['patch', 'foo'], fixture: fixture, outputRoot: outputRoot);
+      File(
+        p.join(fixture.rootPath, '.patchwork', 'foo@0.1.0', 'lib', 'foo.dart'),
+      ).writeAsStringSync("String foo() => 'cli';\n");
+      await _run(['commit', 'foo'], fixture: fixture, outputRoot: outputRoot);
+      await _run(['apply', 'foo'], fixture: fixture, outputRoot: outputRoot);
+
+      final result = await _run(
+        ['doctor'],
+        fixture: fixture,
+        outputRoot: outputRoot,
+      );
+
+      expect(result.exitCode, 1);
+      expect(result.stdout, contains('pub resolution has not activated'));
+    },
+  );
 }
 
 Future<_CommandResult> _run(

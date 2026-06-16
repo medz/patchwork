@@ -52,6 +52,18 @@ final class _QualityGuard {
       }
     }
 
+    const localDesignDoc = 'docs/v0.2-programmable-model.zh.md';
+    if (File(_path(localDesignDoc)).existsSync()) {
+      final ignored = Process.runSync('git', [
+        'check-ignore',
+        '-q',
+        localDesignDoc,
+      ], workingDirectory: rootPath);
+      if (ignored.exitCode != 0) {
+        throw StateError('$localDesignDoc must stay ignored and untracked.');
+      }
+    }
+
     final exampleReadmeType = FileSystemEntity.typeSync(
       _path('pub/patchwork/example/README.md'),
       followLinks: false,
@@ -65,6 +77,7 @@ final class _QualityGuard {
 
   void checkDocumentationText() {
     const scannedFiles = [
+      'AGENTS.md',
       'README.md',
       'examples/README.md',
       'pub/patchwork/README.md',
@@ -107,6 +120,19 @@ final class _QualityGuard {
     for (final field in forbiddenFacadeFields) {
       if (facade.contains(field)) {
         throw StateError('Patchwork facade exposes internal field: $field');
+      }
+    }
+    final forbiddenFacadeGetters = [
+      RegExp(r'\bPathLayout\s+get\s+[A-Za-z]'),
+      RegExp(r'\bPatchworkLockStore\s+get\s+[A-Za-z]'),
+      RegExp(r'\bPackageTree\s+get\s+[A-Za-z]'),
+      RegExp(r'\bPatchFile\s+get\s+[A-Za-z]'),
+      RegExp(r'\bPubspecOverrides\s+get\s+[A-Za-z]'),
+      RegExp(r'\bPubResolutionReader\s+get\s+[A-Za-z]'),
+    ];
+    for (final pattern in forbiddenFacadeGetters) {
+      if (pattern.hasMatch(facade)) {
+        throw StateError('Patchwork facade exposes an internal getter.');
       }
     }
 

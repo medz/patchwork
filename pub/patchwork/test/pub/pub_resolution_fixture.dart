@@ -20,6 +20,8 @@ final class PubResolutionFixture {
 
   String get bazPath => p.join(rootPath, 'git', 'baz');
 
+  String get quxPath => p.join(rootPath, 'cache', 'qux-3.0.0');
+
   String get packageConfigPath {
     return p.join(rootPath, '.dart_tool', 'package_config.json');
   }
@@ -68,6 +70,7 @@ version: $version
     Directory(p.join(appPath, 'lib')).createSync(recursive: true);
     Directory(p.join(barPath, 'lib')).createSync(recursive: true);
     Directory(p.join(bazPath, 'lib')).createSync(recursive: true);
+    Directory(p.join(quxPath, 'lib')).createSync(recursive: true);
 
     File(p.join(rootPath, 'pubspec.yaml')).writeAsStringSync('''
 name: _
@@ -96,6 +99,7 @@ dependencies:
     git:
       url: https://example.com/baz.git
       ref: main
+  qux: 3.0.0
 ''');
     File(p.join(appPath, 'lib', 'app.dart')).writeAsStringSync('''
 String app() => 'app';
@@ -115,6 +119,13 @@ version: 2.0.0
 ''');
     File(p.join(bazPath, 'lib', 'baz.dart')).writeAsStringSync('''
 String baz() => 'baz';
+''');
+    File(p.join(quxPath, 'pubspec.yaml')).writeAsStringSync('''
+name: qux
+version: 3.0.0
+''');
+    File(p.join(quxPath, 'lib', 'qux.dart')).writeAsStringSync('''
+String qux() => 'qux';
 ''');
 
     _writePackageConfig();
@@ -147,6 +158,12 @@ String baz() => 'baz';
         {
           'name': 'baz',
           'rootUri': p.toUri(bazPath).toString(),
+          'packageUri': 'lib/',
+          'languageVersion': '3.12',
+        },
+        {
+          'name': 'qux',
+          'rootUri': p.toUri(quxPath).toString(),
           'packageUri': 'lib/',
           'languageVersion': '3.12',
         },
@@ -184,6 +201,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "$fooVersion"
+  qux:
+    dependency: "direct main"
+    description:
+      name: qux
+      sha256: ignored-custom-sha
+      url: "https://pub.example.test"
+    source: hosted
+    version: "3.0.0"
 sdks:
   dart: ">=3.12.0 <4.0.0"
 ''');
@@ -195,7 +220,7 @@ sdks:
       'packages': [
         {
           'name': 'app',
-          'dependencies': ['foo', 'bar', 'baz'],
+          'dependencies': ['foo', 'bar', 'baz', 'qux'],
           'devDependencies': <String>[],
         },
         {
@@ -213,6 +238,12 @@ sdks:
         {
           'name': 'baz',
           'version': '2.0.0',
+          'dependencies': <String>[],
+          'devDependencies': <String>[],
+        },
+        {
+          'name': 'qux',
+          'version': '3.0.0',
           'dependencies': <String>[],
           'devDependencies': <String>[],
         },

@@ -23,5 +23,20 @@ jobs:
         with:
           sdk: stable
 
-      - name: Run quality guard
-        run: dart tool/quality_guard.dart
+      - name: Install workspace dependencies
+        run: dart pub get
+
+      - name: Check formatting
+        run: dart format --output=none --set-exit-if-changed pub/patchwork/bin pub/patchwork/lib pub/patchwork/test examples/hello_patch
+
+      - name: Analyze package
+        working-directory: pub/patchwork
+        run: dart analyze
+
+      - name: Test package
+        working-directory: pub/patchwork
+        run: dart test
+
+      - name: Check publish package
+        working-directory: pub/patchwork
+        run: dart pub publish --dry-run

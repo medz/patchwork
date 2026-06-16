@@ -21,10 +21,6 @@ final class PackageSource {
   final String sha256;
   final Map<String, String> fields;
 
-  Map<String, Object?> toYaml() {
-    return {'type': type, ...fields, 'sha256': sha256};
-  }
-
   @override
   bool operator ==(Object other) {
     return other is PackageSource &&
@@ -130,7 +126,7 @@ final class PatchStatus {
     required this.patchPath,
     required this.appliedPath,
     required this.hasOpenEdit,
-    required this.hasPatchRecord,
+    required this.hasCommittedPatch,
     required this.hasPatch,
     required this.isApplied,
     required this.needsApply,
@@ -146,7 +142,7 @@ final class PatchStatus {
   final String patchPath;
   final String? appliedPath;
   final bool hasOpenEdit;
-  final bool hasPatchRecord;
+  final bool hasCommittedPatch;
   final bool hasPatch;
   final bool isApplied;
   final bool needsApply;

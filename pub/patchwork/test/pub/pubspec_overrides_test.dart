@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:patchwork/src/error.dart';
 import 'package:patchwork/src/pub/pubspec_overrides.dart';
 import 'package:test/test.dart';
 
@@ -36,6 +37,30 @@ dependency_overrides:
       'other': '../other',
       'foo': '.dart_tool/patchwork/foo@0.1.0',
     });
+  });
+
+  test('rejects replacing an existing override for the same package', () {
+    File(p.join(root.path, 'pubspec_overrides.yaml')).writeAsStringSync('''
+dependency_overrides:
+  foo:
+    path: ../local-foo
+''');
+
+    expect(
+      () => overrides.upsertPathOverride(
+        workspaceRootPath: root.path,
+        package: 'foo',
+        path: '.dart_tool/patchwork/foo@0.1.0',
+      ),
+      throwsA(
+        isA<PatchworkException>().having(
+          (error) => error.code,
+          'code',
+          'pub.override_conflict',
+        ),
+      ),
+    );
+    expect(overrides.readPathOverrides(root.path), {'foo': '../local-foo'});
   });
 
   test('undo removes only the matching applied path', () {

@@ -88,7 +88,11 @@ final class PatchworkCommandRunner {
           throw _duplicateOption('--continue');
         }
         final next = i + 1 < arguments.length ? arguments[i + 1] : null;
-        if (next != null && !next.startsWith('-') && operands.isNotEmpty) {
+        final nextHasLaterOperand =
+            next != null && _hasLaterOperand(arguments, i + 2);
+        if (next != null &&
+            !next.startsWith('-') &&
+            (operands.isNotEmpty || nextHasLaterOperand)) {
           continueFrom = PatchRef.version(next);
           i += 1;
         } else {
@@ -184,7 +188,7 @@ final class PatchworkCommandRunner {
     final package = _singleOptionalOperand('apply', arguments);
     final packages = package == null
         ? (await patchwork.inspect()).packages
-              .where((status) => status.hasPatchRecord)
+              .where((status) => status.hasCommittedPatch)
               .map((status) => status.package)
               .toList()
         : [package];
@@ -327,6 +331,15 @@ bool _isHelpOnly(List<String> arguments) {
 
 String _relative(Patchwork patchwork, String path) {
   return patchwork.relativePath(path);
+}
+
+bool _hasLaterOperand(List<String> arguments, int startIndex) {
+  for (var i = startIndex; i < arguments.length; i += 1) {
+    if (!arguments[i].startsWith('-')) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void _printError(io.IOSink err, PatchworkException error) {

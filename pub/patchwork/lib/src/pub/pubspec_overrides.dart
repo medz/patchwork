@@ -41,6 +41,11 @@ final class PubspecOverrides {
     required String package,
     required String path,
   }) {
+    assertCanUpsertPathOverride(
+      workspaceRootPath: workspaceRootPath,
+      package: package,
+      path: path,
+    );
     final overrides = _read(workspaceRootPath);
     final dependencyOverrides = _dependencyOverrides(
       overrides,
@@ -49,6 +54,37 @@ final class PubspecOverrides {
     dependencyOverrides[package] = {'path': path};
     overrides['dependency_overrides'] = dependencyOverrides;
     _write(workspaceRootPath, overrides);
+  }
+
+  void assertCanUpsertPathOverride({
+    required String workspaceRootPath,
+    required String package,
+    required String path,
+  }) {
+    final overrides = _read(workspaceRootPath);
+    final dependencyOverrides = _dependencyOverrides(
+      overrides,
+      workspaceRootPath,
+      create: false,
+    );
+    final existing = dependencyOverrides[package];
+    if (existing == null) {
+      return;
+    }
+    if (existing is Map<String, Object?> && existing['path'] is String) {
+      final existingPath = existing['path'] as String;
+      if (_pathsPointToSameLocation(workspaceRootPath, existingPath, path)) {
+        return;
+      }
+    }
+
+    throw PatchworkException(
+      'pubspec_overrides.yaml already has a dependency override for "$package".',
+      code: 'pub.override_conflict',
+      hint:
+          'Remove or resolve the existing override before running patchwork apply $package.',
+      location: _path(workspaceRootPath),
+    );
   }
 
   bool removePathOverrideIfMatches({

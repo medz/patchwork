@@ -108,6 +108,72 @@ void main() {
       expect(result.stdout, contains('pub resolution has not activated'));
     },
   );
+
+  for (final scenario in [
+    (
+      name: 'patch foo --continue',
+      arguments: ['patch', 'foo', '--continue'],
+      editVersion: '0.1.0',
+      upgrade: false,
+    ),
+    (
+      name: 'patch foo --continue 0.1.0',
+      arguments: ['patch', 'foo', '--continue', '0.1.0'],
+      editVersion: '0.1.1',
+      upgrade: true,
+    ),
+    (
+      name: 'patch foo --continue=0.1.0',
+      arguments: ['patch', 'foo', '--continue=0.1.0'],
+      editVersion: '0.1.1',
+      upgrade: true,
+    ),
+    (
+      name: 'patch --continue 0.1.0 foo',
+      arguments: ['patch', '--continue', '0.1.0', 'foo'],
+      editVersion: '0.1.1',
+      upgrade: true,
+    ),
+  ]) {
+    test('parses ${scenario.name}', () async {
+      await _createFooPatch(fixture: fixture, outputRoot: outputRoot);
+      if (scenario.upgrade) {
+        fixture.upgradeFooTo011();
+      }
+
+      final result = await _run(
+        scenario.arguments,
+        fixture: fixture,
+        outputRoot: outputRoot,
+      );
+
+      expect(result.exitCode, 0);
+      expect(result.stdout, contains('patches/foo@0.1.0.patch'));
+      expect(
+        File(
+          p.join(
+            fixture.rootPath,
+            '.patchwork',
+            'foo@${scenario.editVersion}',
+            'lib',
+            'foo.dart',
+          ),
+        ).readAsStringSync(),
+        "String foo() => 'cli';\n",
+      );
+    });
+  }
+}
+
+Future<void> _createFooPatch({
+  required PubResolutionFixture fixture,
+  required Directory outputRoot,
+}) async {
+  await _run(['patch', 'foo'], fixture: fixture, outputRoot: outputRoot);
+  File(
+    p.join(fixture.rootPath, '.patchwork', 'foo@0.1.0', 'lib', 'foo.dart'),
+  ).writeAsStringSync("String foo() => 'cli';\n");
+  await _run(['commit', 'foo'], fixture: fixture, outputRoot: outputRoot);
 }
 
 Future<_CommandResult> _run(

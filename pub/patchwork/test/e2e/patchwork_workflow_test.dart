@@ -260,6 +260,51 @@ void main() {
   });
 
   test(
+    'apply refuses to overwrite a user override for the same package',
+    () async {
+      final edit = await patchwork.prepareEdit('foo');
+      File(
+        p.join(edit.path, 'lib', 'foo.dart'),
+      ).writeAsStringSync("String foo() => 'patched';\n");
+      await patchwork.writePatch('foo');
+      File(
+        p.join(fixture.rootPath, 'pubspec_overrides.yaml'),
+      ).writeAsStringSync('''
+dependency_overrides:
+  foo:
+    path: ../local-foo
+''');
+
+      expect(
+        () => patchwork.applyPatch('foo'),
+        throwsA(
+          isA<PatchworkException>().having(
+            (error) => error.code,
+            'code',
+            'pub.override_conflict',
+          ),
+        ),
+      );
+      expect(
+        File(
+          p.join(fixture.rootPath, 'pubspec_overrides.yaml'),
+        ).readAsStringSync(),
+        contains('../local-foo'),
+      );
+      expect(
+        Directory(
+          p.join(fixture.rootPath, '.dart_tool', 'patchwork', 'foo@0.1.0'),
+        ).existsSync(),
+        isFalse,
+      );
+      final lock = PatchworkLockStore(
+        path: p.join(fixture.rootPath, 'patchwork.lock'),
+      ).read();
+      expect(lock.packages['foo']!.applied, isNull);
+    },
+  );
+
+  test(
     'continue rejects patch files that do not match the lock hash',
     () async {
       final edit = await patchwork.prepareEdit('foo');
@@ -367,6 +412,22 @@ index 7f5c17ebfe2e1c63d2d3d90a0b4d1fd9231be0d8..0687f67a386acb09c490df3855803583
       ),
     );
     store.write(lock);
+    File(p.join(fixture.rootPath, 'pubspec_overrides.yaml')).writeAsStringSync(
+      '''
+dependency_overrides:
+  foo:
+    path: .dart_tool/patchwork/bar@1.0.0
+''',
+    );
+    fixture.pointFooAtAppliedPath('.dart_tool/patchwork/bar@1.0.0');
+
+    final state = await patchwork.inspect();
+    final foo = state.packages.singleWhere((status) => status.package == 'foo');
+    expect(foo.isApplied, isFalse);
+    expect(
+      foo.problems.map((problem) => problem.code),
+      contains('undo.unsafe_applied_path'),
+    );
 
     expect(
       () => patchwork.unapplyPatch('foo'),

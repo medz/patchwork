@@ -76,13 +76,15 @@ final class _QualityGuard {
   }
 
   void checkDocumentationText() {
-    const scannedFiles = [
-      'AGENTS.md',
-      'README.md',
-      'examples/README.md',
-      'pub/patchwork/README.md',
-      'pub/patchwork/example/README.md',
-    ];
+    final scannedFiles = _gitLsFiles().where((path) {
+      if (!path.endsWith('.md') || path.endsWith('CHANGELOG.md')) {
+        return false;
+      }
+      return path == 'AGENTS.md' ||
+          path.endsWith('/README.md') ||
+          path == 'README.md' ||
+          path.startsWith('docs/');
+    });
     const forbiddenSnippets = [
       'patch --commit',
       'patches/pub',
@@ -207,6 +209,31 @@ String greeting(String name) {
     ], workingDirectory: appPath);
     if (!app.stdout.contains('Hello from a patch, Patchwork!')) {
       throw StateError('Example app did not use the applied patch.');
+    }
+
+    await run('dart', [
+      'run',
+      'patchwork',
+      'undo',
+      'greeter',
+    ], workingDirectory: appPath);
+    await run('dart', ['pub', 'get'], workingDirectory: appPath);
+    final revertedDoctor = await run('dart', [
+      'run',
+      'patchwork',
+      'doctor',
+    ], workingDirectory: appPath);
+    if (!revertedDoctor.stdout.contains('patch: patches/greeter@0.1.0.patch') ||
+        revertedDoctor.stdout.contains('applied:')) {
+      throw StateError('Example doctor did not reflect the unapplied patch.');
+    }
+    final revertedApp = await run('dart', [
+      'run',
+      'bin/app.dart',
+    ], workingDirectory: appPath);
+    if (!revertedApp.stdout.contains('Hello, Patchwork!') ||
+        revertedApp.stdout.contains('Hello from a patch')) {
+      throw StateError('Example app did not revert after undo.');
     }
 
     _deleteIfExists('$appPath/.dart_tool');

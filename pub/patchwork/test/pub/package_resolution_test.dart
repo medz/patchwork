@@ -33,23 +33,24 @@ void main() {
       fixture.appPath,
     );
 
-    expect(resolution.resolvePackage('bar').source.toYaml(), {
-      'type': 'path',
-      'path': '../../deps/bar',
-      'sha256': isNotEmpty,
-    });
-    expect(resolution.resolvePackage('baz').source.toYaml(), {
-      'type': 'git',
+    final bar = resolution.resolvePackage('bar').source;
+    expect(bar.type, 'path');
+    expect(bar.fields, {'path': '../../deps/bar'});
+    expect(bar.sha256, isNotEmpty);
+
+    final baz = resolution.resolvePackage('baz').source;
+    expect(baz.type, 'git');
+    expect(baz.fields, {
       'url': 'https://example.com/baz.git',
       'branch': 'main',
       'commit': 'abc123',
-      'sha256': isNotEmpty,
     });
-    expect(resolution.resolvePackage('qux').source.toYaml(), {
-      'type': 'hosted',
-      'url': 'https://pub.example.test',
-      'sha256': isNotEmpty,
-    });
+    expect(baz.sha256, isNotEmpty);
+
+    final qux = resolution.resolvePackage('qux').source;
+    expect(qux.type, 'hosted');
+    expect(qux.fields, {'url': 'https://pub.example.test'});
+    expect(qux.sha256, isNotEmpty);
   });
 
   test('rejects workspace root packages', () {

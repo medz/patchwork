@@ -191,6 +191,13 @@ final class Patchwork {
     }
 
     final appliedPath = _layout.appliedPath(package, record.version);
+    final relativePath = _layout.relativeAppliedPath(package, record.version);
+    _pubspecOverrides.assertCanUpsertPathOverride(
+      workspaceRootPath: _rootPath,
+      package: package,
+      path: relativePath,
+    );
+
     final tempPath = p.join(
       _layout.appliedRootPath,
       '.$package@${record.version}.$pid.${DateTime.now().microsecondsSinceEpoch}',
@@ -211,7 +218,6 @@ final class Patchwork {
       rethrow;
     }
 
-    final relativePath = _layout.relativeAppliedPath(package, record.version);
     _pubspecOverrides.upsertPathOverride(
       workspaceRootPath: _rootPath,
       package: package,
@@ -607,6 +613,9 @@ final class Patchwork {
     }
 
     final applied = record?.applied;
+    final appliedPathExpected =
+        applied == null ||
+        _layout.isExpectedAppliedPath(package, version, applied.path);
     final appliedAbsolutePath = applied == null
         ? null
         : p.absolute(_rootPath, applied.path);
@@ -651,6 +660,16 @@ final class Patchwork {
         ),
       );
     }
+    if (applied != null && !appliedPathExpected) {
+      problems.add(
+        PatchProblem(
+          code: 'undo.unsafe_applied_path',
+          message:
+              'patchwork.lock applied path does not match this package and version.',
+          hint: 'Review patchwork.lock before running patchwork undo $package.',
+        ),
+      );
+    }
     if (applied != null && !overridePointsToApplied) {
       problems.add(
         PatchProblem(
@@ -669,10 +688,11 @@ final class Patchwork {
       patchPath: patchPath,
       appliedPath: appliedAbsolutePath,
       hasOpenEdit: edit.isNotEmpty,
-      hasPatchRecord: lockPatch != null,
+      hasCommittedPatch: lockPatch != null,
       hasPatch: lockPatch != null && hasPatchFile,
       isApplied:
           applied != null &&
+          appliedPathExpected &&
           appliedExists &&
           overridePointsToApplied &&
           pubResolutionPointsToApplied,

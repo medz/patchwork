@@ -228,11 +228,15 @@ final class LockPackage {
   Map<String, Object?> toYaml() {
     return {
       'version': version,
-      'source': source.toYaml(),
+      'source': _sourceToYaml(source),
       if (patch != null) 'patch': patch!.toYaml(),
       if (applied != null) 'applied': applied!.toYaml(),
     };
   }
+}
+
+Map<String, Object?> _sourceToYaml(PackageSource source) {
+  return {'type': source.type, ...source.fields, 'sha256': source.sha256};
 }
 
 final class LockPatch {

@@ -57,4 +57,62 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
+
+  test(
+    'apply and undo preserve user-owned dependency overrides',
+    () async {
+      final project = await ProjectSandbox.standalone(
+        includeOtherDependency: true,
+      );
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from an override-safe patch');
+      await project.patchwork(['commit', 'greeter']);
+
+      project.writeOtherOverride();
+      await project.patchwork(['apply', 'greeter']);
+      await project.pubGet();
+      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+      expect(project.overrideFile.readAsStringSync(), contains('other_pkg:'));
+      expect(project.overrideFile.readAsStringSync(), contains('greeter:'));
+
+      await project.patchwork(['undo', 'greeter']);
+      await project.pubGet();
+      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+      final afterUndo = project.overrideFile.readAsStringSync();
+      expect(afterUndo, contains('other_pkg:'));
+      expect(afterUndo, isNot(contains('greeter:')));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'undo leaves a same-package user override in place',
+    () async {
+      final project = await ProjectSandbox.standalone(
+        includeOtherDependency: true,
+      );
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a replaceable patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+
+      project.writeManualAndOtherOverrides();
+      await project.patchwork(['undo', 'greeter']);
+      await project.pubGet();
+      project.expectPackageResolvedTo('greeter', project.manualOverrideRoot);
+      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+
+      final overrides = project.overrideFile.readAsStringSync();
+      expect(overrides, contains('manual_greeter'));
+      expect(overrides, contains('other_pkg:'));
+      expect(project.appliedDirectory.existsSync(), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
 }

@@ -2,299 +2,123 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-import '../diagnostics/diagnostic.dart';
-import '../session/session_file_filter.dart';
-
-final class PatchFileBuildResult {
-  const PatchFileBuildResult._({this.content, this.diagnostic});
-
-  factory PatchFileBuildResult.success(String content) {
-    return PatchFileBuildResult._(content: content);
-  }
-
-  factory PatchFileBuildResult.noChanges() {
-    return const PatchFileBuildResult._(content: '');
-  }
-
-  factory PatchFileBuildResult.failure(Diagnostic diagnostic) {
-    return PatchFileBuildResult._(diagnostic: diagnostic);
-  }
-
-  final String? content;
-  final Diagnostic? diagnostic;
-
-  bool get isSuccess => diagnostic == null;
-
-  bool get hasChanges => content != null && content!.isNotEmpty;
-}
-
-final class PatchValidationResult {
-  const PatchValidationResult._({this.diagnostic});
-
-  factory PatchValidationResult.success() {
-    return const PatchValidationResult._();
-  }
-
-  factory PatchValidationResult.failure(Diagnostic diagnostic) {
-    return PatchValidationResult._(diagnostic: diagnostic);
-  }
-
-  final Diagnostic? diagnostic;
-
-  bool get isSuccess => diagnostic == null;
-}
-
-final class PatchApplyResult {
-  const PatchApplyResult._({this.diagnostic});
-
-  factory PatchApplyResult.success() {
-    return const PatchApplyResult._();
-  }
-
-  factory PatchApplyResult.failure(Diagnostic diagnostic) {
-    return PatchApplyResult._(diagnostic: diagnostic);
-  }
-
-  final Diagnostic? diagnostic;
-
-  bool get isSuccess => diagnostic == null;
-}
+import '../error.dart';
+import '../internal/package_tree.dart';
 
 typedef GitProcessRunner =
-    ProcessResult Function(List<String> arguments, {String? workingDirectory});
+    ProcessResult Function(
+      List<String> arguments, {
+      String? workingDirectory,
+      Map<String, String>? environment,
+    });
 
 ProcessResult _defaultGitRunner(
   List<String> arguments, {
   String? workingDirectory,
+  Map<String, String>? environment,
 }) {
-  return Process.runSync('git', arguments, workingDirectory: workingDirectory);
+  return Process.runSync(
+    'git',
+    arguments,
+    workingDirectory: workingDirectory,
+    environment: environment,
+  );
 }
 
-final class PatchFileBuilder {
-  const PatchFileBuilder({
-    GitProcessRunner? gitRunner,
-    String? workingDirectory,
-  }) : this._(gitRunner: gitRunner, workingDirectory: workingDirectory);
-
-  const PatchFileBuilder._({
-    GitProcessRunner? gitRunner,
-    this._workingDirectory,
-  }) : _gitRunner = gitRunner ?? _defaultGitRunner;
+final class PatchFile {
+  const PatchFile({GitProcessRunner? gitRunner, PackageTree? packageTree})
+    : _gitRunner = gitRunner ?? _defaultGitRunner,
+      _packageTree = packageTree ?? const PackageTree();
 
   final GitProcessRunner _gitRunner;
-  final String? _workingDirectory;
+  final PackageTree _packageTree;
 
-  PatchFileBuildResult build({
-    required String baselinePath,
-    required String editPath,
-  }) {
-    final baselineRoot = Directory(baselinePath);
+  String build({required String sourcePath, required String editPath}) {
+    final sourceRoot = Directory(sourcePath);
     final editRoot = Directory(editPath);
-    if (!baselineRoot.existsSync() || !editRoot.existsSync()) {
-      return PatchFileBuildResult.failure(
-        const Diagnostic(
-          code: 'patch.session_missing',
-          message: 'Patch session baseline or edit directory is missing.',
-        ),
+    if (!sourceRoot.existsSync() || !editRoot.existsSync()) {
+      throw PatchworkException(
+        'Source or edit directory is missing.',
+        code: 'patch.input_missing',
       );
     }
 
-    _DiffRoots? diffRoots;
+    final tempRoot = Directory.systemTemp.createTempSync('patchwork_diff_');
     try {
-      diffRoots = _DiffRoots.create(
-        baselinePath: baselinePath,
-        editPath: editPath,
-      );
-      final diffMode = _selectGitDiffMode(
-        baselinePath: diffRoots.baselinePath,
-        editPath: diffRoots.editPath,
-      );
-      final diffResult = _gitDiffDirectories(
-        baselinePath: diffRoots.baselinePath,
-        editPath: diffRoots.editPath,
-        mode: diffMode,
-        workingDirectory: _workingDirectory ?? diffRoots.root.path,
-      );
-      final diffDiagnostic = diffResult.diagnostic;
-      if (diffDiagnostic != null) {
-        return PatchFileBuildResult.failure(diffDiagnostic);
-      }
+      final sourceSnapshotPath = p.join(tempRoot.path, 'source');
+      final editSnapshotPath = p.join(tempRoot.path, 'edit');
+      Directory(sourceSnapshotPath).createSync();
+      Directory(editSnapshotPath).createSync();
+      _packageTree.copy(sourcePath, sourceSnapshotPath);
+      _packageTree.copy(editPath, editSnapshotPath);
 
-      final content = diffResult.content;
-      if (content == null || content.isEmpty) {
-        return PatchFileBuildResult.noChanges();
-      }
+      final result = _runGit(
+        [
+          '-c',
+          'core.safecrlf=false',
+          'diff',
+          '--no-ext-diff',
+          '--no-color',
+          '--no-textconv',
+          '--src-prefix=a/',
+          '--dst-prefix=b/',
+          '--full-index',
+          '--binary',
+          '--no-index',
+          _gitArgumentPath(sourceSnapshotPath),
+          _gitArgumentPath(editSnapshotPath),
+        ],
+        workingDirectory: tempRoot.path,
+        failureCode: 'patch.diff_failed',
+        failureMessage: 'Could not generate a patch diff.',
+        allowDifferenceExitCode: true,
+      );
 
-      return PatchFileBuildResult.success(content);
-    } on FileSystemException catch (error) {
-      return PatchFileBuildResult.failure(
-        Diagnostic(
-          code: 'patch.diff_failed',
-          message: 'Could not prepare a patch diff.',
-          hint: error.message,
-          location: error.path,
-        ),
+      final output = '${result.stdout}';
+      if (output.isEmpty) {
+        return '';
+      }
+      return _postProcessGitDiff(
+        output: output,
+        sourcePath: sourceSnapshotPath,
+        editPath: editSnapshotPath,
       );
     } finally {
-      diffRoots?.deleteSync();
+      if (tempRoot.existsSync()) {
+        tempRoot.deleteSync(recursive: true);
+      }
     }
   }
 
-  _GitDiffResult _gitDiffDirectories({
-    required String baselinePath,
-    required String editPath,
-    required _GitDiffMode mode,
-    required String workingDirectory,
-  }) {
-    final arguments = <String>[
-      '-c',
-      'core.safecrlf=false',
-      'diff',
-      '--no-ext-diff',
-      '--no-color',
-      '--no-textconv',
-      '--src-prefix=a/',
-      '--dst-prefix=b/',
-      '--full-index',
-      if (mode == _GitDiffMode.text) '--text' else '--binary',
-      '--no-index',
-      _gitArgumentPath(baselinePath),
-      _gitArgumentPath(editPath),
-    ];
-    final ProcessResult result;
+  void validate({required String sourcePath, required String patchContent}) {
+    final tempRoot = Directory.systemTemp.createTempSync('patchwork_validate_');
     try {
-      result = _gitRunner(arguments, workingDirectory: workingDirectory);
-    } on ProcessException catch (error) {
-      return _GitDiffResult.failure(
-        Diagnostic(
-          code: 'patch.git_missing',
-          message: 'Git is required to generate patch files.',
-          hint: error.message,
-        ),
-      );
-    }
-
-    final stderr = '${result.stderr}'.trim();
-    if (result.exitCode != 0 && result.exitCode != 1) {
-      return _GitDiffResult.failure(
-        Diagnostic(
-          code: 'patch.diff_failed',
-          message: 'Could not generate a patch diff.',
-          hint: stderr,
-        ),
-      );
-    }
-
-    final output = '${result.stdout}';
-    if (output.isEmpty) {
-      if (stderr.isNotEmpty && result.exitCode != 0) {
-        return _GitDiffResult.failure(
-          Diagnostic(
-            code: 'patch.diff_failed',
-            message: 'Could not generate a patch diff.',
-            hint: stderr,
-          ),
-        );
-      }
-      return const _GitDiffResult();
-    }
-
-    if (_containsBinaryDiff(output)) {
-      return _GitDiffResult.failure(
-        const Diagnostic(
-          code: 'patch.unsupported_binary',
-          message: 'Binary file changes are not supported yet.',
-        ),
-      );
-    }
-
-    final content = _postProcessGitDiff(
-      output: output,
-      baselinePath: baselinePath,
-      editPath: editPath,
-    );
-    return _GitDiffResult(content: content);
-  }
-}
-
-final class PatchValidator {
-  const PatchValidator();
-
-  PatchValidationResult validate({
-    required String baselinePath,
-    required String patchContent,
-  }) {
-    final validationTempRoot = Directory.systemTemp.createTempSync(
-      'patchwork_patch_validate_',
-    );
-    final validationRoot = Directory(p.join(validationTempRoot.path, 'root'));
-    File? patchFile;
-
-    try {
-      validationRoot.createSync();
-      _copyDirectoryContents(baselinePath, validationRoot.path);
-      patchFile = File(p.join(validationTempRoot.path, 'patch.patch'));
-      patchFile.writeAsStringSync(patchContent);
-      final ProcessResult result;
-      try {
-        result = Process.runSync('git', [
-          'apply',
-          '--check',
-          '--whitespace=nowarn',
-          patchFile.path,
-        ], workingDirectory: validationRoot.path);
-      } on ProcessException catch (error) {
-        return PatchValidationResult.failure(
-          Diagnostic(
-            code: 'patch.git_missing',
-            message: 'Git is required to validate patch files.',
-            hint: error.message,
-          ),
-        );
-      }
-      if (result.exitCode == 0) {
-        return PatchValidationResult.success();
-      }
-
-      return PatchValidationResult.failure(
-        Diagnostic(
-          code: 'patch.validation_failed',
-          message: 'Generated patch did not apply to a fresh baseline.',
-          hint: '${result.stderr}${result.stdout}'.trim(),
-        ),
-      );
-    } on FileSystemException catch (error) {
-      return PatchValidationResult.failure(
-        Diagnostic(
-          code: 'patch.validation_failed',
-          message: 'Generated patch could not be validated.',
-          hint: error.message,
-          location: error.path,
-        ),
+      final rootPath = p.join(tempRoot.path, 'root');
+      Directory(rootPath).createSync();
+      _packageTree.copy(sourcePath, rootPath);
+      final patchPath = p.join(tempRoot.path, 'patch.patch');
+      File(patchPath).writeAsStringSync(patchContent);
+      _runGit(
+        ['apply', '--check', '--binary', '--whitespace=nowarn', patchPath],
+        workingDirectory: rootPath,
+        failureCode: 'patch.validation_failed',
+        failureMessage:
+            'Generated patch does not apply to a fresh source copy.',
       );
     } finally {
-      if (validationTempRoot.existsSync()) {
-        validationTempRoot.deleteSync(recursive: true);
+      if (tempRoot.existsSync()) {
+        tempRoot.deleteSync(recursive: true);
       }
     }
   }
-}
 
-final class PatchApplier {
-  const PatchApplier();
-
-  PatchApplyResult apply({
-    required String packagePath,
-    required String patchContent,
-  }) {
+  void apply({required String packagePath, required String patchContent}) {
     final packageRoot = Directory(packagePath);
     if (!packageRoot.existsSync()) {
-      return PatchApplyResult.failure(
-        Diagnostic(
-          code: 'patch.apply_failed',
-          message: 'Could not apply patch to a missing package copy.',
-          location: packagePath,
-        ),
+      throw PatchworkException(
+        'Could not apply patch to a missing package copy.',
+        code: 'patch.apply_missing_package',
+        location: packagePath,
       );
     }
 
@@ -308,50 +132,12 @@ final class PatchApplier {
 
     try {
       patchFile.writeAsStringSync(patchContent, flush: true);
-      final ProcessResult result;
-      try {
-        result = Process.runSync(
-          'git',
-          ['apply', '--binary', '--whitespace=nowarn', patchFile.path],
-          workingDirectory: packagePath,
-          environment: {
-            // Generated package copies may live under a user's Git repository.
-            // Keep git apply anchored to the package copy instead of the repo root.
-            'GIT_CEILING_DIRECTORIES': p.dirname(
-              p.normalize(p.absolute(packagePath)),
-            ),
-          },
-        );
-      } on ProcessException catch (error) {
-        return PatchApplyResult.failure(
-          Diagnostic(
-            code: 'patch.git_missing',
-            message: 'Git is required to apply patch files.',
-            hint: error.message,
-          ),
-        );
-      }
-
-      if (result.exitCode == 0) {
-        return PatchApplyResult.success();
-      }
-
-      return PatchApplyResult.failure(
-        Diagnostic(
-          code: 'patch.apply_failed',
-          message: 'Could not apply patch to the generated package copy.',
-          hint: '${result.stderr}${result.stdout}'.trim(),
-          location: packagePath,
-        ),
-      );
-    } on FileSystemException catch (error) {
-      return PatchApplyResult.failure(
-        Diagnostic(
-          code: 'patch.apply_failed',
-          message: 'Could not prepare a patch apply operation.',
-          hint: error.message,
-          location: error.path,
-        ),
+      _runGit(
+        ['apply', '--binary', '--whitespace=nowarn', patchFile.path],
+        workingDirectory: packagePath,
+        failureCode: 'patch.apply_failed',
+        failureMessage: 'Could not apply patch to the package copy.',
+        anchorToWorkingDirectory: true,
       );
     } finally {
       if (patchFile.existsSync()) {
@@ -359,245 +145,48 @@ final class PatchApplier {
       }
     }
   }
-}
 
-final class _DiffRoots {
-  _DiffRoots._({
-    required this.root,
-    required this.baselinePath,
-    required this.editPath,
-  });
-
-  factory _DiffRoots.create({
-    required String baselinePath,
-    required String editPath,
+  ProcessResult _runGit(
+    List<String> arguments, {
+    required String workingDirectory,
+    required String failureCode,
+    required String failureMessage,
+    bool allowDifferenceExitCode = false,
+    bool anchorToWorkingDirectory = false,
   }) {
-    final root = Directory.systemTemp.createTempSync('patchwork_patch_diff_');
-    final baselineSnapshotPath = p.join(root.path, 'baseline');
-    final editSnapshotPath = p.join(root.path, 'edit');
-    Directory(baselineSnapshotPath).createSync();
-    Directory(editSnapshotPath).createSync();
-    _copyDirectoryContents(
-      baselinePath,
-      baselineSnapshotPath,
-      excludePatchSessionState: true,
-    );
-    _copyDirectoryContents(
-      editPath,
-      editSnapshotPath,
-      excludePatchSessionState: true,
-    );
-    return _DiffRoots._(
-      root: root,
-      baselinePath: baselineSnapshotPath,
-      editPath: editSnapshotPath,
-    );
-  }
-
-  final Directory root;
-  final String baselinePath;
-  final String editPath;
-
-  void deleteSync() {
-    if (root.existsSync()) {
-      root.deleteSync(recursive: true);
-    }
-  }
-}
-
-final class _GitDiffResult {
-  const _GitDiffResult({this.content, this.diagnostic});
-
-  factory _GitDiffResult.failure(Diagnostic diagnostic) {
-    return _GitDiffResult(diagnostic: diagnostic);
-  }
-
-  final String? content;
-  final Diagnostic? diagnostic;
-}
-
-enum _GitDiffMode { text, binary }
-
-_GitDiffMode _selectGitDiffMode({
-  required String baselinePath,
-  required String editPath,
-}) {
-  if (_hasChangedBinaryFile(baselinePath: baselinePath, editPath: editPath)) {
-    return _GitDiffMode.binary;
-  }
-  return _GitDiffMode.text;
-}
-
-bool _hasChangedBinaryFile({
-  required String baselinePath,
-  required String editPath,
-}) {
-  final baselineEntries = _collectPatchEntries(baselinePath);
-  final editEntries = _collectPatchEntries(editPath);
-  final paths = {...baselineEntries.keys, ...editEntries.keys}.toList()..sort();
-
-  for (final relativePath in paths) {
-    final baselineType =
-        baselineEntries[relativePath] ?? FileSystemEntityType.notFound;
-    final editType = editEntries[relativePath] ?? FileSystemEntityType.notFound;
-    if (!_entryChanged(
-      relativePath: relativePath,
-      baselinePath: baselinePath,
-      baselineType: baselineType,
-      editPath: editPath,
-      editType: editType,
-    )) {
-      continue;
-    }
-
-    if (baselineType == FileSystemEntityType.file &&
-        _looksBinaryFile(_joinPatchPath(baselinePath, relativePath))) {
-      return true;
-    }
-    if (editType == FileSystemEntityType.file &&
-        _looksBinaryFile(_joinPatchPath(editPath, relativePath))) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-Map<String, FileSystemEntityType> _collectPatchEntries(String rootPath) {
-  final entries = <String, FileSystemEntityType>{};
-
-  void collect(String path) {
-    for (final entity in Directory(path).listSync(followLinks: false)) {
-      final relativePath = _patchPath(p.relative(entity.path, from: rootPath));
-      final type = FileSystemEntity.typeSync(entity.path, followLinks: false);
-      entries[relativePath] = type;
-      if (type == FileSystemEntityType.directory) {
-        collect(entity.path);
-      }
-    }
-  }
-
-  collect(rootPath);
-  return entries;
-}
-
-bool _entryChanged({
-  required String relativePath,
-  required String baselinePath,
-  required FileSystemEntityType baselineType,
-  required String editPath,
-  required FileSystemEntityType editType,
-}) {
-  if (baselineType != editType) {
-    return true;
-  }
-
-  switch (baselineType) {
-    case FileSystemEntityType.file:
-      return !_filesHaveSameBytes(
-        _joinPatchPath(baselinePath, relativePath),
-        _joinPatchPath(editPath, relativePath),
+    final ProcessResult result;
+    try {
+      result = _gitRunner(
+        arguments,
+        workingDirectory: workingDirectory,
+        environment: anchorToWorkingDirectory
+            ? {
+                'GIT_CEILING_DIRECTORIES': p.dirname(
+                  p.normalize(p.absolute(workingDirectory)),
+                ),
+              }
+            : null,
       );
-    case FileSystemEntityType.link:
-      return Link(_joinPatchPath(baselinePath, relativePath)).targetSync() !=
-          Link(_joinPatchPath(editPath, relativePath)).targetSync();
-    case FileSystemEntityType.directory:
-    case FileSystemEntityType.notFound:
-    case FileSystemEntityType.pipe:
-    case FileSystemEntityType.unixDomainSock:
-      return false;
-  }
-
-  return false;
-}
-
-String _joinPatchPath(String rootPath, String relativePath) {
-  return p.joinAll([rootPath, ...relativePath.split('/')]);
-}
-
-bool _looksBinaryFile(String path) {
-  const probeByteCount = 8000;
-  final file = File(path).openSync();
-  try {
-    final length = file.lengthSync();
-    final count = length < probeByteCount ? length : probeByteCount;
-    return file.readSync(count).contains(0);
-  } finally {
-    file.closeSync();
-  }
-}
-
-bool _filesHaveSameBytes(String leftPath, String rightPath) {
-  const chunkSize = 8192;
-  final leftFile = File(leftPath);
-  final rightFile = File(rightPath);
-  if (leftFile.lengthSync() != rightFile.lengthSync()) {
-    return false;
-  }
-
-  final left = leftFile.openSync();
-  final right = rightFile.openSync();
-  try {
-    while (true) {
-      final leftChunk = left.readSync(chunkSize);
-      final rightChunk = right.readSync(chunkSize);
-      if (leftChunk.length != rightChunk.length) {
-        return false;
-      }
-      for (var i = 0; i < leftChunk.length; i += 1) {
-        if (leftChunk[i] != rightChunk[i]) {
-          return false;
-        }
-      }
-      if (leftChunk.length < chunkSize) {
-        return true;
-      }
-    }
-  } finally {
-    left.closeSync();
-    right.closeSync();
-  }
-}
-
-void _copyDirectoryContents(
-  String sourcePath,
-  String destinationPath, {
-  String? sourceRootPath,
-  bool excludePatchSessionState = false,
-}) {
-  final rootPath = sourceRootPath ?? sourcePath;
-  for (final entity in Directory(sourcePath).listSync(followLinks: false)) {
-    final targetPath = p.join(destinationPath, p.basename(entity.path));
-    final type = FileSystemEntity.typeSync(entity.path, followLinks: false);
-    final relativePath = _patchPath(p.relative(entity.path, from: rootPath));
-    if (excludePatchSessionState &&
-        shouldExcludePatchSessionPath(relativePath, type)) {
-      continue;
+    } on ProcessException catch (error) {
+      throw PatchworkException(
+        'Git is required for patch operations.',
+        code: 'patch.git_missing',
+        hint: error.message,
+      );
     }
 
-    switch (type) {
-      case FileSystemEntityType.directory:
-        Directory(targetPath).createSync(recursive: true);
-        _copyDirectoryContents(
-          entity.path,
-          targetPath,
-          sourceRootPath: rootPath,
-          excludePatchSessionState: excludePatchSessionState,
-        );
-      case FileSystemEntityType.file:
-        File(entity.path).copySync(targetPath);
-      case FileSystemEntityType.link:
-        Link(targetPath).createSync(Link(entity.path).targetSync());
-      case FileSystemEntityType.notFound:
-      case FileSystemEntityType.pipe:
-      case FileSystemEntityType.unixDomainSock:
-        break;
+    final acceptedExitCodes = allowDifferenceExitCode
+        ? const {0, 1}
+        : const {0};
+    if (!acceptedExitCodes.contains(result.exitCode)) {
+      throw PatchworkException(
+        failureMessage,
+        code: failureCode,
+        hint: '${result.stderr}${result.stdout}'.trim(),
+      );
     }
+    return result;
   }
-}
-
-String _patchPath(String relativePath) {
-  return p.split(relativePath).join('/');
 }
 
 String _gitArgumentPath(String path) {
@@ -614,10 +203,10 @@ String _gitDiffPathPrefix(String path) {
 
 String _postProcessGitDiff({
   required String output,
-  required String baselinePath,
+  required String sourcePath,
   required String editPath,
 }) {
-  final oldPrefix = _gitDiffPathPrefix(baselinePath);
+  final oldPrefix = _gitDiffPathPrefix(sourcePath);
   final newPrefix = _gitDiffPathPrefix(editPath);
   final hasTrailingNewline = output.endsWith('\n');
   final lines = output.split('\n');
@@ -630,8 +219,9 @@ String _postProcessGitDiff({
     final processed = _shouldRewriteGitDiffLine(line)
         ? _stripGitDiffRootPrefixes(line, oldPrefix, newPrefix)
         : line;
-    buffer.write(processed);
-    buffer.write('\n');
+    buffer
+      ..write(processed)
+      ..write('\n');
   }
 
   if (!hasTrailingNewline && buffer.length > 0) {
@@ -656,7 +246,6 @@ bool _shouldRewriteGitDiffLine(String line) {
   if (first == 0x2b && !line.startsWith('+++ ')) {
     return false;
   }
-
   return true;
 }
 
@@ -672,8 +261,7 @@ String _stripGitDiffRootPrefixes(
   }
   result = result.replaceAll('$oldPrefix/', '');
   result = result.replaceAll('$newPrefix/', '');
-  result = _stripMetadataLeadingSlash(result);
-  return result;
+  return _stripMetadataLeadingSlash(result);
 }
 
 String _stripMetadataLeadingSlash(String line) {
@@ -687,12 +275,4 @@ String _stripMetadataLeadingSlash(String line) {
     }
   }
   return line;
-}
-
-bool _containsBinaryDiff(String output) {
-  return output
-      .split('\n')
-      .any(
-        (line) => line.startsWith('Binary files ') && line.endsWith(' differ'),
-      );
 }

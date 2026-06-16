@@ -9,3 +9,6 @@ environment:
 
 workspace:
   - pub/*
+
+dev_dependencies:
+  lints: ^6.1.0

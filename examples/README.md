@@ -20,7 +20,7 @@ dart run patchwork patch greeter
 Patchwork prints an edit directory similar to:
 
 ```text
-.dart_tool/patchwork/edit/pub/greeter@0.1.0
+.patchwork/greeter@0.1.0
 ```
 
 Edit `lib/greeter.dart` inside that directory. For example:
@@ -34,7 +34,7 @@ String greeting(String name) {
 Commit the edit into a patch file:
 
 ```sh
-dart run patchwork patch --commit greeter
+dart run patchwork commit greeter
 ```
 
 Apply committed patches and refresh pub resolution:
@@ -53,8 +53,9 @@ Hello from a patch, Patchwork!
 ```
 
 The generated Patchwork state lives under `.dart_tool/patchwork/` and
-`pubspec_overrides.yaml`. The committed state for a real project is
-`patchwork.lock` plus `patches/pub/*.patch`.
+`pubspec_overrides.yaml`. The editable work-in-progress copy lives under
+`.patchwork/`. The committed state for a real project is `patchwork.lock` plus
+`patches/*.patch`.
 
 This example uses a path dependency so it can run without a hosted package.
 Patchwork still targets the package by pub package name (`greeter`); the

@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-import '../diagnostics/diagnostic.dart';
+import '../error.dart';
 
 final class PubWorkspace {
   const PubWorkspace({
@@ -20,74 +20,48 @@ final class PubWorkspace {
   final String packageGraphPath;
 }
 
-final class PubWorkspaceLocateResult {
-  const PubWorkspaceLocateResult._({this.workspace, this.diagnostic});
-
-  factory PubWorkspaceLocateResult.success(PubWorkspace workspace) {
-    return PubWorkspaceLocateResult._(workspace: workspace);
-  }
-
-  factory PubWorkspaceLocateResult.failure(Diagnostic diagnostic) {
-    return PubWorkspaceLocateResult._(diagnostic: diagnostic);
-  }
-
-  final PubWorkspace? workspace;
-  final Diagnostic? diagnostic;
-
-  bool get isSuccess => workspace != null;
-}
-
 final class PubWorkspaceLocator {
   const PubWorkspaceLocator();
 
-  PubWorkspaceLocateResult locate(String currentDirectory) {
+  PubWorkspace locate(String currentDirectory) {
     final startPath = p.normalize(p.absolute(currentDirectory));
     final resolutionRoot = _findResolutionRoot(startPath);
-
     if (resolutionRoot == null) {
-      return PubWorkspaceLocateResult.failure(
-        Diagnostic(
-          code: 'pub.resolution_not_found',
-          message: 'Could not find a pub resolution for "$startPath".',
-          hint: 'Run dart pub get before using patchwork.',
-        ),
+      throw PatchworkException(
+        'Could not find a pub resolution for "$startPath".',
+        code: 'pub.resolution_not_found',
+        hint: 'Run dart pub get before using patchwork.',
       );
     }
 
-    return PubWorkspaceLocateResult.success(
-      PubWorkspace(
-        rootPath: resolutionRoot,
-        currentPackageRootPath: _findCurrentPackageRoot(
-          startPath,
-          resolutionRoot,
-        ),
-        packageConfigPath: p.join(
-          resolutionRoot,
-          '.dart_tool',
-          'package_config.json',
-        ),
-        lockfilePath: p.join(resolutionRoot, 'pubspec.lock'),
-        packageGraphPath: p.join(
-          resolutionRoot,
-          '.dart_tool',
-          'package_graph.json',
-        ),
+    return PubWorkspace(
+      rootPath: resolutionRoot,
+      currentPackageRootPath: _findCurrentPackageRoot(
+        startPath,
+        resolutionRoot,
+      ),
+      packageConfigPath: p.join(
+        resolutionRoot,
+        '.dart_tool',
+        'package_config.json',
+      ),
+      lockfilePath: p.join(resolutionRoot, 'pubspec.lock'),
+      packageGraphPath: p.join(
+        resolutionRoot,
+        '.dart_tool',
+        'package_graph.json',
       ),
     );
   }
 
   String? _findResolutionRoot(String startPath) {
     for (final candidate in _ancestorDirectories(startPath)) {
-      final packageConfigPath = p.join(
-        candidate,
-        '.dart_tool',
-        'package_config.json',
-      );
-      if (File(packageConfigPath).existsSync()) {
+      if (File(
+        p.join(candidate, '.dart_tool', 'package_config.json'),
+      ).existsSync()) {
         return candidate;
       }
     }
-
     return null;
   }
 
@@ -97,12 +71,10 @@ final class PubWorkspaceLocator {
           candidate != resolutionRoot) {
         break;
       }
-
       if (File(p.join(candidate, 'pubspec.yaml')).existsSync()) {
         return candidate;
       }
     }
-
     return resolutionRoot;
   }
 
@@ -118,7 +90,6 @@ final class PubWorkspaceLocator {
       if (parent == current) {
         break;
       }
-
       current = parent;
     }
   }

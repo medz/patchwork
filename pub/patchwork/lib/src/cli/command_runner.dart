@@ -1,629 +1,386 @@
-import 'dart:io';
+import 'dart:io' as io;
 
-import '../app/apply_patches.dart';
-import '../app/commit_patch_session.dart';
-import '../app/pub_doctor.dart';
-import '../app/pub_status.dart';
-import '../app/start_patch_session.dart';
-import '../diagnostics/diagnostic.dart';
-import '../diagnostics/exit_code.dart';
-import '../store/patchwork_manifest.dart';
-import '../target/target_parser.dart';
-import 'command_intent.dart';
+import 'package:path/path.dart' as p;
 
-final class ParseResult {
-  const ParseResult._({this.intent, this.diagnostic});
+import '../error.dart';
+import '../model.dart';
+import '../patchwork.dart';
 
-  factory ParseResult.success(CommandIntent intent) {
-    return ParseResult._(intent: intent);
-  }
+final class PatchworkCommandRunner {
+  const PatchworkCommandRunner();
 
-  factory ParseResult.failure(Diagnostic diagnostic) {
-    return ParseResult._(diagnostic: diagnostic);
-  }
+  Future<int> run(
+    List<String> arguments, {
+    io.IOSink? stdout,
+    io.IOSink? stderr,
+    String? workingDirectory,
+  }) async {
+    final out = stdout ?? io.stdout;
+    final err = stderr ?? io.stderr;
+    final cwd = workingDirectory ?? io.Directory.current.path;
 
-  final CommandIntent? intent;
-  final Diagnostic? diagnostic;
+    try {
+      if (arguments.isEmpty || _isHelp(arguments.first)) {
+        _printHelp(out);
+        return 0;
+      }
 
-  bool get isSuccess => intent != null;
-}
+      final command = arguments.first;
+      final rest = arguments.skip(1).toList(growable: false);
+      final patchwork = await Patchwork.open(cwd);
 
-final class PatchworkCommandParser {
-  const PatchworkCommandParser({this.targetParser = const TargetParser()});
-
-  final TargetParser targetParser;
-
-  ParseResult parse(List<String> arguments) {
-    if (arguments.isEmpty) {
-      return ParseResult.failure(
-        const Diagnostic(
-          code: 'usage.missing_command',
-          message: 'Expected a command.',
-          hint: 'Run patchwork --help to see available commands.',
-        ),
-      );
-    }
-
-    final command = arguments.first;
-    final rest = arguments.skip(1).toList(growable: false);
-
-    if (_isHelp(command)) {
-      return ParseResult.success(const HelpIntent());
-    }
-
-    switch (command) {
-      case 'patch':
-        return _parsePatch(rest);
-      case 'apply':
-        return _parseApply(rest);
-      case 'status':
-        return _parseNoArgumentCommand(rest, const StatusIntent(), 'status');
-      case 'doctor':
-        return _parseNoArgumentCommand(rest, const DoctorIntent(), 'doctor');
-      default:
-        if (command.startsWith('-')) {
-          return ParseResult.failure(
-            Diagnostic(
-              code: 'usage.unknown_option',
-              message: 'Unknown option "$command".',
-              hint: 'Run patchwork --help to see available commands.',
-            ),
-          );
-        }
-
-        return ParseResult.failure(
-          Diagnostic(
+      switch (command) {
+        case 'patch':
+          return await _patch(patchwork, rest, out);
+        case 'commit':
+          return await _commit(patchwork, rest, out);
+        case 'apply':
+          return await _apply(patchwork, rest, out);
+        case 'undo':
+          return await _undo(patchwork, rest, out);
+        case 'status':
+          if (_isHelpOnly(rest)) {
+            _printStatusHelp(out);
+            return 0;
+          }
+          _expectNoArguments('status', rest);
+          await _status(patchwork, out);
+          return 0;
+        case 'doctor':
+          if (_isHelpOnly(rest)) {
+            _printDoctorHelp(out);
+            return 0;
+          }
+          _expectNoArguments('doctor', rest);
+          final state = await _status(patchwork, out);
+          return state.problems.isEmpty ? 0 : 1;
+        default:
+          throw PatchworkException(
+            'Unknown command "$command".',
             code: 'usage.unknown_command',
-            message: 'Unknown command "$command".',
             hint: 'Run patchwork --help to see available commands.',
-          ),
-        );
+          );
+      }
+    } on PatchworkException catch (error) {
+      _printError(err, error);
+      return error.code.startsWith('usage.') ? 64 : 1;
     }
   }
 
-  ParseResult _parsePatch(List<String> arguments) {
+  Future<int> _patch(
+    Patchwork patchwork,
+    List<String> arguments,
+    io.IOSink out,
+  ) async {
     if (_isHelpOnly(arguments)) {
-      return ParseResult.success(const HelpIntent('patch'));
+      _printPatchHelp(out);
+      return 0;
     }
 
-    var isCommit = false;
+    var force = false;
+    PatchRef? continueFrom;
     final operands = <String>[];
 
-    for (final argument in arguments) {
-      if (argument == '--commit') {
-        if (isCommit) {
-          return ParseResult.failure(
-            const Diagnostic(
-              code: 'usage.duplicate_option',
-              message: 'Option "--commit" can only be passed once.',
-            ),
+    for (var i = 0; i < arguments.length; i += 1) {
+      final argument = arguments[i];
+      if (argument == '--force') {
+        force = true;
+      } else if (argument == '--continue') {
+        if (continueFrom != null) {
+          throw _duplicateOption('--continue');
+        }
+        final next = i + 1 < arguments.length ? arguments[i + 1] : null;
+        if (next != null && !next.startsWith('-') && operands.isNotEmpty) {
+          continueFrom = PatchRef.version(next);
+          i += 1;
+        } else {
+          continueFrom = const PatchRef.current();
+        }
+      } else if (argument.startsWith('--continue=')) {
+        if (continueFrom != null) {
+          throw _duplicateOption('--continue');
+        }
+        final version = argument.substring('--continue='.length);
+        if (version.isEmpty) {
+          throw PatchworkException(
+            'Expected a version after --continue=.',
+            code: 'usage.missing_continue_version',
           );
         }
-
-        isCommit = true;
+        continueFrom = PatchRef.version(version);
       } else if (argument.startsWith('-')) {
-        return _unknownOption(argument, command: 'patch');
+        throw _unknownOption(argument, 'patch');
       } else {
         operands.add(argument);
       }
     }
 
-    if (operands.isEmpty) {
-      return ParseResult.failure(
-        Diagnostic(
-          code: 'usage.missing_target',
-          message: isCommit
-              ? 'Expected a target or edit directory.'
-              : 'Expected a target.',
-          hint: isCommit
-              ? 'Use patchwork patch --commit analyzer or an edit directory.'
-              : 'Use patchwork patch analyzer.',
-        ),
-      );
-    }
-
-    if (operands.length > 1) {
-      return _tooManyArguments('patch');
-    }
-
-    final operand = operands.single;
-
-    if (isCommit) {
-      return _parseCommitSubject(operand);
-    }
-
-    final targetResult = targetParser.parsePubTarget(operand);
-    final diagnostic = targetResult.diagnostic;
-    if (diagnostic != null) {
-      return ParseResult.failure(diagnostic);
-    }
-
-    return ParseResult.success(PatchIntent.start(targetResult.target!));
-  }
-
-  ParseResult _parseCommitSubject(String operand) {
-    if (_looksLikeWindowsEditDirectory(operand)) {
-      return ParseResult.success(
-        PatchIntent.commit(PatchCommitDirectory(operand)),
-      );
-    }
-
-    if (_hasTargetKindPrefix(operand)) {
-      final targetResult = targetParser.parsePubTarget(operand);
-      final diagnostic = targetResult.diagnostic;
-      if (diagnostic != null) {
-        return ParseResult.failure(diagnostic);
-      }
-
-      return ParseResult.success(
-        PatchIntent.commit(PatchCommitTarget(targetResult.target!)),
-      );
-    }
-
-    if (_looksLikeEditDirectory(operand)) {
-      return ParseResult.success(
-        PatchIntent.commit(PatchCommitDirectory(operand)),
-      );
-    }
-
-    final targetResult = targetParser.parsePubTarget(operand);
-    final diagnostic = targetResult.diagnostic;
-    if (diagnostic != null) {
-      return ParseResult.failure(diagnostic);
-    }
-
-    return ParseResult.success(
-      PatchIntent.commit(PatchCommitTarget(targetResult.target!)),
+    final package = _singleOptionalOperand('patch', operands, required: true)!;
+    final edit = await patchwork.prepareEdit(
+      package,
+      fromPatch: continueFrom,
+      replaceExisting: force,
     );
+    out.writeln(
+      'Created edit ${_relative(patchwork, edit.path)} from ${_relative(patchwork, edit.sourcePath)}.',
+    );
+    if (edit.continuedFromVersion != null) {
+      out.writeln(
+        'Applied ${_relative(patchwork, patchwork.layout.patchPath(package, edit.continuedFromVersion!))}.',
+      );
+    }
+    return 0;
   }
 
-  ParseResult _parseApply(List<String> arguments) {
-    if (_isHelpOnly(arguments)) {
-      return ParseResult.success(const HelpIntent('apply'));
-    }
-
-    if (arguments.isEmpty) {
-      return ParseResult.success(const ApplyIntent());
-    }
-
-    if (arguments.length > 1) {
-      return _tooManyArguments('apply');
-    }
-
-    final argument = arguments.single;
-    if (argument.startsWith('-')) {
-      return _unknownOption(argument, command: 'apply');
-    }
-
-    final targetResult = targetParser.parsePubTarget(argument);
-    final diagnostic = targetResult.diagnostic;
-    if (diagnostic != null) {
-      return ParseResult.failure(diagnostic);
-    }
-
-    return ParseResult.success(ApplyIntent(targetResult.target));
-  }
-
-  ParseResult _parseNoArgumentCommand(
+  Future<int> _commit(
+    Patchwork patchwork,
     List<String> arguments,
-    CommandIntent intent,
-    String command,
-  ) {
+    io.IOSink out,
+  ) async {
     if (_isHelpOnly(arguments)) {
-      return ParseResult.success(HelpIntent(command));
+      _printCommitHelp(out);
+      return 0;
+    }
+    final package = _singleOptionalOperand('commit', arguments);
+    final packages = package == null
+        ? (await patchwork.inspect()).openEdits
+              .map((status) => status.package)
+              .toList()
+        : [package];
+
+    if (packages.isEmpty) {
+      out.writeln('No open edits.');
+      return 0;
     }
 
-    if (arguments.isEmpty) {
-      return ParseResult.success(intent);
+    final writes = <PatchWrite>[];
+    for (final package in packages) {
+      writes.add(await patchwork.writePatch(package));
     }
-
-    if (arguments.length > 1) {
-      return _tooManyArguments(command);
+    for (final write in writes) {
+      switch (write.status) {
+        case PatchWriteStatus.written:
+          out.writeln('Wrote ${_relative(patchwork, write.patchPath)}.');
+        case PatchWriteStatus.unchanged:
+          out.writeln(
+            '${write.package}@${write.version} patch is already current; removed edit directory.',
+          );
+        case PatchWriteStatus.removed:
+          out.writeln(
+            '${write.package}@${write.version} has no changes; removed patch record.',
+          );
+      }
     }
-
-    final argument = arguments.single;
-    if (argument.startsWith('-')) {
-      return _unknownOption(argument, command: command);
-    }
-
-    return _tooManyArguments(command);
+    return 0;
   }
 
-  ParseResult _unknownOption(String option, {required String command}) {
-    return ParseResult.failure(
-      Diagnostic(
-        code: 'usage.unknown_option',
-        message: 'Unknown option "$option" for patchwork $command.',
-      ),
-    );
-  }
+  Future<int> _apply(
+    Patchwork patchwork,
+    List<String> arguments,
+    io.IOSink out,
+  ) async {
+    if (_isHelpOnly(arguments)) {
+      _printApplyHelp(out);
+      return 0;
+    }
+    final package = _singleOptionalOperand('apply', arguments);
+    final packages = package == null
+        ? (await patchwork.inspect()).packages
+              .where((status) => status.hasPatch)
+              .map((status) => status.package)
+              .toList()
+        : [package];
 
-  ParseResult _tooManyArguments(String command) {
-    return ParseResult.failure(
-      Diagnostic(
-        code: 'usage.too_many_arguments',
-        message: 'Too many arguments for patchwork $command.',
-      ),
-    );
-  }
-
-  bool _isHelpOnly(List<String> arguments) {
-    return arguments.length == 1 && _isHelp(arguments.single);
-  }
-
-  bool _isHelp(String argument) => argument == '--help' || argument == '-h';
-
-  bool _looksLikeEditDirectory(String operand) {
-    return operand.startsWith('/') ||
-        operand.startsWith('./') ||
-        operand.startsWith('../') ||
-        operand.contains('/') ||
-        _looksLikeWindowsEditDirectory(operand);
-  }
-
-  bool _looksLikeWindowsEditDirectory(String operand) {
-    return RegExp(r'^[A-Za-z]:[\\/]').hasMatch(operand) ||
-        operand.startsWith('.\\') ||
-        operand.startsWith('..\\') ||
-        operand.startsWith('\\\\') ||
-        operand.contains('\\');
-  }
-
-  bool _hasTargetKindPrefix(String operand) {
-    final separatorIndex = operand.indexOf(':');
-    if (separatorIndex <= 0) {
-      return false;
+    if (packages.isEmpty) {
+      out.writeln('No committed patches.');
+      return 0;
     }
 
-    final slashIndex = operand.indexOf('/');
-    if (slashIndex != -1 && slashIndex < separatorIndex) {
-      return false;
+    final applied = <AppliedPatch>[];
+    for (final package in packages) {
+      applied.add(await patchwork.applyPatch(package));
     }
-
-    final kind = operand.substring(0, separatorIndex);
-    return RegExp(r'^[a-z]+$').hasMatch(kind);
-  }
-}
-
-final class PatchworkCommandRunner {
-  const PatchworkCommandRunner({
-    this.parser = const PatchworkCommandParser(),
-    this.startPatchSession = const StartPatchSession(),
-    this.commitPatchSession = const CommitPatchSession(),
-    this.applyPatches = const ApplyPatches(),
-    this.pubStatus = const PubStatus(),
-    this.pubDoctor = const PubDoctor(),
-  });
-
-  final PatchworkCommandParser parser;
-  final StartPatchSession startPatchSession;
-  final CommitPatchSession commitPatchSession;
-  final ApplyPatches applyPatches;
-  final PubStatus pubStatus;
-  final PubDoctor pubDoctor;
-
-  int run(
-    List<String> arguments, {
-    required StringSink stdout,
-    required StringSink stderr,
-    String? currentDirectory,
-  }) {
-    final result = parser.parse(arguments);
-    final diagnostic = result.diagnostic;
-    if (diagnostic != null) {
-      _writeDiagnostic(stderr, diagnostic);
-      return PatchworkExitCode.forDiagnostic(diagnostic);
-    }
-
-    final intent = result.intent!;
-    if (intent is HelpIntent) {
-      stdout.writeln(helpText(intent.command));
-      return PatchworkExitCode.success;
-    }
-
-    if (intent is PatchIntent && !intent.isCommit) {
-      return _startPatchSession(
-        intent,
-        stdout: stdout,
-        stderr: stderr,
-        currentDirectory: currentDirectory ?? Directory.current.path,
+    for (final patch in applied) {
+      out.writeln(
+        'Applied ${_relative(patchwork, patch.patchPath)} to ${_relative(patchwork, patch.path)}.',
       );
     }
-
-    if (intent is PatchIntent && intent.isCommit) {
-      return _commitPatchSession(
-        intent,
-        stdout: stdout,
-        stderr: stderr,
-        currentDirectory: currentDirectory ?? Directory.current.path,
-      );
-    }
-
-    if (intent is ApplyIntent) {
-      return _applyPatches(
-        intent,
-        stdout: stdout,
-        stderr: stderr,
-        currentDirectory: currentDirectory ?? Directory.current.path,
-      );
-    }
-
-    if (intent is StatusIntent) {
-      return _status(
-        stdout: stdout,
-        stderr: stderr,
-        currentDirectory: currentDirectory ?? Directory.current.path,
-      );
-    }
-
-    if (intent is DoctorIntent) {
-      return _doctor(
-        stdout: stdout,
-        currentDirectory: currentDirectory ?? Directory.current.path,
-      );
-    }
-
-    _writeDiagnostic(
-      stderr,
-      const Diagnostic(
-        code: 'usage.unknown_command',
-        message: 'Command is not implemented.',
-      ),
-    );
-    return PatchworkExitCode.usage;
+    out.writeln('Run dart pub get.');
+    return 0;
   }
 
-  int _startPatchSession(
-    PatchIntent intent, {
-    required StringSink stdout,
-    required StringSink stderr,
-    required String currentDirectory,
-  }) {
-    final result = startPatchSession(
-      intent.target!,
-      currentDirectory: currentDirectory,
-    );
-    final diagnostic = result.diagnostic;
-    if (diagnostic != null) {
-      _writeDiagnostic(stderr, diagnostic);
-      return PatchworkExitCode.forDiagnostic(diagnostic);
+  Future<int> _undo(
+    Patchwork patchwork,
+    List<String> arguments,
+    io.IOSink out,
+  ) async {
+    if (_isHelpOnly(arguments)) {
+      _printUndoHelp(out);
+      return 0;
     }
-
-    final session = result.session!;
-    stdout.writeln('Edit directory: ${session.editPath}');
-    stdout.writeln('Commit changes with: ${session.commitCommand}');
-    return PatchworkExitCode.success;
-  }
-
-  int _commitPatchSession(
-    PatchIntent intent, {
-    required StringSink stdout,
-    required StringSink stderr,
-    required String currentDirectory,
-  }) {
-    final subject = intent.commitSubject!;
-    final result = switch (subject) {
-      PatchCommitTarget(:final target) => commitPatchSession.commitTarget(
-        target,
-        currentDirectory: currentDirectory,
-      ),
-      PatchCommitDirectory(:final path) =>
-        commitPatchSession.commitEditDirectory(
-          path,
-          currentDirectory: currentDirectory,
-        ),
-    };
-    final diagnostic = result.diagnostic;
-    if (diagnostic != null) {
-      _writeDiagnostic(stderr, diagnostic);
-      return PatchworkExitCode.forDiagnostic(diagnostic);
-    }
-
-    if (result.noChanges) {
-      stdout.writeln('No changes to commit.');
-      return PatchworkExitCode.success;
-    }
-
-    stdout.writeln('Patch file: ${result.patchPath}');
-    return PatchworkExitCode.success;
-  }
-
-  int _applyPatches(
-    ApplyIntent intent, {
-    required StringSink stdout,
-    required StringSink stderr,
-    required String currentDirectory,
-  }) {
-    final result = applyPatches.apply(
-      target: intent.target,
-      currentDirectory: currentDirectory,
-    );
-    final diagnostic = result.diagnostic;
-    if (diagnostic != null) {
-      _writeDiagnostic(stderr, diagnostic);
-      return PatchworkExitCode.forDiagnostic(diagnostic);
-    }
-
-    if (result.applied.isEmpty) {
-      stdout.writeln('No pub patches to apply.');
-      return PatchworkExitCode.success;
-    }
-
-    for (final patch in result.applied) {
-      stdout.writeln(
-        'Applied ${patch.target}: ${patch.storePath}'
-        '${patch.rebuilt ? '' : ' (already current)'}',
-      );
-    }
-    stdout.writeln('Run dart pub get to refresh pub resolution.');
-    return PatchworkExitCode.success;
-  }
-
-  int _status({
-    required StringSink stdout,
-    required StringSink stderr,
-    required String currentDirectory,
-  }) {
-    final result = pubStatus.read(currentDirectory: currentDirectory);
-    final diagnostic = result.diagnostic;
-    if (diagnostic != null) {
-      _writeDiagnostic(stderr, diagnostic);
-      return PatchworkExitCode.forDiagnostic(diagnostic);
-    }
-
-    stdout.writeln('Workspace: ${result.workspaceRootPath}');
-    if (result.patches.isEmpty && result.staleOverrides.isEmpty) {
-      stdout.writeln('Patches: none');
-      return PatchworkExitCode.success;
-    }
-
-    if (result.patches.isEmpty) {
-      stdout.writeln('Patches: none');
+    final package = _singleOptionalOperand('undo', arguments, required: true)!;
+    final result = await patchwork.unapplyPatch(package);
+    if (result.changed) {
+      out.writeln('Unapplied $package.');
+      out.writeln('Run dart pub get.');
     } else {
-      stdout.writeln('Patches:');
-      for (final patch in result.patches) {
-        stdout.writeln(
-          '  - ${patch.target} [${_statusStateLabel(patch.state)}]',
-        );
-        stdout.writeln(
-          '    patch: ${patch.patchPath} (${_patchStateLabel(patch)})',
-        );
-        final storePath = patch.storePath;
-        if (storePath != null) {
-          stdout.writeln(
-            '    store: $storePath (${patch.storeCurrent ? 'current' : 'missing or stale'})',
-          );
+      out.writeln('No applied patch for $package.');
+    }
+    return 0;
+  }
+
+  Future<PatchworkState> _status(Patchwork patchwork, io.IOSink out) async {
+    final state = await patchwork.inspect();
+    if (state.packages.isEmpty) {
+      out.writeln('No patchwork packages.');
+      return state;
+    }
+
+    for (final package in state.packages) {
+      out.writeln('${package.package}@${package.version}');
+      if (package.hasOpenEdit) {
+        out.writeln('  edit: ${_relative(patchwork, package.editPath)}');
+      }
+      if (package.hasPatch) {
+        out.writeln('  patch: ${_relative(patchwork, package.patchPath)}');
+      }
+      if (package.isApplied && package.appliedPath != null) {
+        out.writeln('  applied: ${_relative(patchwork, package.appliedPath!)}');
+      }
+      if (package.needsApply) {
+        out.writeln('  action: patchwork apply ${package.package}');
+      }
+      for (final problem in package.problems) {
+        out.writeln('  problem: ${problem.message}');
+        if (problem.hint != null) {
+          out.writeln('    ${problem.hint}');
         }
-        final packageName = patch.packageName;
-        if (packageName != null) {
-          final overridePath = patch.overridePath;
-          stdout.writeln(
-            '    override: $packageName -> ${overridePath ?? 'missing'} '
-            '(${patch.overrideCurrent ? 'current' : 'missing or stale'})',
-          );
-        }
-        final diagnostic = patch.diagnostic;
-        if (diagnostic != null) {
-          stdout.writeln('    detail: ${diagnostic.message}');
-        }
       }
     }
-
-    if (result.staleOverrides.isNotEmpty) {
-      stdout.writeln('Stale overrides:');
-      for (final override in result.staleOverrides) {
-        stdout.writeln(
-          '  - ${override.packageName} -> ${override.path} [stale]',
-        );
-      }
-    }
-
-    return result.hasBrokenState
-        ? PatchworkExitCode.failure
-        : PatchworkExitCode.success;
-  }
-
-  int _doctor({required StringSink stdout, required String currentDirectory}) {
-    final result = pubDoctor.check(currentDirectory: currentDirectory);
-    stdout.writeln('Doctor:');
-    for (final check in result.checks) {
-      stdout.writeln(
-        '  [${check.state == PubDoctorCheckState.ok ? 'ok' : 'error'}] '
-        '${check.name}: ${check.message}',
-      );
-      final location = check.location;
-      if (location != null) {
-        stdout.writeln('    location: $location');
-      }
-      final hint = check.hint;
-      if (hint != null && hint.isNotEmpty) {
-        stdout.writeln('    hint: $hint');
-      }
-    }
-
-    return result.hasErrors
-        ? PatchworkExitCode.failure
-        : PatchworkExitCode.success;
-  }
-
-  String helpText([String? command]) {
-    return switch (command) {
-      null => _mainHelp,
-      'patch' => _patchHelp,
-      'apply' => _applyHelp,
-      'status' => _statusHelp,
-      'doctor' => _doctorHelp,
-      _ => _mainHelp,
-    };
-  }
-
-  void _writeDiagnostic(StringSink stderr, Diagnostic diagnostic) {
-    stderr.writeln('error: ${diagnostic.message}');
-    final hint = diagnostic.hint;
-    if (hint != null) {
-      stderr.writeln('hint: $hint');
-    }
-  }
-
-  String _statusStateLabel(PubPatchStatusState state) {
-    return switch (state) {
-      PubPatchStatusState.clean => 'clean',
-      PubPatchStatusState.stale => 'stale',
-      PubPatchStatusState.missing => 'missing',
-      PubPatchStatusState.unapplied => 'unapplied',
-      PubPatchStatusState.broken => 'broken',
-    };
-  }
-
-  String _patchStateLabel(PubPatchStatus patch) {
-    return switch (patch.patchState) {
-      PatchworkManifestPatchState.current => 'hash ok',
-      PatchworkManifestPatchState.missing => 'missing',
-      PatchworkManifestPatchState.stale => 'hash mismatch',
-      PatchworkManifestPatchState.unreadable => 'unreadable',
-      PatchworkManifestPatchState.invalid => 'invalid',
-    };
+    return state;
   }
 }
 
-const _mainHelp = '''
-Usage: patchwork <command> [arguments]
+String? _singleOptionalOperand(
+  String command,
+  List<String> operands, {
+  bool required = false,
+}) {
+  for (final operand in operands) {
+    if (operand.startsWith('-')) {
+      throw _unknownOption(operand, command);
+    }
+  }
+  if (operands.isEmpty) {
+    if (required) {
+      throw PatchworkException(
+        'Expected a package name.',
+        code: 'usage.missing_package',
+        hint: 'Run patchwork $command --help.',
+      );
+    }
+    return null;
+  }
+  if (operands.length > 1) {
+    throw PatchworkException(
+      'Too many arguments for "$command".',
+      code: 'usage.too_many_arguments',
+      hint: 'Run patchwork $command --help.',
+    );
+  }
+  return operands.single;
+}
 
-Commands:
-  patch <target>                  Create an editable patch session.
-  patch --commit <target|dir>     Commit an edit session into a patch.
-  apply [target]                  Apply committed pub patches.
-  status                          Show patch and session state.
-  doctor                          Check Patchwork environment readiness.
+void _expectNoArguments(String command, List<String> arguments) {
+  if (_isHelpOnly(arguments)) {
+    return;
+  }
+  if (arguments.isNotEmpty) {
+    throw PatchworkException(
+      'Command "$command" does not accept arguments.',
+      code: 'usage.too_many_arguments',
+      hint: 'Run patchwork $command --help.',
+    );
+  }
+}
 
-Targets:
-  analyzer and pub:analyzer both resolve to pub:analyzer.
-  sdk: and path: targets are not supported by the pub MVP.
+PatchworkException _unknownOption(String option, String command) {
+  return PatchworkException(
+    'Unknown option "$option" for "$command".',
+    code: 'usage.unknown_option',
+    hint: 'Run patchwork $command --help.',
+  );
+}
 
-Run patchwork <command> --help for command-specific usage.
-''';
+PatchworkException _duplicateOption(String option) {
+  return PatchworkException(
+    'Option "$option" can only be passed once.',
+    code: 'usage.duplicate_option',
+  );
+}
 
-const _patchHelp = '''
-Usage:
-  patchwork patch <target>
-  patchwork patch --commit <target|edit-dir>
+bool _isHelp(String argument) {
+  return argument == '-h' || argument == '--help' || argument == 'help';
+}
 
-Targets default to pub:. For example, analyzer resolves to pub:analyzer.
-''';
+bool _isHelpOnly(List<String> arguments) {
+  return arguments.length == 1 && _isHelp(arguments.single);
+}
 
-const _applyHelp = '''
-Usage:
-  patchwork apply [target]
+String _relative(Patchwork patchwork, String path) {
+  final absolute = p.normalize(p.absolute(path));
+  final root = p.normalize(p.absolute(patchwork.rootPath));
+  if (p.equals(root, absolute)) {
+    return '.';
+  }
+  if (p.isWithin(root, absolute)) {
+    return p.posix.joinAll(p.split(p.relative(absolute, from: root)));
+  }
+  return path;
+}
 
-Without a target, applies every committed pub patch.
-''';
+void _printError(io.IOSink err, PatchworkException error) {
+  err.writeln('error: ${error.message}');
+  if (error.hint != null && error.hint!.isNotEmpty) {
+    err.writeln(error.hint);
+  }
+  if (error.location != null && error.location!.isNotEmpty) {
+    err.writeln(error.location);
+  }
+}
 
-const _statusHelp = '''
-Usage:
-  patchwork status
-''';
+void _printHelp(io.IOSink out) {
+  out.writeln('Usage: patchwork <command> [arguments]');
+  out.writeln('');
+  out.writeln('Commands:');
+  out.writeln('  patch <pkg> [--continue [version]] [--force]');
+  out.writeln('  commit [pkg]');
+  out.writeln('  apply [pkg]');
+  out.writeln('  undo <pkg>');
+  out.writeln('  status');
+  out.writeln('  doctor');
+}
 
-const _doctorHelp = '''
-Usage:
-  patchwork doctor
-''';
+void _printPatchHelp(io.IOSink out) {
+  out.writeln('Usage: patchwork patch <pkg> [--continue [version]] [--force]');
+}
+
+void _printCommitHelp(io.IOSink out) {
+  out.writeln('Usage: patchwork commit [pkg]');
+}
+
+void _printApplyHelp(io.IOSink out) {
+  out.writeln('Usage: patchwork apply [pkg]');
+}
+
+void _printUndoHelp(io.IOSink out) {
+  out.writeln('Usage: patchwork undo <pkg>');
+}
+
+void _printStatusHelp(io.IOSink out) {
+  out.writeln('Usage: patchwork status');
+}
+
+void _printDoctorHelp(io.IOSink out) {
+  out.writeln('Usage: patchwork doctor');
+}

@@ -327,7 +327,12 @@ final class PubResolutionReader {
             'Expected workspace entries to be strings.',
           );
         }
-        names.add(_readPackageName(p.join(workspace.rootPath, value)));
+        for (final packageRoot in _workspacePackageRoots(
+          workspace.rootPath,
+          value,
+        )) {
+          names.add(_readPackageName(packageRoot));
+        }
       }
       return names;
     } on YamlException catch (error) {
@@ -340,6 +345,88 @@ final class PubResolutionReader {
         location: pubspecPath,
       );
     }
+  }
+
+  List<String> _workspacePackageRoots(String workspaceRoot, String entry) {
+    if (!_containsGlob(entry)) {
+      return [p.join(workspaceRoot, entry)];
+    }
+
+    var candidates = [workspaceRoot];
+    for (final part in p.split(entry)) {
+      if (part == '.' || part.isEmpty) {
+        continue;
+      }
+      if (part == '**') {
+        candidates = [
+          for (final candidate in candidates)
+            ..._descendantDirectories(candidate, includeSelf: true),
+        ];
+        continue;
+      }
+      if (_containsGlob(part)) {
+        final pattern = _globSegmentPattern(part);
+        candidates = [
+          for (final candidate in candidates)
+            if (Directory(candidate).existsSync())
+              for (final entity in Directory(
+                candidate,
+              ).listSync(followLinks: false))
+                if (FileSystemEntity.typeSync(
+                      entity.path,
+                      followLinks: false,
+                    ) ==
+                    FileSystemEntityType.directory)
+                  if (pattern.hasMatch(p.basename(entity.path))) entity.path,
+        ];
+        continue;
+      }
+      candidates = [
+        for (final candidate in candidates) p.join(candidate, part),
+      ];
+    }
+
+    return [
+      for (final candidate in candidates)
+        if (File(p.join(candidate, 'pubspec.yaml')).existsSync()) candidate,
+    ];
+  }
+
+  Iterable<String> _descendantDirectories(
+    String root, {
+    required bool includeSelf,
+  }) sync* {
+    final directory = Directory(root);
+    if (!directory.existsSync()) {
+      return;
+    }
+    if (includeSelf) {
+      yield root;
+    }
+    for (final entity in directory.listSync(followLinks: false)) {
+      if (FileSystemEntity.typeSync(entity.path, followLinks: false) !=
+          FileSystemEntityType.directory) {
+        continue;
+      }
+      yield entity.path;
+      yield* _descendantDirectories(entity.path, includeSelf: false);
+    }
+  }
+
+  RegExp _globSegmentPattern(String segment) {
+    final buffer = StringBuffer('^');
+    for (var index = 0; index < segment.length; index += 1) {
+      final character = segment[index];
+      if (character == '*') {
+        buffer.write('[^/]*');
+      } else if (character == '?') {
+        buffer.write('[^/]');
+      } else {
+        buffer.write(RegExp.escape(character));
+      }
+    }
+    buffer.write(r'$');
+    return RegExp(buffer.toString());
   }
 
   String _readPackageName(String packageRoot) {
@@ -503,6 +590,10 @@ final class PubResolutionReader {
       location: path,
     );
   }
+}
+
+bool _containsGlob(String value) {
+  return value.contains('*') || value.contains('?');
 }
 
 final class PubResolution {

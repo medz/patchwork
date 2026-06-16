@@ -28,6 +28,9 @@ void main() {
       await project.patchwork(['apply']);
       await project.pubGet();
       await project.patchwork([
+        'doctor',
+      ], stdoutContains: 'applied: .dart_tool/patchwork/greeter@0.1.0');
+      await project.patchwork([
         'status',
       ], stdoutContains: 'applied: .dart_tool/patchwork/greeter@0.1.0');
       await project.runApp('Hello from a workspace patch, Patchwork!');

@@ -95,7 +95,9 @@ final class ProjectSandbox {
     );
   }
 
-  static Future<ProjectSandbox> workspace() async {
+  static Future<ProjectSandbox> workspace({
+    bool includeOtherDependency = false,
+  }) async {
     final root = Directory.systemTemp.createTempSync('patchwork_workspace_');
     final patchworkRoot = await _patchworkPackageRoot();
     final pubCachePath = _resolvedPubCachePath(patchworkRoot);
@@ -103,15 +105,26 @@ final class ProjectSandbox {
     final appRoot = p.join(workspaceRoot, 'app');
     final dependencyRoot = p.join(root.path, 'deps', 'greeter');
     final manualRoot = p.join(root.path, 'manual_greeter');
+    final otherRoot = includeOtherDependency
+        ? p.join(root.path, 'deps', 'other_pkg')
+        : null;
+    final otherOverrideRoot = includeOtherDependency
+        ? p.join(root.path, 'manual_other_pkg')
+        : null;
     final memberRoot = p.join(workspaceRoot, 'packages', 'member_greeter');
 
     _writeGreeterPackage(dependencyRoot, 'Hello, \$name!');
     _writeGreeterPackage(manualRoot, 'Hello from a manual override, \$name!');
+    if (otherRoot != null && otherOverrideRoot != null) {
+      _writeOtherPackage(otherRoot);
+      _writeOtherPackage(otherOverrideRoot);
+    }
     _writeWorkspaceMember(memberRoot);
     _writeWorkspaceRoot(workspaceRoot, patchworkPath: patchworkRoot);
     _writeApp(
       appRoot,
       greeterPath: '../../deps/greeter',
+      otherPath: includeOtherDependency ? '../../deps/other_pkg' : null,
       workspaceMember: true,
     );
 
@@ -122,7 +135,7 @@ final class ProjectSandbox {
       appRoot: appRoot,
       greeterRoot: dependencyRoot,
       manualOverrideRoot: manualRoot,
-      otherOverrideRoot: null,
+      otherOverrideRoot: otherOverrideRoot,
       environment: _pubEnvironment(pubCachePath),
     );
   }

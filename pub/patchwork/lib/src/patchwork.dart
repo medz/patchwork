@@ -80,6 +80,15 @@ final class Patchwork {
     final resolution = _readResolution();
     final resolved = _resolveRealPackage(resolution, package);
     final editPath = _layout.editPath(package, resolved.version);
+    final existingRecord = _lockStore.read().packages[package];
+    if (existingRecord?.applied != null) {
+      throw PatchworkException(
+        'Package "$package" already has an applied Patchwork patch.',
+        code: 'patch.package_applied',
+        hint:
+            'Run patchwork undo $package, then dart pub get, before patching it again.',
+      );
+    }
     _rejectBlockingOverride(
       package: package,
       version: resolved.version,

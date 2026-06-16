@@ -20,6 +20,11 @@ void main() {
       await project.patchwork(['commit']);
       await project.patchwork(['apply']);
       await project.patchwork(
+        ['patch', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'already has an applied Patchwork patch',
+      );
+      await project.patchwork(
         ['doctor'],
         exitCodes: {1},
         stdoutContains: 'pub resolution has not activated',

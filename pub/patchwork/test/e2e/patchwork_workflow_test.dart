@@ -187,4 +187,28 @@ void main() {
       contains('applied.patch_stale'),
     );
   });
+
+  test(
+    'status reports applied output when the committed patch is removed',
+    () async {
+      var edit = await patchwork.prepareEdit('foo');
+      File(
+        p.join(edit.path, 'lib', 'foo.dart'),
+      ).writeAsStringSync("String foo() => 'patched';\n");
+      await patchwork.writePatch('foo');
+      await patchwork.applyPatch('foo');
+
+      edit = await patchwork.prepareEdit('foo', replaceExisting: true);
+      await patchwork.writePatch('foo');
+
+      final state = await patchwork.inspect();
+      final foo = state.packages.singleWhere(
+        (status) => status.package == 'foo',
+      );
+      expect(
+        foo.problems.map((problem) => problem.code),
+        contains('applied.patch_missing'),
+      );
+    },
+  );
 }

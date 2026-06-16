@@ -549,6 +549,16 @@ final class Patchwork {
         ),
       );
     }
+    if (applied != null && lockPatch == null) {
+      problems.add(
+        PatchProblem(
+          code: 'applied.patch_missing',
+          message:
+              'An applied patch is recorded, but no committed patch exists.',
+          hint: 'Run patchwork undo $package and dart pub get.',
+        ),
+      );
+    }
     if (applied != null &&
         lockPatch != null &&
         applied.patchSha256 != lockPatch.sha256) {

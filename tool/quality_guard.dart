@@ -3,6 +3,7 @@ import 'dart:io';
 Future<void> main() async {
   final guard = _QualityGuard(Directory.current.path);
   guard.checkTrackedFiles();
+  guard.checkFacadeBoundary();
   guard.checkDocumentationText();
   await guard.run('dart', ['pub', 'get']);
   await guard.run('dart', [
@@ -86,6 +87,41 @@ final class _QualityGuard {
         if (content.contains(snippet)) {
           throw StateError('$relativePath contains legacy text: $snippet');
         }
+      }
+    }
+  }
+
+  void checkFacadeBoundary() {
+    final facade = File(
+      _path('pub/patchwork/lib/src/patchwork.dart'),
+    ).readAsStringSync();
+    const forbiddenFacadeFields = [
+      'final String rootPath;',
+      'final PathLayout layout;',
+      'final PubResolutionReader pubResolutionReader;',
+      'final PatchworkLockStore lockStore;',
+      'final PackageTree packageTree;',
+      'final PatchFile patchFile;',
+      'final PubspecOverrides pubspecOverrides;',
+    ];
+    for (final field in forbiddenFacadeFields) {
+      if (facade.contains(field)) {
+        throw StateError('Patchwork facade exposes internal field: $field');
+      }
+    }
+
+    final publicExports = File(
+      _path('pub/patchwork/lib/patchwork.dart'),
+    ).readAsStringSync();
+    const forbiddenExports = [
+      'src/internal/',
+      'src/lock/',
+      'src/patch/',
+      'src/pub/',
+    ];
+    for (final export in forbiddenExports) {
+      if (publicExports.contains(export)) {
+        throw StateError('Public API exports internal module: $export');
       }
     }
   }

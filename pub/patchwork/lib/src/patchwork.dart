@@ -547,6 +547,7 @@ final class Patchwork {
       actualPatchSha256 = _sha256(patchFileOnDisk.readAsBytesSync());
     }
     var pubResolutionPointsToApplied = false;
+    var pubResolutionMatchesSource = false;
 
     if (resolutionError != null) {
       problems.add(
@@ -586,6 +587,8 @@ final class Patchwork {
                   'Use patchwork undo $package and dart pub get before upgrading or carrying the patch forward.',
             ),
           );
+        } else {
+          pubResolutionMatchesSource = true;
         }
         final applied = record.applied;
         if (applied != null &&
@@ -653,13 +656,16 @@ final class Patchwork {
           package: package,
           path: applied.path,
         );
+    final repairHint = pubResolutionMatchesSource
+        ? 'Run patchwork apply $package.'
+        : 'Run patchwork undo $package, dart pub get, then patchwork apply $package.';
     if (applied != null && !appliedExists) {
       problems.add(
         PatchProblem(
           code: 'applied.output_missing',
           message:
               'patchwork.lock records an applied patch, but the generated directory is missing.',
-          hint: 'Run patchwork apply $package.',
+          hint: repairHint,
         ),
       );
     }
@@ -680,7 +686,7 @@ final class Patchwork {
         PatchProblem(
           code: 'applied.patch_stale',
           message: 'Applied patch sha256 differs from the committed patch.',
-          hint: 'Run patchwork apply $package.',
+          hint: repairHint,
         ),
       );
     }
@@ -700,7 +706,7 @@ final class Patchwork {
           code: 'applied.override_missing',
           message:
               'pubspec_overrides.yaml no longer points at the applied patch.',
-          hint: 'Run patchwork apply $package or patchwork undo $package.',
+          hint: repairHint,
         ),
       );
     }
@@ -723,6 +729,7 @@ final class Patchwork {
       needsApply:
           lockPatch != null &&
           hasPatchFile &&
+          pubResolutionMatchesSource &&
           (applied == null ||
               !appliedExists ||
               !overridePointsToApplied ||

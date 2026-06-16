@@ -59,6 +59,44 @@ void main() {
   );
 
   test(
+    'apply-all skips stale applied records until pub resolves the source',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a stale apply');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      await project.pubGet();
+      project.lockfile.writeAsStringSync(
+        project.lockfile.readAsStringSync().replaceFirst(
+          RegExp(r'patch-sha256: "[0-9a-f]+"'),
+          'patch-sha256: "stale"',
+        ),
+      );
+
+      await project.patchwork(
+        ['doctor'],
+        exitCodes: {1},
+        stdoutContains:
+            'Applied patch sha256 differs from the committed patch.',
+      );
+      await project.patchwork(
+        ['doctor'],
+        exitCodes: {1},
+        stdoutContains:
+            'Run patchwork undo greeter, dart pub get, then patchwork apply greeter.',
+      );
+      await project.patchwork([
+        'apply',
+      ], stdoutContains: 'No patches need apply.');
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'apply and undo preserve user-owned dependency overrides',
     () async {
       final project = await ProjectSandbox.standalone(

@@ -33,6 +33,9 @@ void main() {
 
       await project.patchwork(['undo', 'greeter']);
       await project.pubGet();
+      await project.patchwork([
+        'doctor',
+      ], stdoutContains: 'action: patchwork apply greeter');
       await project.runApp('Hello, Patchwork!');
 
       await project.patchwork(['patch', 'greeter', '--continue']);

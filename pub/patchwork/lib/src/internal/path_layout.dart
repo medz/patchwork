@@ -8,11 +8,8 @@ final class PathLayout {
   final String rootPath;
 
   String get lockfilePath => p.join(rootPath, 'patchwork.lock');
-
   String get editRootPath => p.join(rootPath, '.patchwork');
-
   String get patchesRootPath => p.join(rootPath, 'patches');
-
   String get appliedRootPath => p.join(rootPath, '.dart_tool', 'patchwork');
 
   String editPath(String package, String version) {

@@ -8,9 +8,9 @@ import 'error.dart';
 import 'internal/package_tree.dart';
 import 'internal/path_layout.dart';
 import 'io/atomic_file_writer.dart';
-import 'lock/patchwork_lock.dart';
+import 'lockfile.dart';
 import 'model.dart';
-import 'patch/patch_file.dart';
+import 'patch_file.dart';
 import 'pub/package_resolution.dart';
 import 'pub/pubspec_overrides.dart';
 import 'pub/pub_workspace.dart';
@@ -18,6 +18,7 @@ import 'pub/pub_workspace.dart';
 final class Patchwork {
   Patchwork._({
     required this._rootPath,
+    required this._currentPackageRootPath,
     required this._layout,
     required this._pubResolutionReader,
     required this._lockStore,
@@ -39,9 +40,10 @@ final class Patchwork {
     final layout = PathLayout(workspace.rootPath);
     return Patchwork._(
       rootPath: workspace.rootPath,
+      currentPackageRootPath: workspace.currentPackageRootPath,
       layout: layout,
       pubResolutionReader: const PubResolutionReader(),
-      lockStore: PatchworkLockStore(path: layout.lockfilePath),
+      lockStore: LockfileStore(path: layout.lockfilePath),
       packageTree: const PackageTree(),
       patchFile: const PatchFile(),
       pubspecOverrides: const PubspecOverrides(),
@@ -49,9 +51,10 @@ final class Patchwork {
   }
 
   final String _rootPath;
+  final String _currentPackageRootPath;
   final PathLayout _layout;
   final PubResolutionReader _pubResolutionReader;
-  final PatchworkLockStore _lockStore;
+  final LockfileStore _lockStore;
   final PackageTree _packageTree;
   final PatchFile _patchFile;
   final PubspecOverrides _pubspecOverrides;
@@ -224,7 +227,7 @@ final class Patchwork {
       path: relativePath,
     );
     lock.packages[package] = record.copyWith(
-      applied: LockApplied(patchSha256: patchSha256, path: relativePath),
+      applied: AppliedPatchRecord(patchSha256: patchSha256, path: relativePath),
     );
     _lockStore.write(lock);
 
@@ -315,7 +318,7 @@ final class Patchwork {
   }
 
   PubResolution _readResolution() {
-    return _pubResolutionReader.readFromDirectory(_rootPath);
+    return _pubResolutionReader.readFromDirectory(_currentPackageRootPath);
   }
 
   ResolvedPubPackage _resolveRealPackage(
@@ -335,15 +338,15 @@ final class Patchwork {
     return resolved;
   }
 
-  LockPackage _packageRecordAfterSourceRefresh({
-    required LockPackage? previous,
+  LockfilePackage _packageRecordAfterSourceRefresh({
+    required LockfilePackage? previous,
     required ResolvedPubPackage resolved,
   }) {
     final canPreservePatch =
         previous != null &&
         previous.version == resolved.version &&
         previous.source == resolved.source;
-    return LockPackage(
+    return LockfilePackage(
       version: resolved.version,
       source: resolved.source,
       patch: canPreservePatch ? previous.patch : null,
@@ -467,7 +470,7 @@ final class Patchwork {
     final patchSha256 = _sha256(patchBytes);
     writeBytesFileAtomically(patchPath, patchBytes);
     lock.packages[edit.package] = record.copyWith(
-      patch: LockPatch(editSha256: editSha256, sha256: patchSha256),
+      patch: CommittedPatch(editSha256: editSha256, sha256: patchSha256),
     );
     _lockStore.write(lock);
     _packageTree.deleteDirectory(edit.path);
@@ -486,7 +489,7 @@ final class Patchwork {
   void _ensureResolutionMatchesLock(
     String package,
     ResolvedPubPackage resolved,
-    LockPackage record,
+    LockfilePackage record,
   ) {
     if (resolved.version != record.version) {
       throw PatchworkException(
@@ -509,7 +512,7 @@ final class Patchwork {
   PatchStatus _inspectPackage({
     required String package,
     required String version,
-    required LockPackage? record,
+    required LockfilePackage? record,
     required List<PackageVersionPath> edit,
     required PubResolution? resolution,
     required PatchworkException? resolutionError,

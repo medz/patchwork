@@ -52,17 +52,23 @@ final class PubResolutionReader {
 
   PubResolution readFromDirectory(String currentDirectory) {
     final workspace = workspaceLocator.locate(currentDirectory);
-    final packageConfigPackages = _readPackageConfig(workspace);
-    final metadataPackages = _readLockfile(workspace);
-    final graph = _readPackageGraph(workspace);
+    final packages = _PackageIndex(
+      packageConfig: _readPackageConfig(workspace),
+      lockfile: _readLockfile(workspace),
+    );
+    final currentPackageName = packages.currentPackageName(workspace);
+    final dependencies = _readCurrentPubspecDependencies(workspace);
+    final graph = _readPackageGraph(
+      workspace,
+      currentPackageName,
+      dependencies: dependencies,
+      workspaceRootNames: _readWorkspaceRootNames(workspace),
+    );
 
     return PubResolution._(
       workspace: workspace,
-      packageConfigPackages: packageConfigPackages,
-      metadataPackages: metadataPackages,
-      rootPackageNames: graph.rootNames,
-      rootMainDependencies: graph.rootMainDependencies,
-      rootDevDependencies: graph.rootDevDependencies,
+      packages: packages,
+      graph: graph,
       packageTree: packageTree,
     );
   }
@@ -202,13 +208,20 @@ final class PubResolutionReader {
     }
   }
 
-  _PackageGraph _readPackageGraph(PubWorkspace workspace) {
+  _PackageGraph _readPackageGraph(
+    PubWorkspace workspace,
+    String currentPackageName, {
+    required _PubspecDependencies dependencies,
+    required Set<String> workspaceRootNames,
+  }) {
     final packageGraph = File(workspace.packageGraphPath);
     if (!packageGraph.existsSync()) {
-      return const _PackageGraph(
-        rootNames: <String>{},
-        rootMainDependencies: <String>{},
-        rootDevDependencies: <String>{},
+      return _PackageGraph(
+        rootNames: workspaceRootNames,
+        currentPackageName: currentPackageName,
+        directMainDependencies: dependencies.main,
+        directDevDependencies: dependencies.dev,
+        hasCurrentPackage: true,
       );
     }
 
@@ -221,11 +234,10 @@ final class PubResolutionReader {
         );
       }
 
-      final rootNames = _readStringSet(
-        workspace,
-        decoded['roots'],
-        fieldName: 'roots',
-      );
+      final rootNames = {
+        ..._readStringSet(workspace, decoded['roots'], fieldName: 'roots'),
+        ...workspaceRootNames,
+      };
       final packages = decoded['packages'];
       if (packages is! List<Object?>) {
         throw _malformedPackageGraph(
@@ -234,8 +246,6 @@ final class PubResolutionReader {
         );
       }
 
-      final rootMainDependencies = <String>{};
-      final rootDevDependencies = <String>{};
       for (final package in packages) {
         if (package is! Map<String, Object?>) {
           throw _malformedPackageGraph(
@@ -243,31 +253,14 @@ final class PubResolutionReader {
             'Expected each package_graph package entry to be an object.',
           );
         }
-        final name = package['name'];
-        if (name is String && rootNames.contains(name)) {
-          rootMainDependencies.addAll(
-            _readStringSet(
-              workspace,
-              package['dependencies'],
-              fieldName: 'package dependencies',
-              allowMissing: true,
-            ),
-          );
-          rootDevDependencies.addAll(
-            _readStringSet(
-              workspace,
-              package['devDependencies'],
-              fieldName: 'package devDependencies',
-              allowMissing: true,
-            ),
-          );
-        }
       }
 
       return _PackageGraph(
         rootNames: rootNames,
-        rootMainDependencies: rootMainDependencies,
-        rootDevDependencies: rootDevDependencies,
+        currentPackageName: currentPackageName,
+        directMainDependencies: dependencies.main,
+        directDevDependencies: dependencies.dev,
+        hasCurrentPackage: true,
       );
     } on FormatException catch (error) {
       throw _malformedPackageGraph(workspace, error.message);
@@ -279,6 +272,124 @@ final class PubResolutionReader {
         location: workspace.packageGraphPath,
       );
     }
+  }
+
+  _PubspecDependencies _readCurrentPubspecDependencies(PubWorkspace workspace) {
+    final pubspecPath = p.join(
+      workspace.currentPackageRootPath,
+      'pubspec.yaml',
+    );
+    try {
+      final decoded = loadYaml(File(pubspecPath).readAsStringSync());
+      if (decoded is! YamlMap) {
+        throw _malformedPubspec(pubspecPath, 'Expected a YAML object.');
+      }
+      return _PubspecDependencies(
+        main: _readDependencyNames(pubspecPath, decoded['dependencies']),
+        dev: _readDependencyNames(pubspecPath, decoded['dev_dependencies']),
+      );
+    } on YamlException catch (error) {
+      throw _malformedPubspec(pubspecPath, error.message);
+    } on FileSystemException catch (error) {
+      throw PatchworkException(
+        'Could not read pubspec.yaml.',
+        code: 'pub.pubspec_not_readable',
+        hint: error.message,
+        location: pubspecPath,
+      );
+    }
+  }
+
+  Set<String> _readWorkspaceRootNames(PubWorkspace workspace) {
+    final pubspecPath = p.join(workspace.rootPath, 'pubspec.yaml');
+    try {
+      final decoded = loadYaml(File(pubspecPath).readAsStringSync());
+      if (decoded is! YamlMap) {
+        throw _malformedPubspec(pubspecPath, 'Expected a YAML object.');
+      }
+      final workspaceEntries = decoded['workspace'];
+      if (workspaceEntries == null) {
+        return const {};
+      }
+      if (workspaceEntries is! YamlList) {
+        throw _malformedPubspec(
+          pubspecPath,
+          'Expected workspace to be a YAML list.',
+        );
+      }
+
+      final names = <String>{};
+      for (final entry in workspaceEntries.nodes) {
+        final value = entry.value;
+        if (value is! String) {
+          throw _malformedPubspec(
+            pubspecPath,
+            'Expected workspace entries to be strings.',
+          );
+        }
+        names.add(_readPackageName(p.join(workspace.rootPath, value)));
+      }
+      return names;
+    } on YamlException catch (error) {
+      throw _malformedPubspec(pubspecPath, error.message);
+    } on FileSystemException catch (error) {
+      throw PatchworkException(
+        'Could not read pubspec.yaml.',
+        code: 'pub.pubspec_not_readable',
+        hint: error.message,
+        location: pubspecPath,
+      );
+    }
+  }
+
+  String _readPackageName(String packageRoot) {
+    final pubspecPath = p.join(packageRoot, 'pubspec.yaml');
+    try {
+      final decoded = loadYaml(File(pubspecPath).readAsStringSync());
+      if (decoded is! YamlMap) {
+        throw _malformedPubspec(pubspecPath, 'Expected a YAML object.');
+      }
+      final name = decoded['name'];
+      if (name is! String || name.isEmpty) {
+        throw _malformedPubspec(
+          pubspecPath,
+          'Expected package name to be a non-empty string.',
+        );
+      }
+      return name;
+    } on YamlException catch (error) {
+      throw _malformedPubspec(pubspecPath, error.message);
+    } on FileSystemException catch (error) {
+      throw PatchworkException(
+        'Could not read workspace member pubspec.yaml.',
+        code: 'pub.pubspec_not_readable',
+        hint: error.message,
+        location: pubspecPath,
+      );
+    }
+  }
+
+  Set<String> _readDependencyNames(String pubspecPath, Object? value) {
+    if (value == null) {
+      return const {};
+    }
+    if (value is! YamlMap) {
+      throw _malformedPubspec(
+        pubspecPath,
+        'Expected dependencies to be a YAML object.',
+      );
+    }
+
+    return {
+      for (final entry in value.entries)
+        if (entry.key is String)
+          entry.key as String
+        else
+          throw _malformedPubspec(
+            pubspecPath,
+            'Expected dependency names to be strings.',
+          ),
+    };
   }
 
   Set<String> _readStringSet(
@@ -384,29 +495,31 @@ final class PubResolutionReader {
       location: workspace.packageGraphPath,
     );
   }
+
+  PatchworkException _malformedPubspec(String path, String message) {
+    return PatchworkException(
+      'Malformed pubspec.yaml: $message',
+      code: 'pub.malformed_pubspec',
+      location: path,
+    );
+  }
 }
 
 final class PubResolution {
   const PubResolution._({
     required this.workspace,
-    required this._packageConfigPackages,
-    required this._metadataPackages,
-    required this.rootPackageNames,
-    required this.rootMainDependencies,
-    required this.rootDevDependencies,
+    required this._packages,
+    required this._graph,
     required this.packageTree,
   });
 
   final PubWorkspace workspace;
-  final Map<String, _PackageConfigPackage> _packageConfigPackages;
-  final Map<String, _ResolutionMetadataPackage> _metadataPackages;
-  final Set<String> rootPackageNames;
-  final Set<String> rootMainDependencies;
-  final Set<String> rootDevDependencies;
+  final _PackageIndex _packages;
+  final _PackageGraph _graph;
   final PackageTree packageTree;
 
   ResolvedPubPackage resolvePackage(String packageName) {
-    final packageConfig = _packageConfigPackages[packageName];
+    final packageConfig = _packages.packageConfig[packageName];
     if (packageConfig == null) {
       throw PatchworkException(
         'Package "$packageName" is not selected by the current pub resolution.',
@@ -415,7 +528,7 @@ final class PubResolution {
       );
     }
 
-    if (rootPackageNames.contains(packageName) ||
+    if (_graph.isRoot(packageName) ||
         p.equals(packageConfig.rootPath, workspace.currentPackageRootPath) ||
         p.equals(packageConfig.rootPath, workspace.rootPath)) {
       throw PatchworkException(
@@ -426,7 +539,7 @@ final class PubResolution {
       );
     }
 
-    final metadata = _metadataPackages[packageName];
+    final metadata = _packages.lockfile[packageName];
     if (metadata == null) {
       throw PatchworkException(
         'Package "$packageName" has no selected version metadata.',
@@ -439,6 +552,20 @@ final class PubResolution {
       throw PatchworkException(
         'Package "$packageName" comes from an SDK source and cannot be patched.',
         code: 'pub.unsupported_source',
+      );
+    }
+
+    final dependencyKind = _graph.dependencyKindFor(
+      packageName,
+      metadata.dependencyKind,
+    );
+    if (dependencyKind != PubPackageDependencyKind.directMain &&
+        dependencyKind != PubPackageDependencyKind.directDev) {
+      throw PatchworkException(
+        'Package "$packageName" is not a direct dependency of the current project.',
+        code: 'pub.package_not_direct_dependency',
+        hint:
+            'patchwork patch only accepts dependencies declared by the current package.',
       );
     }
 
@@ -455,28 +582,12 @@ final class PubResolution {
       name: packageName,
       version: metadata.version,
       sourceKind: metadata.sourceKind,
-      dependencyKind: _dependencyKindFor(packageName, metadata.dependencyKind),
+      dependencyKind: dependencyKind,
       rootPath: packageConfig.rootPath,
       packageUri: packageConfig.packageUri,
       languageVersion: packageConfig.languageVersion,
       source: _sourceFor(metadata, packageConfig.rootPath, workspace),
     );
-  }
-
-  PubPackageDependencyKind _dependencyKindFor(
-    String name,
-    PubPackageDependencyKind fallback,
-  ) {
-    if (rootPackageNames.contains(name)) {
-      return PubPackageDependencyKind.root;
-    }
-    if (rootMainDependencies.contains(name)) {
-      return PubPackageDependencyKind.directMain;
-    }
-    if (rootDevDependencies.contains(name)) {
-      return PubPackageDependencyKind.directDev;
-    }
-    return fallback;
   }
 
   PackageSource _sourceFor(
@@ -537,6 +648,27 @@ final class _PackageConfigPackage {
   final String? languageVersion;
 }
 
+final class _PackageIndex {
+  const _PackageIndex({required this.packageConfig, required this.lockfile});
+
+  final Map<String, _PackageConfigPackage> packageConfig;
+  final Map<String, _ResolutionMetadataPackage> lockfile;
+
+  String currentPackageName(PubWorkspace workspace) {
+    for (final entry in packageConfig.entries) {
+      if (p.equals(entry.value.rootPath, workspace.currentPackageRootPath)) {
+        return entry.key;
+      }
+    }
+    throw PatchworkException(
+      'Current package is not part of the active pub resolution.',
+      code: 'pub.current_package_not_found',
+      hint: 'Run dart pub get from the current package or workspace.',
+      location: workspace.packageConfigPath,
+    );
+  }
+}
+
 final class _ResolutionMetadataPackage {
   const _ResolutionMetadataPackage({
     required this.version,
@@ -551,16 +683,50 @@ final class _ResolutionMetadataPackage {
   final Map<String, String> description;
 }
 
+final class _PubspecDependencies {
+  const _PubspecDependencies({required this.main, required this.dev});
+
+  final Set<String> main;
+  final Set<String> dev;
+}
+
 final class _PackageGraph {
   const _PackageGraph({
     required this.rootNames,
-    required this.rootMainDependencies,
-    required this.rootDevDependencies,
+    required this.currentPackageName,
+    required this.directMainDependencies,
+    required this.directDevDependencies,
+    required this.hasCurrentPackage,
   });
 
   final Set<String> rootNames;
-  final Set<String> rootMainDependencies;
-  final Set<String> rootDevDependencies;
+  final String currentPackageName;
+  final Set<String> directMainDependencies;
+  final Set<String> directDevDependencies;
+  final bool hasCurrentPackage;
+
+  bool isRoot(String name) {
+    return rootNames.contains(name) || name == currentPackageName;
+  }
+
+  PubPackageDependencyKind dependencyKindFor(
+    String name,
+    PubPackageDependencyKind fallback,
+  ) {
+    if (isRoot(name)) {
+      return PubPackageDependencyKind.root;
+    }
+    if (directMainDependencies.contains(name)) {
+      return PubPackageDependencyKind.directMain;
+    }
+    if (directDevDependencies.contains(name)) {
+      return PubPackageDependencyKind.directDev;
+    }
+    if (hasCurrentPackage) {
+      return PubPackageDependencyKind.transitive;
+    }
+    return fallback;
+  }
 }
 
 Map<String, String> _yamlMapToStringMap(Object? value) {

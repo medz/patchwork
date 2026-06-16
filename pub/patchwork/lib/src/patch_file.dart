@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-import '../error.dart';
-import '../internal/package_tree.dart';
+import 'error.dart';
+import 'internal/package_tree.dart';
 
 typedef GitProcessRunner =
     ProcessResult Function(

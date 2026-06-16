@@ -3,13 +3,13 @@ import 'dart:io';
 
 import 'package:yaml/yaml.dart';
 
-import '../error.dart';
-import '../internal/yaml_writer.dart';
-import '../io/atomic_file_writer.dart';
-import '../model.dart';
+import 'error.dart';
+import 'internal/yaml_writer.dart';
+import 'io/atomic_file_writer.dart';
+import 'model.dart';
 
-final class PatchworkLockStore {
-  const PatchworkLockStore({
+final class LockfileStore {
+  const LockfileStore({
     required this.path,
     this.fileWriter = const AtomicFileWriter(),
   });
@@ -17,15 +17,15 @@ final class PatchworkLockStore {
   final String path;
   final AtomicFileWriter fileWriter;
 
-  PatchworkLock read() {
+  Lockfile read() {
     final file = File(path);
     if (!file.existsSync()) {
-      return PatchworkLock.empty();
+      return Lockfile.empty();
     }
 
     final content = file.readAsStringSync();
     if (content.trim().isEmpty) {
-      return PatchworkLock.empty();
+      return Lockfile.empty();
     }
 
     final decoded = loadYaml(content);
@@ -49,7 +49,7 @@ final class PatchworkLockStore {
 
     final packages = decoded['packages'];
     if (packages == null) {
-      return PatchworkLock.empty();
+      return Lockfile.empty();
     }
     if (packages is! YamlMap) {
       throw PatchworkException(
@@ -59,7 +59,7 @@ final class PatchworkLockStore {
       );
     }
 
-    final entries = SplayTreeMap<String, LockPackage>();
+    final entries = SplayTreeMap<String, LockfilePackage>();
     for (final entry in packages.entries) {
       final name = entry.key;
       final value = entry.value;
@@ -73,27 +73,27 @@ final class PatchworkLockStore {
       entries[name] = _readPackage(name, value);
     }
 
-    return PatchworkLock(packages: entries);
+    return Lockfile(packages: entries);
   }
 
-  void write(PatchworkLock lock) {
-    fileWriter.writeString(path, '${formatYamlMap(lock.toYaml())}\n');
+  void write(Lockfile lockfile) {
+    fileWriter.writeString(path, '${formatYamlMap(lockfile.toYaml())}\n');
   }
 
-  LockPackage _readPackage(String name, YamlMap value) {
+  LockfilePackage _readPackage(String package, YamlMap value) {
     final version = value['version'];
     final source = value['source'];
     if (version is! String || source is! YamlMap) {
       throw PatchworkException(
-        'patchwork.lock package "$name" must include version and source.',
+        'patchwork.lock package "$package" must include version and source.',
         code: 'lock.malformed',
         location: path,
       );
     }
 
-    return LockPackage(
+    return LockfilePackage(
       version: version,
-      source: _readSource(name, source),
+      source: _readSource(package, source),
       patch: _readPatch(value['patch']),
       applied: _readApplied(value['applied']),
     );
@@ -129,7 +129,7 @@ final class PatchworkLockStore {
     return PackageSource(type: type, fields: fields, sha256: sha256);
   }
 
-  LockPatch? _readPatch(Object? value) {
+  CommittedPatch? _readPatch(Object? value) {
     if (value == null) {
       return null;
     }
@@ -140,6 +140,7 @@ final class PatchworkLockStore {
         location: path,
       );
     }
+
     final editSha256 = value['edit-sha256'];
     final sha256 = value['sha256'];
     if (editSha256 is! String || sha256 is! String) {
@@ -149,10 +150,10 @@ final class PatchworkLockStore {
         location: path,
       );
     }
-    return LockPatch(editSha256: editSha256, sha256: sha256);
+    return CommittedPatch(editSha256: editSha256, sha256: sha256);
   }
 
-  LockApplied? _readApplied(Object? value) {
+  AppliedPatchRecord? _readApplied(Object? value) {
     if (value == null) {
       return null;
     }
@@ -163,6 +164,7 @@ final class PatchworkLockStore {
         location: path,
       );
     }
+
     final patchSha256 = value['patch-sha256'];
     final appliedPath = value['path'];
     if (patchSha256 is! String || appliedPath is! String) {
@@ -172,19 +174,19 @@ final class PatchworkLockStore {
         location: path,
       );
     }
-    return LockApplied(patchSha256: patchSha256, path: appliedPath);
+    return AppliedPatchRecord(patchSha256: patchSha256, path: appliedPath);
   }
 }
 
-final class PatchworkLock {
-  PatchworkLock({required Map<String, LockPackage> packages})
-    : packages = SplayTreeMap<String, LockPackage>.of(packages);
+final class Lockfile {
+  Lockfile({required Map<String, LockfilePackage> packages})
+    : packages = SplayTreeMap<String, LockfilePackage>.of(packages);
 
-  factory PatchworkLock.empty() {
-    return PatchworkLock(packages: const {});
+  factory Lockfile.empty() {
+    return Lockfile(packages: const {});
   }
 
-  final SplayTreeMap<String, LockPackage> packages;
+  final SplayTreeMap<String, LockfilePackage> packages;
 
   Map<String, Object?> toYaml() {
     return {
@@ -196,8 +198,8 @@ final class PatchworkLock {
   }
 }
 
-final class LockPackage {
-  const LockPackage({
+final class LockfilePackage {
+  const LockfilePackage({
     required this.version,
     required this.source,
     this.patch,
@@ -206,18 +208,18 @@ final class LockPackage {
 
   final String version;
   final PackageSource source;
-  final LockPatch? patch;
-  final LockApplied? applied;
+  final CommittedPatch? patch;
+  final AppliedPatchRecord? applied;
 
-  LockPackage copyWith({
+  LockfilePackage copyWith({
     String? version,
     PackageSource? source,
-    LockPatch? patch,
-    LockApplied? applied,
+    CommittedPatch? patch,
+    AppliedPatchRecord? applied,
     bool clearPatch = false,
     bool clearApplied = false,
   }) {
-    return LockPackage(
+    return LockfilePackage(
       version: version ?? this.version,
       source: source ?? this.source,
       patch: clearPatch ? null : patch ?? this.patch,
@@ -235,12 +237,8 @@ final class LockPackage {
   }
 }
 
-Map<String, Object?> _sourceToYaml(PackageSource source) {
-  return {'type': source.type, ...source.fields, 'sha256': source.sha256};
-}
-
-final class LockPatch {
-  const LockPatch({required this.editSha256, required this.sha256});
+final class CommittedPatch {
+  const CommittedPatch({required this.editSha256, required this.sha256});
 
   final String editSha256;
   final String sha256;
@@ -250,8 +248,8 @@ final class LockPatch {
   }
 }
 
-final class LockApplied {
-  const LockApplied({required this.patchSha256, required this.path});
+final class AppliedPatchRecord {
+  const AppliedPatchRecord({required this.patchSha256, required this.path});
 
   final String patchSha256;
   final String path;
@@ -259,4 +257,8 @@ final class LockApplied {
   Map<String, Object?> toYaml() {
     return {'patch-sha256': patchSha256, 'path': path};
   }
+}
+
+Map<String, Object?> _sourceToYaml(PackageSource source) {
+  return {'type': source.type, ...source.fields, 'sha256': source.sha256};
 }

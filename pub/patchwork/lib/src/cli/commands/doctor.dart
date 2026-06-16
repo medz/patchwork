@@ -12,5 +12,5 @@ Future<int> runDoctorCommand(
   expectNoArguments('doctor', arguments);
   final state = await patchwork.inspect();
   printStatus(patchwork, state, out);
-  return state.problems.isEmpty ? 0 : 1;
+  return state.problems.isEmpty && state.needsApply.isEmpty ? 0 : 1;
 }

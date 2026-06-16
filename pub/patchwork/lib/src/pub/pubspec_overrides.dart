@@ -61,21 +61,12 @@ final class PubspecOverrides {
     required String package,
     required String path,
   }) {
-    final overrides = _read(workspaceRootPath);
-    final dependencyOverrides = _dependencyOverrides(
-      overrides,
-      workspaceRootPath,
-      create: false,
-    );
-    final existing = dependencyOverrides[package];
-    if (existing == null) {
+    if (!hasBlockingPathOverride(
+      workspaceRootPath: workspaceRootPath,
+      package: package,
+      path: path,
+    )) {
       return;
-    }
-    if (existing is Map<String, Object?> && existing['path'] is String) {
-      final existingPath = existing['path'] as String;
-      if (_pathsPointToSameLocation(workspaceRootPath, existingPath, path)) {
-        return;
-      }
     }
 
     throw PatchworkException(
@@ -85,6 +76,31 @@ final class PubspecOverrides {
           'Remove or resolve the existing override before running patchwork apply $package.',
       location: _path(workspaceRootPath),
     );
+  }
+
+  bool hasBlockingPathOverride({
+    required String workspaceRootPath,
+    required String package,
+    required String path,
+  }) {
+    final overrides = _read(workspaceRootPath);
+    final dependencyOverrides = _dependencyOverrides(
+      overrides,
+      workspaceRootPath,
+      create: false,
+    );
+    final existing = dependencyOverrides[package];
+    if (existing == null) {
+      return false;
+    }
+    if (existing is Map<String, Object?> && existing['path'] is String) {
+      final existingPath = existing['path'] as String;
+      if (_pathsPointToSameLocation(workspaceRootPath, existingPath, path)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   bool removePathOverrideIfMatches({

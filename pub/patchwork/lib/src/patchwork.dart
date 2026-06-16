@@ -656,9 +656,30 @@ final class Patchwork {
           package: package,
           path: applied.path,
         );
+    final pendingAppliedPath = _layout.relativeAppliedPath(package, version);
+    final hasBlockingOverride =
+        lockPatch != null &&
+        hasPatchFile &&
+        applied == null &&
+        _pubspecOverrides.hasBlockingPathOverride(
+          workspaceRootPath: _rootPath,
+          package: package,
+          path: pendingAppliedPath,
+        );
     final repairHint = pubResolutionMatchesSource
         ? 'Run patchwork apply $package.'
         : 'Run patchwork undo $package, dart pub get, then patchwork apply $package.';
+    if (hasBlockingOverride) {
+      problems.add(
+        PatchProblem(
+          code: 'pub.override_conflict',
+          message:
+              'pubspec_overrides.yaml already has a dependency override for "$package".',
+          hint:
+              'Remove or resolve the existing override before running patchwork apply $package.',
+        ),
+      );
+    }
     if (applied != null && !appliedExists) {
       problems.add(
         PatchProblem(
@@ -730,6 +751,7 @@ final class Patchwork {
           lockPatch != null &&
           hasPatchFile &&
           pubResolutionMatchesSource &&
+          !hasBlockingOverride &&
           (applied == null ||
               !appliedExists ||
               !overridePointsToApplied ||

@@ -59,6 +59,14 @@ void main() {
         contains('manual_greeter'),
       );
       expect(project.appliedDirectory.existsSync(), isFalse);
+      await project.patchwork(
+        ['doctor'],
+        exitCodes: {1},
+        stdoutContains: 'already has a dependency override',
+      );
+      await project.patchwork([
+        'status',
+      ], stdoutContains: 'already has a dependency override');
 
       project.overrideFile.deleteSync();
       await project.pubGet();

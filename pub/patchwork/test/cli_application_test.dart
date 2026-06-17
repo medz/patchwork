@@ -24,7 +24,8 @@ void main() {
     await stderr.close();
 
     expect(exitCode, 64);
-    expect(stderrFile.readAsStringSync(), contains('Unknown command "bogus"'));
-    expect(stderrFile.readAsStringSync(), isNot(contains('pub project')));
+    final stderrText = stderrFile.readAsStringSync();
+    expect(stderrText, contains('Unknown command "bogus"'));
+    expect(stderrText, isNot(contains('pub project')));
   });
 }

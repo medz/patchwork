@@ -53,30 +53,14 @@ void writeYamlListItem(
       buffer.writeln('$prefix- {}');
       return;
     }
-    var first = true;
+    buffer.writeln('$prefix-');
     for (final entry in value.entries) {
-      if (first) {
-        buffer.writeln('$prefix- ${formatYamlKey(entry.key)}:');
-        writeYamlNestedValue(buffer, entry.value, indent + 4);
-        first = false;
-      } else {
-        writeYamlEntry(buffer, entry.key, entry.value, indent: indent + 2);
-      }
+      writeYamlEntry(buffer, entry.key, entry.value, indent: indent + 2);
     }
     return;
   }
 
   buffer.writeln('$prefix- ${formatYamlScalar(value)}');
-}
-
-void writeYamlNestedValue(StringBuffer buffer, Object? value, int indent) {
-  if (value is Map<String, Object?>) {
-    for (final entry in value.entries) {
-      writeYamlEntry(buffer, entry.key, entry.value, indent: indent);
-    }
-    return;
-  }
-  buffer.writeln('${' ' * indent}${formatYamlScalar(value)}');
 }
 
 String formatYamlKey(String value) {

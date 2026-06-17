@@ -391,8 +391,7 @@ final class PubResolution {
     }
 
     if (_rootNames.contains(packageName) ||
-        p.equals(packageConfig, workspace.currentPackageRootPath) ||
-        p.equals(packageConfig, workspace.rootPath)) {
+        _isWorkspaceRootPath(packageConfig)) {
       throw PatchworkException(
         'Package "$packageName" is a workspace/root package and cannot be patched.',
         code: 'pub.package_is_project',
@@ -441,6 +440,12 @@ final class PubResolution {
       rootPath: packageConfig,
       source: _sourceFor(metadata, packageConfig, workspace),
     );
+  }
+
+  bool _isWorkspaceRootPath(String packagePath) {
+    return workspace.rootPackageRootPaths.any((rootPath) {
+      return p.equals(rootPath, packagePath);
+    });
   }
 
   PackageSource _sourceFor(

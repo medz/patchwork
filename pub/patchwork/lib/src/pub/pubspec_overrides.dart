@@ -174,14 +174,23 @@ final class PubspecOverrides {
 
   void _write(String workspaceRootPath, Map<String, Object?> overrides) {
     final path = _path(workspaceRootPath);
-    if (overrides.isEmpty) {
-      final file = File(path);
-      if (file.existsSync()) {
-        file.deleteSync();
+    try {
+      if (overrides.isEmpty) {
+        final file = File(path);
+        if (file.existsSync()) {
+          file.deleteSync();
+        }
+        return;
       }
-      return;
+      fileWriter.writeString(path, formatYamlMap(overrides));
+    } on FileSystemException catch (error) {
+      throw PatchworkException(
+        'Could not write pubspec_overrides.yaml.',
+        code: 'pub.overrides_unwritable',
+        hint: error.message,
+        location: path,
+      );
     }
-    fileWriter.writeString(path, formatYamlMap(overrides));
   }
 }
 

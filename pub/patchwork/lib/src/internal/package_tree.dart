@@ -26,7 +26,9 @@ final class PackageTree {
       sink.add(utf8.encode('${entry.type}:${entry.relativePath}\n'));
       switch (entry.type) {
         case _TreeEntryType.file:
+          final mode = File(entry.path).statSync().mode;
           final bytes = File(entry.path).readAsBytesSync();
+          sink.add(utf8.encode('$mode\n'));
           sink.add(utf8.encode('${bytes.length}\n'));
           sink.add(bytes);
           sink.add(const [0x0a]);

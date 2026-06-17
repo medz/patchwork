@@ -148,6 +148,69 @@ packages:
     );
   });
 
+  test('rejects workspace members when package graph is missing', () {
+    final root = Directory.systemTemp.createTempSync('patchwork_resolution_');
+    addTearDown(() => root.deleteSync(recursive: true));
+
+    final workspaceRoot = p.join(root.path, 'workspace');
+    final appRoot = p.join(workspaceRoot, 'app');
+    final memberRoot = p.join(workspaceRoot, 'packages', 'member_greeter');
+    _writePubspec(workspaceRoot, '''
+name: workspace
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+workspace:
+  - app
+  - packages/member_greeter
+''');
+    _writePubspec(appRoot, '''
+name: app
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+resolution: workspace
+
+dependencies:
+  member_greeter: any
+''');
+    _writePackage(memberRoot, 'member_greeter');
+    _writePackageConfig(workspaceRoot, {
+      'workspace': workspaceRoot,
+      'app': appRoot,
+      'member_greeter': memberRoot,
+    });
+    _writeLockfile(workspaceRoot, '''
+sdks:
+  dart: ">=3.12.0 <4.0.0"
+packages:
+  member_greeter:
+    dependency: "direct main"
+    description:
+      path: "packages/member_greeter"
+      relative: true
+    source: path
+    version: "0.1.0"
+''');
+
+    final resolution = const PubResolutionReader().readFromDirectory(appRoot);
+
+    expect(
+      () => resolution.resolvePackage('member_greeter'),
+      throwsA(
+        isA<PatchworkException>().having(
+          (error) => error.code,
+          'code',
+          'pub.package_is_project',
+        ),
+      ),
+    );
+  });
+
   test('rejects unknown pub source kinds', () {
     final root = Directory.systemTemp.createTempSync('patchwork_resolution_');
     addTearDown(() => root.deleteSync(recursive: true));

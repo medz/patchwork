@@ -69,6 +69,25 @@ void main() {
     );
   });
 
+  test('wraps malformed YAML errors', () {
+    final root = Directory.systemTemp.createTempSync('patchwork_lockfile_');
+    addTearDown(() => root.deleteSync(recursive: true));
+
+    final path = p.join(root.path, 'patchwork.lock');
+    File(path).writeAsStringSync('version: [\n');
+
+    expect(
+      () => LockfileStore(path: path).read(),
+      throwsA(
+        isA<PatchworkException>().having(
+          (error) => error.code,
+          'code',
+          'lock.malformed',
+        ),
+      ),
+    );
+  });
+
   test('quotes package versions that YAML could parse as numbers', () {
     final root = Directory.systemTemp.createTempSync('patchwork_lockfile_');
     addTearDown(() => root.deleteSync(recursive: true));

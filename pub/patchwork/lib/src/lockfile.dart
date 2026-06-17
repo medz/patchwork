@@ -18,62 +18,78 @@ final class LockfileStore {
   final AtomicFileWriter fileWriter;
 
   Lockfile read() {
-    final file = File(path);
-    if (!file.existsSync()) {
-      return Lockfile.empty();
-    }
+    try {
+      final file = File(path);
+      if (!file.existsSync()) {
+        return Lockfile.empty();
+      }
 
-    final content = file.readAsStringSync();
-    if (content.trim().isEmpty) {
-      return Lockfile.empty();
-    }
+      final content = file.readAsStringSync();
+      if (content.trim().isEmpty) {
+        return Lockfile.empty();
+      }
 
-    final decoded = loadYaml(content);
-    if (decoded is! YamlMap) {
-      throw PatchworkException(
-        'patchwork.lock must contain a YAML object.',
-        code: 'lock.malformed',
-        location: path,
-      );
-    }
-
-    final version = decoded['version'];
-    if (version != 2) {
-      throw PatchworkException(
-        'Unsupported patchwork.lock version "$version".',
-        code: 'lock.unsupported_version',
-        hint: 'Patchwork 0.2 expects patchwork.lock version 2.',
-        location: path,
-      );
-    }
-
-    final packages = decoded['packages'];
-    if (packages == null) {
-      return Lockfile.empty();
-    }
-    if (packages is! YamlMap) {
-      throw PatchworkException(
-        'patchwork.lock packages must be a YAML object.',
-        code: 'lock.malformed',
-        location: path,
-      );
-    }
-
-    final entries = SplayTreeMap<String, LockfilePackage>();
-    for (final entry in packages.entries) {
-      final name = entry.key;
-      final value = entry.value;
-      if (name is! String || value is! YamlMap) {
+      final decoded = loadYaml(content);
+      if (decoded is! YamlMap) {
         throw PatchworkException(
-          'patchwork.lock package entries must be YAML objects.',
+          'patchwork.lock must contain a YAML object.',
           code: 'lock.malformed',
           location: path,
         );
       }
-      entries[name] = _readPackage(name, value);
-    }
 
-    return Lockfile(packages: entries);
+      final version = decoded['version'];
+      if (version != 2) {
+        throw PatchworkException(
+          'Unsupported patchwork.lock version "$version".',
+          code: 'lock.unsupported_version',
+          hint: 'Patchwork 0.2 expects patchwork.lock version 2.',
+          location: path,
+        );
+      }
+
+      final packages = decoded['packages'];
+      if (packages == null) {
+        return Lockfile.empty();
+      }
+      if (packages is! YamlMap) {
+        throw PatchworkException(
+          'patchwork.lock packages must be a YAML object.',
+          code: 'lock.malformed',
+          location: path,
+        );
+      }
+
+      final entries = SplayTreeMap<String, LockfilePackage>();
+      for (final entry in packages.entries) {
+        final name = entry.key;
+        final value = entry.value;
+        if (name is! String || value is! YamlMap) {
+          throw PatchworkException(
+            'patchwork.lock package entries must be YAML objects.',
+            code: 'lock.malformed',
+            location: path,
+          );
+        }
+        entries[name] = _readPackage(name, value);
+      }
+
+      return Lockfile(packages: entries);
+    } on YamlException catch (error) {
+      throw PatchworkException(
+        'patchwork.lock is malformed.',
+        code: 'lock.malformed',
+        hint: error.message,
+        location: path,
+      );
+    } on FileSystemException catch (error) {
+      throw PatchworkException(
+        'Could not read patchwork.lock.',
+        code: 'lock.unreadable',
+        hint: error.message,
+        location: path,
+      );
+    }
   }
 
   void write(Lockfile lockfile) {

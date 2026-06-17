@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
 import '../error.dart';
+import '../internal/yaml_conversion.dart';
 import '../internal/yaml_writer.dart';
 import '../io/atomic_file_writer.dart';
 
@@ -197,7 +198,16 @@ final class PubspecOverrides {
           location: file.path,
         );
       }
-      return _toStringKeyedMap(decoded, file.path);
+      try {
+        return yamlMapToStringKeyedMap(decoded);
+      } on FormatException catch (error) {
+        throw PatchworkException(
+          'pubspec_overrides.yaml contains a non-string key.',
+          code: 'pub.overrides_malformed',
+          hint: error.message,
+          location: file.path,
+        );
+      }
     } on YamlException catch (error) {
       throw PatchworkException(
         'pubspec_overrides.yaml is malformed.',
@@ -359,35 +369,4 @@ bool _sameOverrideValue(String workspaceRootPath, Object? left, Object? right) {
     return true;
   }
   return left == right;
-}
-
-Map<String, Object?> _toStringKeyedMap(YamlMap map, String location) {
-  final result = <String, Object?>{};
-  for (final entry in map.entries) {
-    final key = entry.key;
-    if (key is! String) {
-      throw PatchworkException(
-        'pubspec_overrides.yaml contains a non-string key.',
-        code: 'pub.overrides_malformed',
-        location: location,
-      );
-    }
-    result[key] = _convertYamlValue(entry.value, location);
-  }
-  return result;
-}
-
-Object? _convertYamlValue(Object? value, String location) {
-  if (value is YamlMap) {
-    return _toStringKeyedMap(value, location);
-  }
-  if (value is YamlList) {
-    return [
-      for (final item in value.nodes) _convertYamlValue(item.value, location),
-    ];
-  }
-  if (value == null || value is String || value is num || value is bool) {
-    return value;
-  }
-  return value.toString();
 }

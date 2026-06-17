@@ -944,6 +944,8 @@ final class Patchwork {
       if (applied == null) {
         continue;
       }
+      // Applied records are synchronized after each apply. If older records
+      // disagree, later lockfile entries win before the aggregate is written back.
       dependencyOverrides.addAll(applied.mirroredPubspecDependencyOverrides);
     }
     return dependencyOverrides;

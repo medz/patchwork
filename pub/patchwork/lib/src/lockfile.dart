@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:yaml/yaml.dart';
 
 import 'error.dart';
+import 'internal/yaml_conversion.dart';
 import 'internal/yaml_writer.dart';
 import 'io/atomic_file_writer.dart';
 import 'model.dart';
@@ -277,7 +278,7 @@ final class LockfileStore {
       throw PatchworkException(message, code: 'lock.malformed', location: path);
     }
     try {
-      return _toStringKeyedMap(value);
+      return yamlMapToStringKeyedMap(value);
     } on FormatException catch (error) {
       throw PatchworkException(
         message,
@@ -455,29 +456,4 @@ bool _isSafePathSegment(String value) {
       value != '..' &&
       !value.contains('/') &&
       !value.contains(r'\');
-}
-
-Map<String, Object?> _toStringKeyedMap(YamlMap map) {
-  final result = <String, Object?>{};
-  for (final entry in map.entries) {
-    final key = entry.key;
-    if (key is! String) {
-      throw const FormatException('YAML map contains a non-string key.');
-    }
-    result[key] = _convertYamlValue(entry.value);
-  }
-  return result;
-}
-
-Object? _convertYamlValue(Object? value) {
-  if (value is YamlMap) {
-    return _toStringKeyedMap(value);
-  }
-  if (value is YamlList) {
-    return [for (final item in value.nodes) _convertYamlValue(item.value)];
-  }
-  if (value == null || value is String || value is num || value is bool) {
-    return value;
-  }
-  return value.toString();
 }

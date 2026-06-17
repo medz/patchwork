@@ -135,7 +135,7 @@ packages:
 
     final resolution = const PubResolutionReader().readFromDirectory(appRoot);
 
-    expect(resolution.resolvePackage('direct_pkg').name, 'direct_pkg');
+    expect(resolution.resolvePackage('direct_pkg').rootPath, directRoot);
     expect(
       () => resolution.resolvePackage('transitive_pkg'),
       throwsA(

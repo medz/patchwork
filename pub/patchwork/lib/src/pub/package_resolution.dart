@@ -13,13 +13,11 @@ enum PubPackageSourceKind { hosted, path, git, sdk, unknown }
 
 final class ResolvedPubPackage {
   const ResolvedPubPackage({
-    required this.name,
     required this.version,
     required this.rootPath,
     required this.source,
   });
 
-  final String name;
   final String version;
   final String rootPath;
   final PackageSource source;
@@ -447,7 +445,6 @@ final class PubResolution {
     }
 
     return ResolvedPubPackage(
-      name: packageName,
       version: metadata.version,
       rootPath: packageConfig,
       source: _sourceFor(metadata, packageConfig, workspace),

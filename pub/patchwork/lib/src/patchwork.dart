@@ -12,6 +12,7 @@ import 'lockfile.dart';
 import 'model.dart';
 import 'patch_file.dart';
 import 'pub/package_resolution.dart';
+import 'pub/pubspec_dependency_overrides.dart';
 import 'pub/pubspec_overrides.dart';
 import 'pub/pub_workspace.dart';
 
@@ -44,6 +45,7 @@ final class Patchwork {
     required this._lockStore,
     required this._packageTree,
     required this._patchFile,
+    required this._pubspecDependencyOverrides,
     required this._pubspecOverrides,
   });
 
@@ -76,6 +78,7 @@ final class Patchwork {
       lockStore: LockfileStore(path: layout.lockfilePath),
       packageTree: const PackageTree(),
       patchFile: const PatchFile(),
+      pubspecDependencyOverrides: const PubspecDependencyOverrides(),
       pubspecOverrides: const PubspecOverrides(),
     );
   }
@@ -89,6 +92,7 @@ final class Patchwork {
   final LockfileStore _lockStore;
   final PackageTree _packageTree;
   final PatchFile _patchFile;
+  final PubspecDependencyOverrides _pubspecDependencyOverrides;
   final PubspecOverrides _pubspecOverrides;
 
   /// Returns [path] relative to the Patchwork state root when possible.
@@ -331,7 +335,7 @@ final class Patchwork {
       }
       if (_hasForeignOverride(package, applied)) {
         throw PatchworkException(
-          'pubspec_overrides.yaml already has a dependency override for "$package".',
+          'A project file already has a dependency override for "$package".',
           code: 'pub.override_conflict',
           hint:
               'Remove or resolve the existing override before running patchwork apply $package.',
@@ -635,26 +639,52 @@ final class Patchwork {
     required String targetPath,
     bool replaceRootOverride = false,
   }) {
+    final conflict = _blockingOverrideConflict(
+      package: package,
+      targetPath: targetPath,
+      replaceRootOverride: replaceRootOverride,
+    );
+    if (conflict != null) {
+      throw PatchworkException(
+        '${conflict.fileName} already has a dependency override for "$package".',
+        code: 'pub.override_conflict',
+        hint:
+            'Remove or resolve the existing override before running patchwork $command $package.',
+        location: conflict.path,
+      );
+    }
+  }
+
+  _OverrideConflict? _blockingOverrideConflict({
+    required String package,
+    required String targetPath,
+    bool replaceRootOverride = false,
+  }) {
     for (final overrideRootPath in _overrideRootPaths) {
       final canReplaceHere =
           replaceRootOverride && p.equals(overrideRootPath, _rootPath);
-      if (!_pubspecOverrides.hasBlockingPathOverride(
+      if (_pubspecOverrides.hasBlockingPathOverride(
         workspaceRootPath: overrideRootPath,
         package: package,
         path: targetPath,
         replaceExisting: canReplaceHere,
       )) {
-        continue;
+        return _OverrideConflict(
+          fileName: 'pubspec_overrides.yaml',
+          path: p.join(overrideRootPath, 'pubspec_overrides.yaml'),
+        );
       }
-
-      throw PatchworkException(
-        'pubspec_overrides.yaml already has a dependency override for "$package".',
-        code: 'pub.override_conflict',
-        hint:
-            'Remove or resolve the existing override before running patchwork $command $package.',
-        location: p.join(overrideRootPath, 'pubspec_overrides.yaml'),
-      );
+      if (_pubspecDependencyOverrides.hasOverride(
+        packageRootPath: overrideRootPath,
+        package: package,
+      )) {
+        return _OverrideConflict(
+          fileName: 'pubspec.yaml',
+          path: p.join(overrideRootPath, 'pubspec.yaml'),
+        );
+      }
     }
+    return null;
   }
 
   PackageVersionPath _singleEditDirectory(String package) {
@@ -827,21 +857,21 @@ final class Patchwork {
     if (record.applied != null) {
       return false;
     }
-    for (final overrideRootPath in _overrideRootPaths) {
-      if (_pubspecOverrides.hasBlockingPathOverride(
-        workspaceRootPath: overrideRootPath,
-        package: package,
-        path: _layout.appliedPath(package, record.version),
-        replaceExisting: false,
-      )) {
-        return true;
-      }
-    }
-    return false;
+    return _blockingOverrideConflict(
+          package: package,
+          targetPath: _layout.appliedPath(package, record.version),
+        ) !=
+        null;
   }
 
   bool _hasForeignOverride(String package, AppliedPatchRecord? applied) {
     for (final overrideRootPath in _overrideRootPaths) {
+      if (_pubspecDependencyOverrides.hasOverride(
+        packageRootPath: overrideRootPath,
+        package: package,
+      )) {
+        return true;
+      }
       if (!_pubspecOverrides.hasOverride(
         workspaceRootPath: overrideRootPath,
         package: package,
@@ -1060,7 +1090,7 @@ final class Patchwork {
         PatchProblem(
           code: 'pub.override_conflict',
           message:
-              'pubspec_overrides.yaml already has a dependency override for "$package".',
+              'A project file already has a dependency override for "$package".',
           hint:
               'Remove or resolve the existing override before running patchwork apply $package.',
         ),
@@ -1209,6 +1239,13 @@ final class Patchwork {
     }
     return false;
   }
+}
+
+final class _OverrideConflict {
+  const _OverrideConflict({required this.fileName, required this.path});
+
+  final String fileName;
+  final String path;
 }
 
 String? _canonicalPathIfExists(String path) {

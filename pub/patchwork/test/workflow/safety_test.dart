@@ -318,6 +318,43 @@ packages:
   );
 
   test(
+    'patch refuses same-package dependency overrides from root and member pubspecs',
+    () async {
+      final standalone = await ProjectSandbox.standalone();
+      final workspace = await ProjectSandbox.workspace();
+      addTearDown(standalone.dispose);
+      addTearDown(workspace.dispose);
+
+      await standalone.pubGet();
+      _writePubspecDependencyOverride(
+        standalone,
+        packageRoot: standalone.stateRoot,
+      );
+      await standalone.pubGet();
+      await workspace.pubGet();
+      _writePubspecDependencyOverride(
+        workspace,
+        packageRoot: workspace.appRoot,
+      );
+      await workspace.pubGet();
+
+      await standalone.patchwork(
+        ['patch', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'pubspec.yaml already has a dependency override',
+      );
+      await workspace.patchwork(
+        ['patch', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'pubspec.yaml already has a dependency override',
+      );
+      expect(standalone.editDirectoryFor('0.1.0').existsSync(), isFalse);
+      expect(workspace.editDirectoryFor('0.1.0').existsSync(), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'apply refuses same-package overrides from a workspace member',
     () async {
       final project = await ProjectSandbox.workspace();
@@ -336,6 +373,71 @@ packages:
       );
       expect(project.overrideFile.existsSync(), isFalse);
       expect(project.appliedDirectory.existsSync(), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'apply refuses same-package dependency overrides before writing generated overrides',
+    () async {
+      final standalone = await ProjectSandbox.standalone();
+      final workspace = await ProjectSandbox.workspace();
+      addTearDown(standalone.dispose);
+      addTearDown(workspace.dispose);
+
+      await standalone.pubGet();
+      await standalone.patchwork(['patch', 'greeter']);
+      standalone.writeEdit('Hello from a blocked pubspec override');
+      await standalone.patchwork(['commit', 'greeter']);
+      _writePubspecDependencyOverride(
+        standalone,
+        packageRoot: standalone.stateRoot,
+      );
+
+      await workspace.pubGet();
+      await workspace.patchwork(['patch', 'greeter']);
+      workspace.writeEdit('Hello from a blocked member pubspec override');
+      await workspace.patchwork(['commit', 'greeter']);
+      _writePubspecDependencyOverride(
+        workspace,
+        packageRoot: workspace.appRoot,
+      );
+
+      await standalone.patchwork(
+        ['apply', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'pubspec.yaml already has a dependency override',
+      );
+      await workspace.patchwork(
+        ['apply', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'pubspec.yaml already has a dependency override',
+      );
+      expect(standalone.overrideFile.existsSync(), isFalse);
+      expect(standalone.appliedDirectory.existsSync(), isFalse);
+      expect(workspace.overrideFile.existsSync(), isFalse);
+      expect(workspace.appliedDirectory.existsSync(), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'patch allows unrelated dependency overrides from project pubspecs',
+    () async {
+      final project = await ProjectSandbox.standalone(
+        includeOtherDependency: true,
+      );
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      _writePubspecDependencyOverride(
+        project,
+        packageRoot: project.stateRoot,
+        package: 'other_pkg',
+      );
+      await project.patchwork(['patch', 'greeter']);
+
+      expect(project.editDirectoryFor('0.1.0').existsSync(), isTrue);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
@@ -800,6 +902,35 @@ dependency_overrides:
   greeter:
     path: ${p.relative(project.manualOverrideRoot, from: project.appRoot)}
 ''');
+}
+
+void _writePubspecDependencyOverride(
+  ProjectSandbox project, {
+  required String packageRoot,
+  String package = 'greeter',
+}) {
+  final pubspec = File(p.join(packageRoot, 'pubspec.yaml'));
+  final targetRoot = _overrideTargetRoot(project, package);
+  pubspec.writeAsStringSync('''
+${pubspec.readAsStringSync().trimRight()}
+
+dependency_overrides:
+  $package:
+    path: ${p.relative(targetRoot, from: packageRoot)}
+''');
+}
+
+String _overrideTargetRoot(ProjectSandbox project, String package) {
+  if (package == 'greeter') {
+    return project.manualOverrideRoot;
+  }
+  if (package == 'other_pkg') {
+    final otherRoot = project.otherOverrideRoot;
+    if (otherRoot != null) {
+      return otherRoot;
+    }
+  }
+  fail('No override target root is available for $package.');
 }
 
 void _replaceAppliedPath(ProjectSandbox project, String path) {

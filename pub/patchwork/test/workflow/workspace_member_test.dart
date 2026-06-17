@@ -68,19 +68,16 @@ void main() {
       await project.patchwork(
         ['apply', 'greeter'],
         exitCodes: {1},
-        stderrContains: 'source does not match patchwork.lock',
+        stderrContains: 'already has a dependency override',
       );
       await project.patchwork(
         ['doctor'],
         exitCodes: {1},
-        stdoutContains:
-            'Current dependency source differs from patchwork.lock.',
+        stdoutContains: 'already has a dependency override',
       );
-      await project.patchwork(
-        ['status'],
-        stdoutContains:
-            'Current dependency source differs from patchwork.lock.',
-      );
+      await project.patchwork([
+        'status',
+      ], stdoutContains: 'already has a dependency override');
       expect(
         project.overrideFile.readAsStringSync(),
         contains('manual_greeter'),

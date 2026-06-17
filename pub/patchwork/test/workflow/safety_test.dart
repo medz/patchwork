@@ -132,9 +132,11 @@ packages:
         exitCodes: {1},
         stderrContains: 'open edit directory',
       );
-      await project.patchwork([
-        'apply',
-      ], stdoutContains: 'No patches need apply.');
+      await project.patchwork(
+        ['apply'],
+        exitCodes: {1},
+        stderrContains: 'open edit directory',
+      );
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

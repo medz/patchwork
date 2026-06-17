@@ -203,10 +203,6 @@ final class Patchwork {
       );
     }
 
-    final resolution = _readResolution();
-    final resolved = _resolveRealPackage(resolution, package);
-    _ensureResolutionMatchesLock(package, resolved, record);
-
     final patchPath = _layout.patchPath(package, record.version);
     final patchFileOnDisk = File(patchPath);
     if (!patchFileOnDisk.existsSync()) {
@@ -234,6 +230,10 @@ final class Patchwork {
       package: package,
       path: relativePath,
     );
+
+    final resolution = _readResolution();
+    final resolved = _resolveRealPackage(resolution, package);
+    _ensureResolutionMatchesLock(package, resolved, record);
 
     final tempPath = p.join(
       _layout.appliedRootPath,
@@ -680,6 +680,7 @@ final class Patchwork {
     }
 
     final lockPatch = record?.patch;
+    final applied = record?.applied;
     if (lockPatch != null && !hasPatchFile) {
       problems.add(
         PatchProblem(
@@ -687,6 +688,20 @@ final class Patchwork {
           message:
               'patchwork.lock records a patch, but the patch file is missing.',
           hint: 'Run patchwork commit $package to recreate it.',
+        ),
+      );
+    }
+    if (record != null &&
+        lockPatch == null &&
+        applied == null &&
+        edit.isEmpty &&
+        record.patchHistory.isNotEmpty) {
+      problems.add(
+        PatchProblem(
+          code: 'patch.history_only',
+          message: 'patchwork.lock has only historical patches for "$package".',
+          hint:
+              'Create and commit a new edit, or remove the stale lockfile entry.',
         ),
       );
     }
@@ -703,7 +718,6 @@ final class Patchwork {
       );
     }
 
-    final applied = record?.applied;
     final appliedPathExpected =
         applied == null ||
         _layout.isExpectedAppliedPath(package, version, applied.path);

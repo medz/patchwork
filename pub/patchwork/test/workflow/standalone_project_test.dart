@@ -118,6 +118,11 @@ void main() {
         contains('Hello from a carried patch'),
       );
       project.editDirectoryFor('0.1.1').deleteSync(recursive: true);
+      await project.patchwork(
+        ['doctor'],
+        exitCodes: {1},
+        stdoutContains: 'only historical patches',
+      );
 
       await project.patchwork(['patch', 'greeter', '--continue', '0.1.0']);
       expect(

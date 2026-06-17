@@ -108,7 +108,7 @@ void main() {
         await fixture.patchwork(
           ['apply', 'greeter'],
           exitCodes: {1},
-          stderrContains: 'source does not match patchwork.lock',
+          stderrContains: 'already has a dependency override',
         );
         expect(
           fixture.overrideFile.readAsStringSync(),

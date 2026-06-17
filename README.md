@@ -1,7 +1,7 @@
 # Patchwork
 
 Patchwork is a patch management tool for Dart projects.
-The 0.2 line focuses on pub packages: create a fresh editable copy of a resolved
+create a fresh editable copy of a resolved
 dependency, commit the edit as a versioned patch file, and apply committed
 patches through generated `pubspec_overrides.yaml` path overrides.
 

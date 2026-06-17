@@ -225,22 +225,7 @@ final class Patchwork {
         );
       }
 
-      final patchPath = _layout.patchPath(package, record.version);
-      final patchFile = File(patchPath);
-      if (!patchFile.existsSync()) {
-        throw PatchworkException(
-          'Committed patch file is missing for "$package".',
-          code: 'apply.patch_file_missing',
-          location: patchPath,
-        );
-      }
-      if (_sha256(patchFile.readAsBytesSync()) != patch.sha256) {
-        throw PatchworkException(
-          'Patch file sha256 does not match patchwork.lock.',
-          code: 'apply.patch_sha_mismatch',
-          location: patchPath,
-        );
-      }
+      _readCommittedPatchBytes(package, record);
 
       final resolved = resolution.resolvePackage(
         package,
@@ -290,36 +275,15 @@ final class Patchwork {
     }
 
     final patchPath = _layout.patchPath(package, record.version);
-    final patchFileOnDisk = File(patchPath);
-    if (!patchFileOnDisk.existsSync()) {
-      throw PatchworkException(
-        'Committed patch file is missing for "$package".',
-        code: 'apply.patch_file_missing',
-        location: patchPath,
-      );
-    }
-
-    final patchBytes = patchFileOnDisk.readAsBytesSync();
-    final patchSha256 = _sha256(patchBytes);
-    if (patchSha256 != record.patch!.sha256) {
-      throw PatchworkException(
-        'Patch file sha256 does not match patchwork.lock.',
-        code: 'apply.patch_sha_mismatch',
-        location: patchPath,
-      );
-    }
+    final patchBytes = _readCommittedPatchBytes(package, record);
+    final patchSha256 = record.patch!.sha256;
 
     final appliedPath = _layout.appliedPath(package, record.version);
     final relativePath = _layout.relativeAppliedPath(package, record.version);
     final existingApplied = record.applied;
     final canReplaceApplied =
         existingApplied != null &&
-        existingApplied.path == relativePath &&
-        _layout.isExpectedAppliedPath(
-          package,
-          record.version,
-          existingApplied.path,
-        );
+        _projectChildPathsMatch(existingApplied.path, relativePath);
     if (!canReplaceApplied && Directory(appliedPath).existsSync()) {
       throw PatchworkException(
         'Applied output path already exists for "$package".',
@@ -391,26 +355,17 @@ final class Patchwork {
       return UnappliedPatch(package: package, changed: false);
     }
 
-    if (!_layout.isExpectedAppliedPath(package, record.version, applied.path)) {
-      throw PatchworkException(
-        'patchwork.lock applied path does not match the package being undone.',
-        code: 'undo.unsafe_applied_path',
-        location: applied.path,
-      );
-    }
-    final absoluteAppliedPath = p.normalize(
-      p.absolute(_rootPath, applied.path),
+    final absoluteAppliedPath = _requireProjectChildPath(
+      applied.path,
+      code: 'undo.applied_path_outside_project',
+      message: 'patchwork.lock applied path must stay inside the project.',
     );
     _pubspecOverrides.removePathOverrideIfMatches(
       workspaceRootPath: _rootPath,
       package: package,
       path: applied.path,
     );
-    final generated = Directory(absoluteAppliedPath);
-    final generatedExisted = generated.existsSync();
-    if (generatedExisted) {
-      generated.deleteSync(recursive: true);
-    }
+    _packageTree.deleteDirectory(absoluteAppliedPath);
 
     lock.packages[package] = record.copyWith(clearApplied: true);
     _lockStore.write(lock);
@@ -465,6 +420,28 @@ final class Patchwork {
 
   PubResolution _readResolution() {
     return _pubResolutionReader.readFromDirectory(_currentPackageRootPath);
+  }
+
+  List<int> _readCommittedPatchBytes(String package, LockfilePackage record) {
+    final patchPath = _layout.patchPath(package, record.version);
+    final file = File(patchPath);
+    if (!file.existsSync()) {
+      throw PatchworkException(
+        'Committed patch file is missing for "$package".',
+        code: 'apply.patch_file_missing',
+        location: patchPath,
+      );
+    }
+
+    final bytes = file.readAsBytesSync();
+    if (_sha256(bytes) != record.patch!.sha256) {
+      throw PatchworkException(
+        'Patch file sha256 does not match patchwork.lock.',
+        code: 'apply.patch_sha_mismatch',
+        location: patchPath,
+      );
+    }
+    return bytes;
   }
 
   LockfilePackage _packageRecordAfterSourceRefresh({
@@ -688,10 +665,14 @@ final class Patchwork {
 
   bool _resolvesToApplied(ResolvedPubPackage resolved, LockfilePackage record) {
     final appliedPath = record.applied?.path;
+    final absoluteAppliedPath = appliedPath == null
+        ? null
+        : _projectChildPath(appliedPath);
     return appliedPath != null &&
+        absoluteAppliedPath != null &&
         p.equals(
           p.normalize(p.absolute(_rootPath, resolved.rootPath)),
-          p.normalize(p.absolute(_rootPath, appliedPath)),
+          absoluteAppliedPath,
         );
   }
 
@@ -714,11 +695,11 @@ final class Patchwork {
     if (applied == null) {
       return true;
     }
-    if (!_layout.isExpectedAppliedPath(package, record.version, applied.path)) {
+    final appliedPath = _projectChildPath(applied.path);
+    if (appliedPath == null) {
       return false;
     }
 
-    final appliedPath = p.absolute(_rootPath, applied.path);
     return !Directory(appliedPath).existsSync() ||
         !_pubspecOverrides.pointsToPath(
           workspaceRootPath: _rootPath,
@@ -858,15 +839,15 @@ final class Patchwork {
       );
     }
 
-    final appliedPathExpected =
-        applied == null ||
-        _layout.isExpectedAppliedPath(package, version, applied.path);
+    final appliedPathInProject = applied == null
+        ? null
+        : _projectChildPath(applied.path);
     final appliedAbsolutePath = applied == null
         ? null
-        : p.absolute(_rootPath, applied.path);
+        : _absoluteFromRoot(applied.path);
     final appliedExists =
-        appliedAbsolutePath != null &&
-        Directory(appliedAbsolutePath).existsSync();
+        appliedPathInProject != null &&
+        Directory(appliedPathInProject).existsSync();
     final overridePointsToApplied =
         applied != null &&
         _pubspecOverrides.pointsToPath(
@@ -923,12 +904,11 @@ final class Patchwork {
         ),
       );
     }
-    if (applied != null && !appliedPathExpected) {
+    if (applied != null && appliedPathInProject == null) {
       problems.add(
         PatchProblem(
-          code: 'undo.unsafe_applied_path',
-          message:
-              'patchwork.lock applied path does not match this package and version.',
+          code: 'undo.applied_path_outside_project',
+          message: 'patchwork.lock applied path is outside the project.',
           hint: 'Review patchwork.lock before running patchwork undo $package.',
         ),
       );
@@ -954,7 +934,7 @@ final class Patchwork {
       hasPatch: lockPatch != null && hasPatchFile,
       isApplied:
           applied != null &&
-          appliedPathExpected &&
+          appliedPathInProject != null &&
           appliedExists &&
           overridePointsToApplied &&
           pubResolutionPointsToApplied,
@@ -968,6 +948,40 @@ final class Patchwork {
           _needsApply(package, record!, lockPatch),
       problems: problems,
     );
+  }
+
+  String _absoluteFromRoot(String path) {
+    final absolute = p.isAbsolute(path) ? path : p.absolute(_rootPath, path);
+    return p.normalize(absolute);
+  }
+
+  String? _projectChildPath(String path) {
+    final absolute = _absoluteFromRoot(path);
+    final root = p.normalize(p.absolute(_rootPath));
+    if (p.equals(root, absolute) || !p.isWithin(root, absolute)) {
+      return null;
+    }
+    return absolute;
+  }
+
+  String _requireProjectChildPath(
+    String path, {
+    required String code,
+    required String message,
+  }) {
+    final absolute = _projectChildPath(path);
+    if (absolute == null) {
+      throw PatchworkException(message, code: code, location: path);
+    }
+    return absolute;
+  }
+
+  bool _projectChildPathsMatch(String left, String right) {
+    final leftPath = _projectChildPath(left);
+    final rightPath = _projectChildPath(right);
+    return leftPath != null &&
+        rightPath != null &&
+        p.equals(leftPath, rightPath);
   }
 }
 

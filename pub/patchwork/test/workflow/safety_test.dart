@@ -9,7 +9,7 @@ import 'project_sandbox.dart';
 
 void main() {
   test(
-    'undo refuses an applied path outside the package version output',
+    'undo refuses an applied path outside the project',
     () async {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
@@ -20,21 +20,21 @@ void main() {
       await project.patchwork(['commit', 'greeter']);
       await project.patchwork(['apply', 'greeter']);
 
-      final unsafePath = p.join('.dart_tool', 'patchwork', 'not-greeter@0.1.0');
+      const unsafePath = '../victim';
       project.lockfile.writeAsStringSync(
         project.lockfile.readAsStringSync().replaceAll(
           '.dart_tool/patchwork/greeter@0.1.0',
           unsafePath,
         ),
       );
-      final sentinel = File(p.join(project.stateRoot, unsafePath, 'sentinel'));
+      final sentinel = File(p.join(project.root.path, 'victim', 'sentinel'));
       sentinel.parent.createSync(recursive: true);
       sentinel.writeAsStringSync('do not delete');
 
       await project.patchwork(
         ['undo', 'greeter'],
         exitCodes: {1},
-        stderrContains: 'applied path does not match',
+        stderrContains: 'must stay inside the project',
       );
       expect(sentinel.existsSync(), isTrue);
     },
@@ -405,6 +405,41 @@ dependency_overrides:
       expect(overrides, contains('manual_greeter'));
       expect(overrides, contains('other_pkg:'));
       expect(project.appliedDirectory.existsSync(), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'undo uses the applied path recorded in patchwork.lock',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a movable patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+
+      const originalPath = '.dart_tool/patchwork/greeter@0.1.0';
+      const movedPath = '.dart_tool/patchwork-moved/greeter@0.1.0';
+      final movedDirectory = Directory(p.join(project.stateRoot, movedPath));
+      movedDirectory.parent.createSync(recursive: true);
+      project.appliedDirectory.renameSync(movedDirectory.path);
+      project.lockfile.writeAsStringSync(
+        project.lockfile.readAsStringSync().replaceAll(originalPath, movedPath),
+      );
+      project.overrideFile.writeAsStringSync(
+        project.overrideFile.readAsStringSync().replaceAll(
+          originalPath,
+          movedPath,
+        ),
+      );
+
+      await project.patchwork(['undo', 'greeter']);
+
+      expect(movedDirectory.existsSync(), isFalse);
+      expect(project.overrideFile.existsSync(), isFalse);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

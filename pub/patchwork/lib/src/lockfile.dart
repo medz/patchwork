@@ -273,13 +273,12 @@ final class LockfilePackage {
     CommittedPatch? patch,
     Map<String, HistoricalPatch>? patchHistory,
     AppliedPatchRecord? applied,
-    bool clearPatch = false,
     bool clearApplied = false,
   }) {
     return LockfilePackage(
       version: version ?? this.version,
       source: source ?? this.source,
-      patch: clearPatch ? null : patch ?? this.patch,
+      patch: patch ?? this.patch,
       patchHistory: patchHistory ?? this.patchHistory,
       applied: clearApplied ? null : applied ?? this.applied,
     );

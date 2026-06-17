@@ -42,6 +42,34 @@ void main() {
   );
 
   test(
+    'apply-all refuses an applied path outside the project',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a safe apply-all patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+
+      project.lockfile.writeAsStringSync(
+        project.lockfile.readAsStringSync().replaceAll(
+          '.dart_tool/patchwork/greeter@0.1.0',
+          '../victim',
+        ),
+      );
+
+      await project.patchwork(
+        ['apply'],
+        exitCodes: {1},
+        stderrContains: 'must stay inside the project',
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'undo refuses unsafe lockfile package versions before deleting',
     () async {
       final project = await ProjectSandbox.standalone();
@@ -201,6 +229,50 @@ packages:
         stderrContains: 'must stay inside the project',
       );
       expect(victim.existsSync(), isTrue);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'apply refuses a missing applied path under a symlinked parent',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a missing symlink leaf');
+      await project.patchwork(['commit', 'greeter']);
+      await (await Patchwork.open(project.commandRoot)).apply('greeter');
+
+      final outside = Directory(p.join(project.root.path, 'outside_target'));
+      outside.createSync(recursive: true);
+      Link(
+        p.join(project.stateRoot, 'link_to_outside'),
+      ).createSync(outside.path);
+      const unsafePath = 'link_to_outside/greeter@0.1.0';
+      project.lockfile.writeAsStringSync(
+        project.lockfile.readAsStringSync().replaceAll(
+          '.dart_tool/patchwork/greeter@0.1.0',
+          unsafePath,
+        ),
+      );
+
+      await expectLater(
+        () async =>
+            (await Patchwork.open(project.commandRoot)).apply('greeter'),
+        throwsA(
+          isA<PatchworkException>().having(
+            (error) => error.code,
+            'code',
+            'apply.applied_path_not_deletable',
+          ),
+        ),
+      );
+      expect(
+        Directory(p.join(outside.path, 'greeter@0.1.0')).existsSync(),
+        isFalse,
+      );
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

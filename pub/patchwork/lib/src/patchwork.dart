@@ -248,6 +248,14 @@ final class Patchwork {
           targetPath: _layout.appliedPath(package, record.version),
         );
       }
+      final applied = record.applied;
+      if (applied != null && _deletableProjectChildPath(applied.path) == null) {
+        throw PatchworkException(
+          'patchwork.lock applied path must stay inside the project and must not point to a pub project root.',
+          code: 'apply.applied_path_not_deletable',
+          location: applied.path,
+        );
+      }
       if (_needsApply(package, record, patch)) {
         packages.add(package);
       }
@@ -1000,12 +1008,12 @@ final class Patchwork {
     if (p.equals(root, absolute) || !p.isWithin(root, absolute)) {
       return null;
     }
-    final canonical = _canonicalPathIfExists(absolute);
-    final canonicalRoot = _canonicalPathIfExists(root);
-    if (canonical != null &&
-        canonicalRoot != null &&
-        (p.equals(canonicalRoot, canonical) ||
-            !p.isWithin(canonicalRoot, canonical))) {
+    final canonical = _canonicalPathThroughExistingAncestors(absolute);
+    final canonicalRoot = _canonicalPathThroughExistingAncestors(root);
+    if (canonical == null ||
+        canonicalRoot == null ||
+        p.equals(canonicalRoot, canonical) ||
+        !p.isWithin(canonicalRoot, canonical)) {
       return null;
     }
     return absolute;
@@ -1051,10 +1059,45 @@ final class Patchwork {
 
 String? _canonicalPathIfExists(String path) {
   try {
-    return p.normalize(Directory(path).resolveSymbolicLinksSync());
+    return p.normalize(_resolveExistingPath(path));
   } on FileSystemException {
     return null;
   }
+}
+
+String? _canonicalPathThroughExistingAncestors(String path) {
+  final missingSegments = <String>[];
+  var current = p.normalize(path);
+  while (FileSystemEntity.typeSync(current, followLinks: false) ==
+      FileSystemEntityType.notFound) {
+    final parent = p.dirname(current);
+    if (p.equals(parent, current)) {
+      return null;
+    }
+    missingSegments.add(p.basename(current));
+    current = parent;
+  }
+
+  try {
+    var canonical = p.normalize(_resolveExistingPath(current));
+    for (final segment in missingSegments.reversed) {
+      canonical = p.join(canonical, segment);
+    }
+    return p.normalize(canonical);
+  } on FileSystemException {
+    return null;
+  }
+}
+
+String _resolveExistingPath(String path) {
+  return switch (FileSystemEntity.typeSync(path, followLinks: false)) {
+    FileSystemEntityType.directory => Directory(
+      path,
+    ).resolveSymbolicLinksSync(),
+    FileSystemEntityType.file => File(path).resolveSymbolicLinksSync(),
+    FileSystemEntityType.link => Link(path).resolveSymbolicLinksSync(),
+    _ => throw FileSystemException('Path cannot be resolved.', path),
+  };
 }
 
 void _checkPlainPackageName(String package) {

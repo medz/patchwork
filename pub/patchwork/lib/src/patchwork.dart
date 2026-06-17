@@ -209,14 +209,26 @@ final class Patchwork {
         );
       }
 
-      if (!File(_layout.patchPath(package, record.version)).existsSync()) {
+      final patchPath = _layout.patchPath(package, record.version);
+      if (!File(patchPath).existsSync()) {
+        throw PatchworkException(
+          'Committed patch file is missing for "$package".',
+          code: 'apply.patch_file_missing',
+          location: patchPath,
+        );
+      }
+
+      final resolved = resolution.resolvePackage(package);
+      if (_resolvesToApplied(resolved, record)) {
         continue;
       }
-      if (!_resolutionMatchesSource(resolution, package, record)) {
-        continue;
-      }
+      _ensureResolutionMatchesLock(package, resolved, record);
       if (_hasBlockingPendingOverride(package, record)) {
-        continue;
+        _rejectBlockingOverride(
+          package: package,
+          version: record.version,
+          command: 'apply',
+        );
       }
       if (_needsApply(package, record, patch)) {
         packages.add(package);
@@ -392,7 +404,13 @@ final class Patchwork {
     }
 
     final statuses = <PatchStatus>[];
-    final resolution = _readResolution();
+    PubResolution? resolution;
+    PatchworkException? resolutionError;
+    try {
+      resolution = _readResolution();
+    } on PatchworkException catch (error) {
+      resolutionError = error;
+    }
 
     for (final package in packages.toList()..sort()) {
       final record = lock.packages[package];
@@ -408,6 +426,7 @@ final class Patchwork {
           record: record,
           edit: edit,
           resolution: resolution,
+          resolutionError: resolutionError,
         ),
       );
     }
@@ -634,21 +653,6 @@ final class Patchwork {
     }
   }
 
-  bool _resolutionMatchesSource(
-    PubResolution resolution,
-    String package,
-    LockfilePackage record,
-  ) {
-    try {
-      final resolved = resolution.resolvePackage(package);
-      return resolved.version == record.version &&
-          resolved.source == record.source &&
-          !_resolvesToApplied(resolved, record);
-    } on PatchworkException {
-      return false;
-    }
-  }
-
   bool _resolvesToApplied(ResolvedPubPackage resolved, LockfilePackage record) {
     final appliedPath = record.applied?.path;
     return appliedPath != null &&
@@ -696,7 +700,8 @@ final class Patchwork {
     required String version,
     required LockfilePackage? record,
     required List<PackageVersionPath> edit,
-    required PubResolution resolution,
+    required PubResolution? resolution,
+    required PatchworkException? resolutionError,
   }) {
     final problems = <PatchProblem>[];
     if (edit.length > 1) {
@@ -720,7 +725,15 @@ final class Patchwork {
     var pubResolutionPointsToApplied = false;
     var pubResolutionMatchesSource = false;
 
-    if (record != null) {
+    if (resolutionError != null) {
+      problems.add(
+        PatchProblem(
+          code: resolutionError.code,
+          message: resolutionError.message,
+          hint: resolutionError.hint,
+        ),
+      );
+    } else if (record != null && resolution != null) {
       try {
         final resolved = resolution.resolvePackage(package);
         pubResolutionPointsToApplied = _resolvesToApplied(resolved, record);

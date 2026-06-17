@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:patchwork/patchwork.dart';
 import 'package:test/test.dart';
 import 'package:yaml/yaml.dart';
 
@@ -147,6 +148,28 @@ packages:
   );
 
   test(
+    'inspect reports patchwork state when pub resolution is missing',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a missing pub lock');
+      await project.patchwork(['commit', 'greeter']);
+      File(p.join(project.stateRoot, 'pubspec.lock')).deleteSync();
+
+      final state = await (await Patchwork.open(project.commandRoot)).inspect();
+      expect(state.packages.single.package, 'greeter');
+      expect(
+        state.problems.map((problem) => problem.message),
+        contains('Could not find pubspec.lock.'),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'apply refuses to apply while the package has an open edit',
     () async {
       final project = await ProjectSandbox.standalone();
@@ -176,6 +199,77 @@ packages:
         ['apply'],
         exitCodes: {1},
         stderrContains: 'open edit directory',
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'apply-all reports same-package override conflicts',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a blocked apply all');
+      await project.patchwork(['commit', 'greeter']);
+      project.writeManualOverride();
+
+      await project.patchwork(
+        ['apply'],
+        exitCodes: {1},
+        stderrContains: 'already has a dependency override',
+      );
+      expect(project.appliedDirectory.existsSync(), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'apply-all fails before partially applying multiple packages',
+    () async {
+      final project = await ProjectSandbox.standalone(
+        includeOtherDependency: true,
+      );
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a multi apply');
+      await project.patchwork(['patch', 'other_pkg']);
+      File(
+        p.join(
+          project.stateRoot,
+          '.patchwork',
+          'other_pkg@0.1.0',
+          'lib',
+          'other_pkg.dart',
+        ),
+      ).writeAsStringSync('''
+String otherName() {
+  return 'patched_other_pkg';
+}
+''');
+      await project.patchwork(['commit']);
+      project.writeOtherOverride();
+
+      await project.patchwork(
+        ['apply'],
+        exitCodes: {1},
+        stderrContains: 'already has a dependency override',
+      );
+      expect(project.appliedDirectory.existsSync(), isFalse);
+      expect(
+        Directory(
+          p.join(
+            project.stateRoot,
+            '.dart_tool',
+            'patchwork',
+            'other_pkg@0.1.0',
+          ),
+        ).existsSync(),
+        isFalse,
       );
     },
     timeout: const Timeout(Duration(minutes: 3)),

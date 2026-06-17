@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:yaml/yaml.dart';
 
 import 'error.dart';
+import 'internal/yaml_conversion.dart';
 import 'internal/yaml_writer.dart';
 import 'io/atomic_file_writer.dart';
 import 'model.dart';
@@ -259,7 +260,33 @@ final class LockfileStore {
         location: path,
       );
     }
-    return AppliedPatchRecord(patchSha256: patchSha256, path: appliedPath);
+    return AppliedPatchRecord(
+      patchSha256: patchSha256,
+      path: appliedPath,
+      mirroredPubspecDependencyOverrides: _readObjectMap(
+        value['mirrored-pubspec-overrides'],
+        'patchwork.lock applied mirrored-pubspec-overrides must be a YAML object.',
+      ),
+    );
+  }
+
+  Map<String, Object?> _readObjectMap(Object? value, String message) {
+    if (value == null) {
+      return const {};
+    }
+    if (value is! YamlMap) {
+      throw PatchworkException(message, code: 'lock.malformed', location: path);
+    }
+    try {
+      return yamlMapToStringKeyedMap(value);
+    } on FormatException catch (error) {
+      throw PatchworkException(
+        message,
+        code: 'lock.malformed',
+        hint: error.message,
+        location: path,
+      );
+    }
   }
 }
 
@@ -384,7 +411,11 @@ final class CommittedPatch {
 /// output from user-owned overrides or arbitrary project directories.
 final class AppliedPatchRecord {
   /// Creates applied-output state.
-  const AppliedPatchRecord({required this.patchSha256, required this.path});
+  const AppliedPatchRecord({
+    required this.patchSha256,
+    required this.path,
+    this.mirroredPubspecDependencyOverrides = const {},
+  });
 
   /// The committed patch hash used to generate [path].
   final String patchSha256;
@@ -392,9 +423,22 @@ final class AppliedPatchRecord {
   /// The project-relative generated output path.
   final String path;
 
+  /// Root pubspec overrides that Patchwork mirrored into `pubspec_overrides.yaml`.
+  final Map<String, Object?> mirroredPubspecDependencyOverrides;
+
   /// Converts this record to the YAML structure stored in `applied`.
   Map<String, Object?> toYaml() {
-    return {'patch-sha256': patchSha256, 'path': path};
+    return {
+      'patch-sha256': patchSha256,
+      'path': path,
+      if (mirroredPubspecDependencyOverrides.isNotEmpty)
+        'mirrored-pubspec-overrides': {
+          for (final entry in SplayTreeMap<String, Object?>.of(
+            mirroredPubspecDependencyOverrides,
+          ).entries)
+            entry.key: entry.value,
+        },
+    };
   }
 }
 

@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
 import '../error.dart';
+import '../internal/yaml_conversion.dart';
 import '../internal/yaml_writer.dart';
 import '../io/atomic_file_writer.dart';
 
@@ -23,19 +24,49 @@ final class PubspecOverrides {
   ///
   /// The resulting override is written under `dependency_overrides` and points
   /// at [path], usually a project-relative `.dart_tool/patchwork/...` path.
-  void upsertPathOverride({
+  Map<String, Object?> upsertPathOverride({
     required String workspaceRootPath,
     required String package,
     required String path,
+    Map<String, Object?> ownedDependencyOverrides = const {},
+    Map<String, Object?> pubspecDependencyOverrides = const {},
+    Map<String, Object?> mirroredPubspecDependencyOverrides = const {},
   }) {
     final overrides = _read(workspaceRootPath);
+    final hasActiveDependencyOverrides = overrides.containsKey(
+      'dependency_overrides',
+    );
     final dependencyOverrides = _dependencyOverrides(
       overrides,
       workspaceRootPath,
     );
+    _removeMirroredPubspecDependencyOverrides(
+      dependencyOverrides,
+      mirroredPubspecDependencyOverrides,
+      workspaceRootPath,
+    );
+
+    final canIntroduceMirrors =
+        !hasActiveDependencyOverrides ||
+        _hasOnlyOwnedOverrides(
+          dependencyOverrides,
+          ownedDependencyOverrides,
+          workspaceRootPath,
+        );
+    final nextMirroredPubspecDependencyOverrides =
+        _restoreMirroredPubspecDependencyOverrides(
+          dependencyOverrides: dependencyOverrides,
+          pubspecDependencyOverrides: pubspecDependencyOverrides,
+          mirroredPubspecDependencyOverrides:
+              mirroredPubspecDependencyOverrides,
+          workspaceRootPath: workspaceRootPath,
+          canIntroduceMirrors: canIntroduceMirrors,
+          retainPreviousMirrors: true,
+        );
     dependencyOverrides[package] = {'path': path};
     overrides['dependency_overrides'] = dependencyOverrides;
     _write(workspaceRootPath, overrides);
+    return nextMirroredPubspecDependencyOverrides;
   }
 
   /// Returns whether an existing override blocks writing [path] for [package].
@@ -82,13 +113,29 @@ final class PubspecOverrides {
     return dependencyOverrides.containsKey(package);
   }
 
+  /// Returns whether `pubspec_overrides.yaml` defines `dependency_overrides`.
+  bool hasDependencyOverrides({required String workspaceRootPath}) {
+    final overrides = _read(workspaceRootPath);
+    if (!overrides.containsKey('dependency_overrides')) {
+      return false;
+    }
+    _dependencyOverrides(overrides, workspaceRootPath);
+    return true;
+  }
+
   /// Removes the override for [package] only if it still points at [path].
   ///
   /// This protects user edits made after Patchwork applied a package.
-  bool removePathOverrideIfMatches({
+  ///
+  /// Returns the next Patchwork-owned mirror set that should remain while other
+  /// Patchwork overrides keep `pubspec_overrides.yaml` active.
+  Map<String, Object?> removePathOverrideIfMatches({
     required String workspaceRootPath,
     required String package,
     required String path,
+    Map<String, Object?> ownedDependencyOverrides = const {},
+    Map<String, Object?> pubspecDependencyOverrides = const {},
+    Map<String, Object?> mirroredPubspecDependencyOverrides = const {},
   }) {
     final overrides = _read(workspaceRootPath);
     final dependencyOverrides = _dependencyOverrides(
@@ -96,23 +143,47 @@ final class PubspecOverrides {
       workspaceRootPath,
     );
     final existing = dependencyOverrides[package];
-    if (existing is! Map<String, Object?> || existing['path'] is! String) {
-      return false;
+    var removedPackageOverride = false;
+    if (existing is Map<String, Object?> && existing['path'] is String) {
+      final existingPath = existing['path'] as String;
+      if (_pathsPointToSameLocation(workspaceRootPath, existingPath, path)) {
+        dependencyOverrides.remove(package);
+        removedPackageOverride = true;
+      }
     }
-
-    final existingPath = existing['path'] as String;
-    if (!_pathsPointToSameLocation(workspaceRootPath, existingPath, path)) {
-      return false;
-    }
-
-    dependencyOverrides.remove(package);
-    if (dependencyOverrides.isEmpty) {
+    final removedMirroredOverrides = _removeMirroredPubspecDependencyOverrides(
+      dependencyOverrides,
+      mirroredPubspecDependencyOverrides,
+      workspaceRootPath,
+    );
+    final hasActiveDependencyOverrides = dependencyOverrides.isNotEmpty;
+    final nextMirroredPubspecDependencyOverrides =
+        _restoreMirroredPubspecDependencyOverrides(
+          dependencyOverrides: dependencyOverrides,
+          pubspecDependencyOverrides: pubspecDependencyOverrides,
+          mirroredPubspecDependencyOverrides:
+              mirroredPubspecDependencyOverrides,
+          workspaceRootPath: workspaceRootPath,
+          canIntroduceMirrors: _hasOnlyOwnedOverrides(
+            dependencyOverrides,
+            ownedDependencyOverrides,
+            workspaceRootPath,
+          ),
+          retainPreviousMirrors: hasActiveDependencyOverrides,
+        );
+    final changed =
+        removedPackageOverride ||
+        removedMirroredOverrides ||
+        nextMirroredPubspecDependencyOverrides.isNotEmpty;
+    if (dependencyOverrides.isEmpty && changed) {
       overrides.remove('dependency_overrides');
-    } else {
+    } else if (dependencyOverrides.isNotEmpty) {
       overrides['dependency_overrides'] = dependencyOverrides;
     }
-    _write(workspaceRootPath, overrides);
-    return true;
+    if (changed) {
+      _write(workspaceRootPath, overrides);
+    }
+    return nextMirroredPubspecDependencyOverrides;
   }
 
   /// Returns whether the override for [package] points at [path].
@@ -157,7 +228,16 @@ final class PubspecOverrides {
           location: file.path,
         );
       }
-      return _toStringKeyedMap(decoded, file.path);
+      try {
+        return yamlMapToStringKeyedMap(decoded);
+      } on FormatException catch (error) {
+        throw PatchworkException(
+          'pubspec_overrides.yaml contains a non-string key.',
+          code: 'pub.overrides_malformed',
+          hint: error.message,
+          location: file.path,
+        );
+      }
     } on YamlException catch (error) {
       throw PatchworkException(
         'pubspec_overrides.yaml is malformed.',
@@ -215,6 +295,64 @@ final class PubspecOverrides {
   }
 }
 
+Map<String, Object?> _restoreMirroredPubspecDependencyOverrides({
+  required Map<String, Object?> dependencyOverrides,
+  required Map<String, Object?> pubspecDependencyOverrides,
+  required Map<String, Object?> mirroredPubspecDependencyOverrides,
+  required String workspaceRootPath,
+  required bool canIntroduceMirrors,
+  required bool retainPreviousMirrors,
+}) {
+  final nextMirroredPubspecDependencyOverrides = <String, Object?>{};
+  for (final entry in pubspecDependencyOverrides.entries) {
+    if (dependencyOverrides.containsKey(entry.key)) {
+      continue;
+    }
+    final wasMirrored = mirroredPubspecDependencyOverrides.containsKey(
+      entry.key,
+    );
+    if (!canIntroduceMirrors && (!retainPreviousMirrors || !wasMirrored)) {
+      continue;
+    }
+    dependencyOverrides[entry.key] = entry.value;
+    nextMirroredPubspecDependencyOverrides[entry.key] = entry.value;
+  }
+  return nextMirroredPubspecDependencyOverrides;
+}
+
+bool _removeMirroredPubspecDependencyOverrides(
+  Map<String, Object?> dependencyOverrides,
+  Map<String, Object?> mirroredPubspecDependencyOverrides,
+  String workspaceRootPath,
+) {
+  var removed = false;
+  for (final entry in mirroredPubspecDependencyOverrides.entries) {
+    final existing = dependencyOverrides[entry.key];
+    if (_sameOverrideValue(workspaceRootPath, existing, entry.value)) {
+      dependencyOverrides.remove(entry.key);
+      removed = true;
+    }
+  }
+  return removed;
+}
+
+bool _hasOnlyOwnedOverrides(
+  Map<String, Object?> dependencyOverrides,
+  Map<String, Object?> ownedDependencyOverrides,
+  String workspaceRootPath,
+) {
+  return dependencyOverrides.isNotEmpty &&
+      dependencyOverrides.entries.every(
+        (entry) =>
+            ownedDependencyOverrides.containsKey(entry.key) &&
+            _sameOverrideValue(
+              workspaceRootPath,
+              entry.value,
+              ownedDependencyOverrides[entry.key],
+            ),
+      );
+}
+
 String _path(String workspaceRootPath) {
   return p.join(workspaceRootPath, 'pubspec_overrides.yaml');
 }
@@ -233,33 +371,45 @@ bool _pathsPointToSameLocation(
   return p.equals(leftAbsolute, rightAbsolute);
 }
 
-Map<String, Object?> _toStringKeyedMap(YamlMap map, String location) {
-  final result = <String, Object?>{};
-  for (final entry in map.entries) {
-    final key = entry.key;
-    if (key is! String) {
-      throw PatchworkException(
-        'pubspec_overrides.yaml contains a non-string key.',
-        code: 'pub.overrides_malformed',
-        location: location,
-      );
+bool _sameOverrideValue(String workspaceRootPath, Object? left, Object? right) {
+  if (left is Map<String, Object?> && right is Map<String, Object?>) {
+    final leftPath = left['path'];
+    final rightPath = right['path'];
+    if (leftPath is String && rightPath is String) {
+      final leftRest = Map<String, Object?>.of(left)..remove('path');
+      final rightRest = Map<String, Object?>.of(right)..remove('path');
+      return _pathsPointToSameLocation(
+            workspaceRootPath,
+            leftPath,
+            rightPath,
+          ) &&
+          _sameOverrideValue(workspaceRootPath, leftRest, rightRest);
     }
-    result[key] = _convertYamlValue(entry.value, location);
+    if (left.length != right.length) {
+      return false;
+    }
+    for (final entry in left.entries) {
+      if (!right.containsKey(entry.key) ||
+          !_sameOverrideValue(
+            workspaceRootPath,
+            entry.value,
+            right[entry.key],
+          )) {
+        return false;
+      }
+    }
+    return true;
   }
-  return result;
-}
-
-Object? _convertYamlValue(Object? value, String location) {
-  if (value is YamlMap) {
-    return _toStringKeyedMap(value, location);
+  if (left is List<Object?> && right is List<Object?>) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (var index = 0; index < left.length; index += 1) {
+      if (!_sameOverrideValue(workspaceRootPath, left[index], right[index])) {
+        return false;
+      }
+    }
+    return true;
   }
-  if (value is YamlList) {
-    return [
-      for (final item in value.nodes) _convertYamlValue(item.value, location),
-    ];
-  }
-  if (value == null || value is String || value is num || value is bool) {
-    return value;
-  }
-  return value.toString();
+  return left == right;
 }

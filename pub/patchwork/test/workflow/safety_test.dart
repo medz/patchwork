@@ -78,6 +78,94 @@ packages:
   );
 
   test(
+    'undo refuses a workspace member root recorded as applied path',
+    () async {
+      final project = await ProjectSandbox.workspace();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a safe workspace patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+
+      _replaceAppliedPath(project, 'app');
+
+      await project.patchwork(
+        ['undo', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'must not point to a pub project root',
+      );
+      expect(
+        File(p.join(project.appRoot, 'bin', 'app.dart')).existsSync(),
+        isTrue,
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'undo refuses a sibling workspace package root recorded as applied path',
+    () async {
+      final project = await ProjectSandbox.workspace();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a safe sibling patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+
+      const memberPath = 'packages/member_greeter';
+      _replaceAppliedPath(project, memberPath);
+
+      await project.patchwork(
+        ['undo', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'must not point to a pub project root',
+      );
+      expect(
+        File(
+          p.join(project.stateRoot, memberPath, 'lib', 'member_greeter.dart'),
+        ).existsSync(),
+        isTrue,
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'undo refuses an applied path that resolves outside through a symlink',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a symlink-safe patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+
+      final outside = Directory(p.join(project.root.path, 'outside_target'));
+      final victim = File(p.join(outside.path, 'victim', 'sentinel'));
+      victim.parent.createSync(recursive: true);
+      victim.writeAsStringSync('do not delete');
+      Link(
+        p.join(project.stateRoot, 'link_to_outside'),
+      ).createSync(outside.path);
+      _replaceAppliedPath(project, 'link_to_outside/victim');
+
+      await project.patchwork(
+        ['undo', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'must stay inside the project',
+      );
+      expect(victim.existsSync(), isTrue);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'patch refuses to use a same-package user override as source',
     () async {
       final project = await ProjectSandbox.standalone();
@@ -410,37 +498,56 @@ dependency_overrides:
   );
 
   test(
-    'undo uses the applied path recorded in patchwork.lock',
+    'undo uses the applied path recorded in patchwork.lock for standalone projects',
     () async {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
-      project.writeEdit('Hello from a movable patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
-
-      const originalPath = '.dart_tool/patchwork/greeter@0.1.0';
-      const movedPath = '.dart_tool/patchwork-moved/greeter@0.1.0';
-      final movedDirectory = Directory(p.join(project.stateRoot, movedPath));
-      movedDirectory.parent.createSync(recursive: true);
-      project.appliedDirectory.renameSync(movedDirectory.path);
-      project.lockfile.writeAsStringSync(
-        project.lockfile.readAsStringSync().replaceAll(originalPath, movedPath),
-      );
-      project.overrideFile.writeAsStringSync(
-        project.overrideFile.readAsStringSync().replaceAll(
-          originalPath,
-          movedPath,
-        ),
-      );
-
-      await project.patchwork(['undo', 'greeter']);
-
-      expect(movedDirectory.existsSync(), isFalse);
-      expect(project.overrideFile.existsSync(), isFalse);
+      await _expectUndoUsesRecordedPath(project);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
+
+  test(
+    'undo uses the applied path recorded in patchwork.lock for workspace members',
+    () async {
+      final project = await ProjectSandbox.workspace();
+      addTearDown(project.dispose);
+
+      await _expectUndoUsesRecordedPath(project);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+}
+
+void _replaceAppliedPath(ProjectSandbox project, String path) {
+  const originalPath = '.dart_tool/patchwork/greeter@0.1.0';
+  project.lockfile.writeAsStringSync(
+    project.lockfile.readAsStringSync().replaceAll(originalPath, path),
+  );
+}
+
+Future<void> _expectUndoUsesRecordedPath(ProjectSandbox project) async {
+  await project.pubGet();
+  await project.patchwork(['patch', 'greeter']);
+  project.writeEdit('Hello from a movable patch');
+  await project.patchwork(['commit', 'greeter']);
+  await project.patchwork(['apply', 'greeter']);
+
+  const originalPath = '.dart_tool/patchwork/greeter@0.1.0';
+  const movedPath = '.dart_tool/patchwork-moved/greeter@0.1.0';
+  final movedDirectory = Directory(p.join(project.stateRoot, movedPath));
+  movedDirectory.parent.createSync(recursive: true);
+  project.appliedDirectory.renameSync(movedDirectory.path);
+  project.lockfile.writeAsStringSync(
+    project.lockfile.readAsStringSync().replaceAll(originalPath, movedPath),
+  );
+  project.overrideFile.writeAsStringSync(
+    project.overrideFile.readAsStringSync().replaceAll(originalPath, movedPath),
+  );
+
+  await project.patchwork(['undo', 'greeter']);
+
+  expect(movedDirectory.existsSync(), isFalse);
+  expect(project.overrideFile.existsSync(), isFalse);
 }

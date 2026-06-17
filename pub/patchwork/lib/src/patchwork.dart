@@ -19,6 +19,7 @@ final class Patchwork {
   Patchwork._({
     required this._rootPath,
     required this._currentPackageRootPath,
+    required this._protectedRootPaths,
     required this._layout,
     required this._pubResolutionReader,
     required this._lockStore,
@@ -41,6 +42,7 @@ final class Patchwork {
     return Patchwork._(
       rootPath: workspace.rootPath,
       currentPackageRootPath: workspace.currentPackageRootPath,
+      protectedRootPaths: _readProtectedRootPaths(workspace),
       layout: layout,
       pubResolutionReader: const PubResolutionReader(),
       lockStore: LockfileStore(path: layout.lockfilePath),
@@ -52,6 +54,7 @@ final class Patchwork {
 
   final String _rootPath;
   final String _currentPackageRootPath;
+  final Set<String> _protectedRootPaths;
   final PathLayout _layout;
   final PubResolutionReader _pubResolutionReader;
   final LockfileStore _lockStore;
@@ -355,10 +358,11 @@ final class Patchwork {
       return UnappliedPatch(package: package, changed: false);
     }
 
-    final absoluteAppliedPath = _requireProjectChildPath(
+    final absoluteAppliedPath = _requireDeletableProjectChildPath(
       applied.path,
-      code: 'undo.applied_path_outside_project',
-      message: 'patchwork.lock applied path must stay inside the project.',
+      code: 'undo.applied_path_not_deletable',
+      message:
+          'patchwork.lock applied path must stay inside the project and must not point to a pub project root.',
     );
     _pubspecOverrides.removePathOverrideIfMatches(
       workspaceRootPath: _rootPath,
@@ -695,7 +699,7 @@ final class Patchwork {
     if (applied == null) {
       return true;
     }
-    final appliedPath = _projectChildPath(applied.path);
+    final appliedPath = _deletableProjectChildPath(applied.path);
     if (appliedPath == null) {
       return false;
     }
@@ -841,7 +845,7 @@ final class Patchwork {
 
     final appliedPathInProject = applied == null
         ? null
-        : _projectChildPath(applied.path);
+        : _deletableProjectChildPath(applied.path);
     final appliedAbsolutePath = applied == null
         ? null
         : _absoluteFromRoot(applied.path);
@@ -907,8 +911,8 @@ final class Patchwork {
     if (applied != null && appliedPathInProject == null) {
       problems.add(
         PatchProblem(
-          code: 'undo.applied_path_outside_project',
-          message: 'patchwork.lock applied path is outside the project.',
+          code: 'undo.applied_path_not_deletable',
+          message: 'patchwork.lock applied path cannot be safely deleted.',
           hint: 'Review patchwork.lock before running patchwork undo $package.',
         ),
       );
@@ -961,19 +965,52 @@ final class Patchwork {
     if (p.equals(root, absolute) || !p.isWithin(root, absolute)) {
       return null;
     }
+    final canonical = _canonicalPathIfExists(absolute);
+    final canonicalRoot = _canonicalPathIfExists(root);
+    if (canonical != null &&
+        canonicalRoot != null &&
+        (p.equals(canonicalRoot, canonical) ||
+            !p.isWithin(canonicalRoot, canonical))) {
+      return null;
+    }
     return absolute;
   }
 
-  String _requireProjectChildPath(
+  String? _deletableProjectChildPath(String path) {
+    final absolute = _projectChildPath(path);
+    if (absolute == null || _isProtectedRootPath(absolute)) {
+      return null;
+    }
+    return absolute;
+  }
+
+  String _requireDeletableProjectChildPath(
     String path, {
     required String code,
     required String message,
   }) {
-    final absolute = _projectChildPath(path);
+    final absolute = _deletableProjectChildPath(path);
     if (absolute == null) {
       throw PatchworkException(message, code: code, location: path);
     }
     return absolute;
+  }
+
+  bool _isProtectedRootPath(String path) {
+    final normalized = p.normalize(path);
+    final canonical = _canonicalPathIfExists(path);
+    for (final protectedRoot in _protectedRootPaths) {
+      if (p.equals(normalized, protectedRoot)) {
+        return true;
+      }
+      final canonicalProtectedRoot = _canonicalPathIfExists(protectedRoot);
+      if (canonical != null &&
+          canonicalProtectedRoot != null &&
+          p.equals(canonical, canonicalProtectedRoot)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   bool _projectChildPathsMatch(String left, String right) {
@@ -982,6 +1019,95 @@ final class Patchwork {
     return leftPath != null &&
         rightPath != null &&
         p.equals(leftPath, rightPath);
+  }
+}
+
+Set<String> _readProtectedRootPaths(PubWorkspace workspace) {
+  final paths = <String>{
+    p.normalize(p.absolute(workspace.rootPath)),
+    p.normalize(p.absolute(workspace.currentPackageRootPath)),
+  };
+
+  final packageConfig = _readPackageConfigRootPaths(workspace);
+  final rootNames = _readPackageGraphRootNames(workspace);
+  for (final name in rootNames) {
+    final rootPath = packageConfig[name];
+    if (rootPath != null) {
+      paths.add(rootPath);
+    }
+  }
+  return paths;
+}
+
+Map<String, String> _readPackageConfigRootPaths(PubWorkspace workspace) {
+  try {
+    final decoded = jsonDecode(
+      File(workspace.packageConfigPath).readAsStringSync(),
+    );
+    if (decoded is! Map<String, Object?>) {
+      return const {};
+    }
+    final packages = decoded['packages'];
+    if (packages is! List<Object?>) {
+      return const {};
+    }
+
+    final baseUri = Directory(p.dirname(workspace.packageConfigPath)).uri;
+    final entries = <String, String>{};
+    for (final package in packages) {
+      if (package is! Map<String, Object?>) {
+        continue;
+      }
+      final name = package['name'];
+      final rootUri = package['rootUri'];
+      if (name is! String || rootUri is! String) {
+        continue;
+      }
+      entries[name] = p.normalize(
+        baseUri.resolveUri(Uri.parse(rootUri)).toFilePath(),
+      );
+    }
+    return entries;
+  } on FormatException {
+    return const {};
+  } on FileSystemException {
+    return const {};
+  } on UnsupportedError {
+    return const {};
+  }
+}
+
+Set<String> _readPackageGraphRootNames(PubWorkspace workspace) {
+  final packageGraph = File(workspace.packageGraphPath);
+  if (!packageGraph.existsSync()) {
+    return const {};
+  }
+
+  try {
+    final decoded = jsonDecode(packageGraph.readAsStringSync());
+    if (decoded is! Map<String, Object?>) {
+      return const {};
+    }
+    final roots = decoded['roots'];
+    if (roots is! List<Object?>) {
+      return const {};
+    }
+    return {
+      for (final root in roots)
+        if (root is String) root,
+    };
+  } on FormatException {
+    return const {};
+  } on FileSystemException {
+    return const {};
+  }
+}
+
+String? _canonicalPathIfExists(String path) {
+  try {
+    return p.normalize(Directory(path).resolveSymbolicLinksSync());
+  } on FileSystemException {
+    return null;
   }
 }
 

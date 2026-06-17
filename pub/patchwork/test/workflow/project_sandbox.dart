@@ -263,6 +263,21 @@ String greeting(String name) {
     _writeGreeterPackage(greeterRoot, greeting, version: version);
   }
 
+  void writeGreeterPackageAt(
+    String root,
+    String greeting, {
+    String version = '0.1.0',
+  }) {
+    _writeGreeterPackage(root, greeting, version: version);
+  }
+
+  void replaceAppPubspecText(String from, String to) {
+    final pubspec = File(p.join(appRoot, 'pubspec.yaml'));
+    pubspec.writeAsStringSync(
+      pubspec.readAsStringSync().replaceFirst(from, to),
+    );
+  }
+
   void writeManualOverride() {
     overrideFile.writeAsStringSync('''
 dependency_overrides:

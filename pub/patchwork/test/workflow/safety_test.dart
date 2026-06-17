@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
+import 'package:yaml/yaml.dart';
 
 import 'project_sandbox.dart';
 
@@ -91,6 +92,37 @@ packages:
         stderrContains: 'already has a dependency override',
       );
       expect(project.editDirectoryFor('0.1.0').existsSync(), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'patch allows user-owned path dependencies under dart_tool patchwork',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      final userDependency = Directory(
+        p.join(project.stateRoot, '.dart_tool', 'patchwork', 'greeter@0.1.0'),
+      );
+      const dependencyPath = '.dart_tool/patchwork/greeter@0.1.0';
+      project.writeGreeterPackageAt(
+        userDependency.path,
+        'Hello from a user-owned path, \$name!',
+      );
+      project.replaceAppPubspecText('../packages/greeter', dependencyPath);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+
+      expect(
+        project.editFile.readAsStringSync(),
+        contains('Hello from a user-owned path'),
+      );
+      final lock = loadYaml(project.lockfile.readAsStringSync()) as YamlMap;
+      final greeter = (lock['packages'] as YamlMap)['greeter'] as YamlMap;
+      expect((greeter['source'] as YamlMap)['path'], dependencyPath);
+      expect(greeter.containsKey('applied'), isFalse);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

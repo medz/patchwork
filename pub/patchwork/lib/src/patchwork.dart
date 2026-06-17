@@ -78,7 +78,7 @@ final class Patchwork {
   }) async {
     _checkPlainPackageName(package);
     final resolution = _readResolution();
-    final resolved = _resolveRealPackage(resolution, package);
+    final resolved = resolution.resolvePackage(package);
     final editPath = _layout.editPath(package, resolved.version);
     final existingRecord = _lockStore.read().packages[package];
     if (existingRecord?.applied != null) {
@@ -251,7 +251,7 @@ final class Patchwork {
     );
 
     final resolution = _readResolution();
-    final resolved = _resolveRealPackage(resolution, package);
+    final resolved = resolution.resolvePackage(package);
     _ensureResolutionMatchesLock(package, resolved, record);
 
     final tempPath = p.join(
@@ -375,23 +375,6 @@ final class Patchwork {
     return _pubResolutionReader.readFromDirectory(_currentPackageRootPath);
   }
 
-  ResolvedPubPackage _resolveRealPackage(
-    PubResolution resolution,
-    String package,
-  ) {
-    final resolved = resolution.resolvePackage(package);
-    if (_layout.isAppliedPath(resolved.rootPath)) {
-      throw PatchworkException(
-        'Package "$package" currently resolves to a Patchwork applied copy.',
-        code: 'pub.package_resolves_to_applied',
-        hint:
-            'Run patchwork undo $package, then dart pub get, before patching it again.',
-        location: resolved.rootPath,
-      );
-    }
-    return resolved;
-  }
-
   LockfilePackage _packageRecordAfterSourceRefresh({
     required LockfilePackage? previous,
     required ResolvedPubPackage resolved,
@@ -494,7 +477,7 @@ final class Patchwork {
 
   Future<PatchWrite> _writePatchFromEdit(PackageVersionPath edit) async {
     final resolution = _readResolution();
-    final resolved = _resolveRealPackage(resolution, edit.package);
+    final resolved = resolution.resolvePackage(edit.package);
     if (resolved.version != edit.version) {
       throw PatchworkException(
         'Current pub resolution selects ${resolved.version}, but the edit directory is ${edit.version}.',
@@ -594,6 +577,20 @@ final class Patchwork {
             'If you upgraded the dependency, run patchwork undo $package, dart pub get, then patchwork patch $package --continue ${record.version}.',
       );
     }
+    final appliedPath = record.applied?.path;
+    if (appliedPath != null &&
+        p.equals(
+          p.normalize(p.absolute(_rootPath, resolved.rootPath)),
+          p.normalize(p.absolute(_rootPath, appliedPath)),
+        )) {
+      throw PatchworkException(
+        'Package "$package" still resolves to the applied Patchwork output.',
+        code: 'applied.pub_get_required',
+        hint:
+            'Run patchwork undo $package, then dart pub get, before applying again.',
+        location: resolved.rootPath,
+      );
+    }
     if (resolved.source != record.source) {
       throw PatchworkException(
         'Package "$package" source does not match patchwork.lock.',
@@ -645,41 +642,31 @@ final class Patchwork {
     } else if (resolution != null && record != null) {
       try {
         final resolved = resolution.resolvePackage(package);
-        if (_layout.isAppliedPath(resolved.rootPath)) {
-          final expectedAppliedPath = record.applied == null
-              ? null
-              : p.normalize(p.absolute(_rootPath, record.applied!.path));
-          final resolvedPath = p.normalize(p.absolute(resolved.rootPath));
-          pubResolutionPointsToApplied =
-              expectedAppliedPath != null &&
-              p.equals(resolvedPath, expectedAppliedPath);
-          if (!pubResolutionPointsToApplied) {
+        final applied = record.applied;
+        final expectedAppliedPath = applied == null
+            ? null
+            : p.normalize(p.absolute(_rootPath, applied.path));
+        final resolvedPath = p.normalize(p.absolute(resolved.rootPath));
+        pubResolutionPointsToApplied =
+            expectedAppliedPath != null &&
+            p.equals(resolvedPath, expectedAppliedPath);
+        if (!pubResolutionPointsToApplied) {
+          if (resolved.version != record.version ||
+              resolved.source != record.source) {
             problems.add(
               PatchProblem(
-                code: 'pub.package_resolves_to_applied',
-                message: 'Package resolves to a Patchwork applied copy.',
-                hint: 'Run patchwork undo $package, then dart pub get.',
+                code: 'pub.source_changed',
+                message:
+                    'Current dependency source differs from patchwork.lock.',
+                hint:
+                    'Use patchwork undo $package and dart pub get before upgrading or carrying the patch forward.',
               ),
             );
+          } else {
+            pubResolutionMatchesSource = true;
           }
-        } else if (resolved.version != record.version ||
-            resolved.source != record.source) {
-          problems.add(
-            PatchProblem(
-              code: 'pub.source_changed',
-              message: 'Current dependency source differs from patchwork.lock.',
-              hint:
-                  'Use patchwork undo $package and dart pub get before upgrading or carrying the patch forward.',
-            ),
-          );
-        } else {
-          pubResolutionMatchesSource = true;
         }
-        final applied = record.applied;
-        if (applied != null &&
-            !_layout.isAppliedPath(resolved.rootPath) &&
-            p.normalize(p.absolute(resolved.rootPath)) !=
-                p.normalize(p.absolute(_rootPath, applied.path))) {
+        if (applied != null && !pubResolutionPointsToApplied) {
           problems.add(
             PatchProblem(
               code: 'applied.pub_get_required',

@@ -35,13 +35,6 @@ final class PathLayout {
     );
   }
 
-  bool isAppliedPath(String path) {
-    final absolutePath = p.normalize(p.absolute(rootPath, path));
-    final absoluteAppliedRoot = p.normalize(p.absolute(appliedRootPath));
-    return p.equals(absolutePath, absoluteAppliedRoot) ||
-        p.isWithin(absoluteAppliedRoot, absolutePath);
-  }
-
   bool isExpectedAppliedPath(String package, String version, String path) {
     if (!_isSafePackageVersionName(package, version)) {
       return false;

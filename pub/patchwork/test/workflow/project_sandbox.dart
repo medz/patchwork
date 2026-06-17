@@ -187,6 +187,7 @@ final class ProjectSandbox {
 
   Future<void> patchwork(
     List<String> arguments, {
+    String? workingDirectory,
     Set<int> exitCodes = const {0},
     String? stdoutContains,
     String? stderrContains,
@@ -194,7 +195,7 @@ final class ProjectSandbox {
     final result = await _run(
       'dart',
       ['run', 'patchwork', ...arguments],
-      cwd: commandRoot,
+      cwd: workingDirectory ?? commandRoot,
       exitCodes: exitCodes,
       environment: environment,
     );

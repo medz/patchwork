@@ -210,15 +210,26 @@ final class Patchwork {
       }
 
       final patchPath = _layout.patchPath(package, record.version);
-      if (!File(patchPath).existsSync()) {
+      final patchFile = File(patchPath);
+      if (!patchFile.existsSync()) {
         throw PatchworkException(
           'Committed patch file is missing for "$package".',
           code: 'apply.patch_file_missing',
           location: patchPath,
         );
       }
+      if (_sha256(patchFile.readAsBytesSync()) != patch.sha256) {
+        throw PatchworkException(
+          'Patch file sha256 does not match patchwork.lock.',
+          code: 'apply.patch_sha_mismatch',
+          location: patchPath,
+        );
+      }
 
-      final resolved = resolution.resolvePackage(package);
+      final resolved = resolution.resolvePackage(
+        package,
+        requireDirectDependency: false,
+      );
       if (_resolvesToApplied(resolved, record)) {
         continue;
       }
@@ -310,7 +321,10 @@ final class Patchwork {
     );
 
     final resolution = _readResolution();
-    final resolved = resolution.resolvePackage(package);
+    final resolved = resolution.resolvePackage(
+      package,
+      requireDirectDependency: false,
+    );
     _ensureResolutionMatchesLock(package, resolved, record);
 
     final tempPath = p.join(
@@ -539,7 +553,10 @@ final class Patchwork {
 
   Future<PatchWrite> _writePatchFromEdit(PackageVersionPath edit) async {
     final resolution = _readResolution();
-    final resolved = resolution.resolvePackage(edit.package);
+    final resolved = resolution.resolvePackage(
+      edit.package,
+      requireDirectDependency: false,
+    );
     if (resolved.version != edit.version) {
       throw PatchworkException(
         'Current pub resolution selects ${resolved.version}, but the edit directory is ${edit.version}.',
@@ -735,7 +752,10 @@ final class Patchwork {
       );
     } else if (record != null && resolution != null) {
       try {
-        final resolved = resolution.resolvePackage(package);
+        final resolved = resolution.resolvePackage(
+          package,
+          requireDirectDependency: false,
+        );
         pubResolutionPointsToApplied = _resolvesToApplied(resolved, record);
         if (!pubResolutionPointsToApplied) {
           if (resolved.version != record.version ||
@@ -926,6 +946,7 @@ final class Patchwork {
           lockPatch != null &&
           hasPatchFile &&
           edit.isEmpty &&
+          actualPatchSha256 == lockPatch.sha256 &&
           pubResolutionMatchesSource &&
           !hasBlockingOverride &&
           _needsApply(package, record!, lockPatch),

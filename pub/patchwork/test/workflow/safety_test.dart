@@ -227,7 +227,7 @@ packages:
   );
 
   test(
-    'apply-all fails before partially applying multiple packages',
+    'apply-all fails before partially applying a tampered patch',
     () async {
       final project = await ProjectSandbox.standalone(
         includeOtherDependency: true,
@@ -252,12 +252,14 @@ String otherName() {
 }
 ''');
       await project.patchwork(['commit']);
-      project.writeOtherOverride();
+      File(
+        p.join(project.stateRoot, 'patches', 'other_pkg@0.1.0.patch'),
+      ).writeAsStringSync('tampered\n');
 
       await project.patchwork(
         ['apply'],
         exitCodes: {1},
-        stderrContains: 'already has a dependency override',
+        stderrContains: 'sha256 does not match',
       );
       expect(project.appliedDirectory.existsSync(), isFalse);
       expect(

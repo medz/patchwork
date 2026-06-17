@@ -147,6 +147,51 @@ packages:
       ),
     );
   });
+
+  test('rejects unknown pub source kinds', () {
+    final root = Directory.systemTemp.createTempSync('patchwork_resolution_');
+    addTearDown(() => root.deleteSync(recursive: true));
+
+    final appRoot = p.join(root.path, 'app');
+    final unknownRoot = p.join(root.path, 'packages', 'unknown_pkg');
+    _writePackage(appRoot, 'app');
+    _writePackage(unknownRoot, 'unknown_pkg');
+    _writePubspec(appRoot, '''
+name: app
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  unknown_pkg: any
+''');
+    _writePackageConfig(appRoot, {'app': appRoot, 'unknown_pkg': unknownRoot});
+    _writeLockfile(appRoot, '''
+sdks:
+  dart: ">=3.12.0 <4.0.0"
+packages:
+  unknown_pkg:
+    dependency: "direct main"
+    description:
+      path: "../packages/unknown_pkg"
+    source: future_source
+    version: "0.1.0"
+''');
+
+    final resolution = const PubResolutionReader().readFromDirectory(appRoot);
+
+    expect(
+      () => resolution.resolvePackage('unknown_pkg'),
+      throwsA(
+        isA<PatchworkException>().having(
+          (error) => error.code,
+          'code',
+          'pub.unsupported_source',
+        ),
+      ),
+    );
+  });
 }
 
 void _writePackage(String root, String name) {

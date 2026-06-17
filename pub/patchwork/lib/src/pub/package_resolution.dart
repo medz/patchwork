@@ -389,7 +389,10 @@ final class PubResolution {
   final _PackageGraph _graph;
   final PackageTree packageTree;
 
-  ResolvedPubPackage resolvePackage(String packageName) {
+  ResolvedPubPackage resolvePackage(
+    String packageName, {
+    bool requireDirectDependency = true,
+  }) {
     final packageConfig = _packages.packageConfig[packageName];
     if (packageConfig == null) {
       throw PatchworkException(
@@ -419,14 +422,15 @@ final class PubResolution {
       );
     }
 
-    if (metadata.sourceKind == PubPackageSourceKind.sdk) {
+    if (metadata.sourceKind == PubPackageSourceKind.sdk ||
+        metadata.sourceKind == PubPackageSourceKind.unknown) {
       throw PatchworkException(
-        'Package "$packageName" comes from an SDK source and cannot be patched.',
+        'Package "$packageName" comes from an unsupported pub source and cannot be patched.',
         code: 'pub.unsupported_source',
       );
     }
 
-    if (!_graph.isDirectDependency(packageName)) {
+    if (requireDirectDependency && !_graph.isDirectDependency(packageName)) {
       throw PatchworkException(
         'Package "$packageName" is not a direct dependency of the current project.',
         code: 'pub.package_not_direct_dependency',

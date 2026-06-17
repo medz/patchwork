@@ -93,6 +93,53 @@ final class PathLayout {
     });
     return entries;
   }
+
+  /// Lists valid committed patch files currently present under `patches/`.
+  ///
+  /// Only regular files whose basename is a safe `<package>@<version>.patch`
+  /// identity are returned. Other files are ignored so scratch notes or editor
+  /// artifacts do not become patch inventory.
+  List<PackageVersionPath> patchFiles() {
+    final root = Directory(patchesRootPath);
+    if (!root.existsSync()) {
+      return const [];
+    }
+
+    final entries = <PackageVersionPath>[];
+    for (final entity in root.listSync(followLinks: false)) {
+      if (FileSystemEntity.typeSync(entity.path, followLinks: false) !=
+          FileSystemEntityType.file) {
+        continue;
+      }
+      final basename = p.basename(entity.path);
+      if (!basename.endsWith('.patch')) {
+        continue;
+      }
+      final parsed = parsePackageVersionName(
+        basename.substring(0, basename.length - '.patch'.length),
+      );
+      if (parsed == null ||
+          !_isPlainPackageName(parsed.package) ||
+          !_isSafePathSegment(parsed.version)) {
+        continue;
+      }
+      entries.add(
+        PackageVersionPath(
+          package: parsed.package,
+          version: parsed.version,
+          path: entity.path,
+        ),
+      );
+    }
+    entries.sort((left, right) {
+      final packageCompare = left.package.compareTo(right.package);
+      if (packageCompare != 0) {
+        return packageCompare;
+      }
+      return left.version.compareTo(right.version);
+    });
+    return entries;
+  }
 }
 
 /// A filesystem path whose basename encodes a package and version.
@@ -145,4 +192,16 @@ final class PackageVersion {
 
   /// The parsed package version.
   final String version;
+}
+
+bool _isPlainPackageName(String value) {
+  return RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(value);
+}
+
+bool _isSafePathSegment(String value) {
+  return value.isNotEmpty &&
+      value != '.' &&
+      value != '..' &&
+      !value.contains('/') &&
+      !value.contains(r'\');
 }

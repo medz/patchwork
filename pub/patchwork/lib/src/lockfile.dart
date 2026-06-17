@@ -133,8 +133,6 @@ final class LockfileStore {
     return LockfilePackage(
       version: version,
       source: _readSource(package, source),
-      patch: _readPatch(value['patch']),
-      patchHistory: _readPatchHistory(package, value['patch-history']),
       applied: _readApplied(value['applied']),
     );
   }
@@ -169,76 +167,6 @@ final class LockfileStore {
     return PackageSource(type: type, fields: fields, sha256: sha256);
   }
 
-  CommittedPatch? _readPatch(Object? value) {
-    if (value == null) {
-      return null;
-    }
-    if (value is! YamlMap) {
-      throw PatchworkException(
-        'patchwork.lock patch entries must be YAML objects.',
-        code: 'lock.malformed',
-        location: path,
-      );
-    }
-
-    final editSha256 = value['edit-sha256'];
-    final commitSha256 = value['commit-sha256'];
-    if (editSha256 is! String || commitSha256 is! String) {
-      throw PatchworkException(
-        'patchwork.lock patch entries must include edit-sha256 and commit-sha256.',
-        code: 'lock.malformed',
-        location: path,
-      );
-    }
-    return CommittedPatch(editSha256: editSha256, commitSha256: commitSha256);
-  }
-
-  SplayTreeMap<String, String> _readPatchHistory(
-    String package,
-    Object? value,
-  ) {
-    if (value == null) {
-      return SplayTreeMap<String, String>();
-    }
-    if (value is! YamlMap) {
-      throw PatchworkException(
-        'patchwork.lock patch-history entries must be YAML objects.',
-        code: 'lock.malformed',
-        location: path,
-      );
-    }
-
-    final history = SplayTreeMap<String, String>();
-    for (final entry in value.entries) {
-      final version = entry.key;
-      final patch = entry.value;
-      if (version is! String || !_isSafePathSegment(version)) {
-        throw PatchworkException(
-          'patchwork.lock patch-history for "$package" must use safe versions.',
-          code: 'lock.malformed',
-          location: path,
-        );
-      }
-      if (patch is! YamlMap) {
-        throw PatchworkException(
-          'patchwork.lock patch-history entries must be YAML objects.',
-          code: 'lock.malformed',
-          location: path,
-        );
-      }
-      final commitSha256 = patch['commit-sha256'];
-      if (commitSha256 is! String) {
-        throw PatchworkException(
-          'patchwork.lock patch-history entries must include commit-sha256.',
-          code: 'lock.malformed',
-          location: path,
-        );
-      }
-      history[version] = commitSha256;
-    }
-    return history;
-  }
-
   AppliedPatchRecord? _readApplied(Object? value) {
     if (value == null) {
       return null;
@@ -251,17 +179,15 @@ final class LockfileStore {
       );
     }
 
-    final patchSha256 = value['patch-sha256'];
     final appliedPath = value['path'];
-    if (patchSha256 is! String || appliedPath is! String) {
+    if (appliedPath is! String) {
       throw PatchworkException(
-        'patchwork.lock applied entries must include patch-sha256 and path.',
+        'patchwork.lock applied entries must include path.',
         code: 'lock.malformed',
         location: path,
       );
     }
     return AppliedPatchRecord(
-      patchSha256: patchSha256,
       path: appliedPath,
       mirroredPubspecDependencyOverrides: _readObjectMap(
         value['mirrored-pubspec-overrides'],
@@ -320,17 +246,14 @@ final class Lockfile {
 
 /// Lockfile state for one patched dependency package.
 ///
-/// The record captures the source fingerprint Patchwork last accepted, the
-/// committed patch hash currently tied to that source, optional older patch
-/// hashes for continuation workflows, and the generated output path that may be
-/// safely undone.
+/// The record captures source or applied-output state Patchwork still needs for
+/// safety. Committed patch inventory is derived from `patches/*.patch` files
+/// instead of being duplicated here.
 final class LockfilePackage {
   /// Creates lockfile state for one dependency package.
   const LockfilePackage({
     required this.version,
     required this.source,
-    this.patch,
-    this.patchHistory = const {},
     this.applied,
   });
 
@@ -339,12 +262,6 @@ final class LockfilePackage {
 
   /// The source tree identity Patchwork verified for [version].
   final PackageSource source;
-
-  /// The committed patch tied to [source], when one exists.
-  final CommittedPatch? patch;
-
-  /// Patch file hashes for older package versions kept for `--continue`.
-  final Map<String, String> patchHistory;
 
   /// The generated output Patchwork last wrote into pub overrides.
   final AppliedPatchRecord? applied;
@@ -356,16 +273,12 @@ final class LockfilePackage {
   LockfilePackage copyWith({
     String? version,
     PackageSource? source,
-    CommittedPatch? patch,
-    Map<String, String>? patchHistory,
     AppliedPatchRecord? applied,
     bool clearApplied = false,
   }) {
     return LockfilePackage(
       version: version ?? this.version,
       source: source ?? this.source,
-      patch: patch ?? this.patch,
-      patchHistory: patchHistory ?? this.patchHistory,
       applied: clearApplied ? null : applied ?? this.applied,
     );
   }
@@ -375,33 +288,8 @@ final class LockfilePackage {
     return {
       'version': version,
       'source': _sourceToYaml(source),
-      if (patch != null) 'patch': patch!.toYaml(),
-      if (patchHistory.isNotEmpty)
-        'patch-history': {
-          for (final entry in SplayTreeMap<String, String>.of(
-            patchHistory,
-          ).entries)
-            entry.key: {'commit-sha256': entry.value},
-        },
       if (applied != null) 'applied': applied!.toYaml(),
     };
-  }
-}
-
-/// Hashes that bind a committed patch file to the edit that produced it.
-final class CommittedPatch {
-  /// Creates committed patch hashes.
-  const CommittedPatch({required this.editSha256, required this.commitSha256});
-
-  /// The hash of the edit tree that produced the patch.
-  final String editSha256;
-
-  /// The hash of the committed patch file contents.
-  final String commitSha256;
-
-  /// Converts this record to the YAML structure stored in `patch`.
-  Map<String, Object?> toYaml() {
-    return {'edit-sha256': editSha256, 'commit-sha256': commitSha256};
   }
 }
 
@@ -412,13 +300,9 @@ final class CommittedPatch {
 final class AppliedPatchRecord {
   /// Creates applied-output state.
   const AppliedPatchRecord({
-    required this.patchSha256,
     required this.path,
     this.mirroredPubspecDependencyOverrides = const {},
   });
-
-  /// The committed patch hash used to generate [path].
-  final String patchSha256;
 
   /// The project-relative generated output path.
   final String path;
@@ -429,7 +313,6 @@ final class AppliedPatchRecord {
   /// Converts this record to the YAML structure stored in `applied`.
   Map<String, Object?> toYaml() {
     return {
-      'patch-sha256': patchSha256,
       'path': path,
       if (mirroredPubspecDependencyOverrides.isNotEmpty)
         'mirrored-pubspec-overrides': {

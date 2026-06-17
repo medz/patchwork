@@ -14,12 +14,14 @@ void main() {
       project.writeEdit('Hello from a git patch');
       await project.patchwork(['commit', 'greeter']);
 
+      expect(project.lockfile.readAsStringSync(), isNot(contains('git')));
+
+      await project.patchwork(['apply', 'greeter']);
       final lockfile = project.lockfile.readAsStringSync();
       expect(lockfile, contains('type: "git"'));
       expect(lockfile, contains('branch: "main"'));
       expect(lockfile, contains('commit:'));
 
-      await project.patchwork(['apply', 'greeter']);
       await project.pubGet();
       await project.runApp('Hello from a git patch, Patchwork!');
     },

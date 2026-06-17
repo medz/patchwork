@@ -1255,7 +1255,7 @@ String otherName() {
       await project.patchwork(
         ['apply'],
         exitCodes: {1},
-        stderrContains: 'sha256 does not match',
+        stderrContains: 'Generated patch does not apply',
       );
       expect(project.appliedDirectory.existsSync(), isFalse);
       expect(
@@ -1274,7 +1274,7 @@ String otherName() {
   );
 
   test(
-    'apply-all skips stale applied records until pub resolves the source',
+    'apply-all skips packages already applied through pub resolution',
     () async {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
@@ -1285,25 +1285,8 @@ String otherName() {
       await project.patchwork(['commit', 'greeter']);
       await project.patchwork(['apply', 'greeter']);
       await project.pubGet();
-      project.lockfile.writeAsStringSync(
-        project.lockfile.readAsStringSync().replaceFirst(
-          RegExp(r'patch-sha256: "[0-9a-f]+"'),
-          'patch-sha256: "stale"',
-        ),
-      );
 
-      await project.patchwork(
-        ['doctor'],
-        exitCodes: {1},
-        stdoutContains:
-            'Applied patch sha256 differs from the committed patch.',
-      );
-      await project.patchwork(
-        ['doctor'],
-        exitCodes: {1},
-        stdoutContains:
-            'Run patchwork undo greeter, dart pub get, then patchwork apply greeter.',
-      );
+      await project.patchwork(['doctor'], stdoutContains: 'greeter@0.1.0');
       await project.patchwork([
         'apply',
       ], stdoutContains: 'No patches need apply.');

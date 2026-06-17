@@ -380,10 +380,20 @@ final class Patchwork {
         previous != null &&
         previous.version == resolved.version &&
         previous.source == resolved.source;
+    final patchHistory = <String, HistoricalPatch>{
+      if (previous != null) ...previous.patchHistory,
+    };
+    if (!canPreservePatch && previous?.patch != null) {
+      patchHistory[previous!.version] = HistoricalPatch(
+        sha256: previous.patch!.sha256,
+      );
+    }
+
     return LockfilePackage(
       version: resolved.version,
       source: resolved.source,
       patch: canPreservePatch ? previous.patch : null,
+      patchHistory: patchHistory,
       applied: canPreservePatch ? previous.applied : null,
     );
   }
@@ -394,7 +404,12 @@ final class Patchwork {
     required String patchPath,
   }) {
     final record = _lockStore.read().packages[package];
-    if (record == null || record.version != version || record.patch == null) {
+    final expectedSha256 = record == null
+        ? null
+        : record.version == version
+        ? record.patch?.sha256
+        : record.patchHistory[version]?.sha256;
+    if (expectedSha256 == null) {
       throw PatchworkException(
         'patchwork.lock has no committed patch record for "$package@$version".',
         code: 'patch.continue_patch_unlocked',
@@ -402,7 +417,7 @@ final class Patchwork {
       );
     }
     final patchSha256 = _sha256(File(patchPath).readAsBytesSync());
-    if (patchSha256 != record.patch!.sha256) {
+    if (patchSha256 != expectedSha256) {
       throw PatchworkException(
         'Patch file sha256 does not match patchwork.lock.',
         code: 'patch.continue_patch_sha_mismatch',
@@ -525,8 +540,11 @@ final class Patchwork {
     final patchBytes = utf8.encode(content);
     final patchSha256 = _sha256(patchBytes);
     writeBytesFileAtomically(patchPath, patchBytes);
+    final patchHistory = Map<String, HistoricalPatch>.of(record.patchHistory)
+      ..remove(edit.version);
     lock.packages[edit.package] = record.copyWith(
       patch: CommittedPatch(editSha256: editSha256, sha256: patchSha256),
+      patchHistory: patchHistory,
     );
     _lockStore.write(lock);
     _packageTree.deleteDirectory(edit.path);

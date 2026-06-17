@@ -105,6 +105,9 @@ packages:
     patch:
       edit-sha256: "<edit-tree-sha>"
       sha256: "<patch-file-sha>"
+    patch-history:
+      "1.19.0":
+        sha256: "<older-patch-file-sha>"
     applied:
       patch-sha256: "<applied-patch-file-sha>"
       path: ".dart_tool/patchwork/collection@1.19.1"
@@ -113,6 +116,11 @@ packages:
 `source` may describe hosted or custom hosted packages, path dependencies, or
 git dependencies. Git sources record `branch` when pub resolves a ref and
 `commit` when pub records the resolved commit.
+
+`patch-history` is only written when a dependency source changes while an older
+committed patch is still needed for `patchwork patch <pkg> --continue
+<version>`. Patchwork uses it to verify the older patch file sha before using it
+as an edit seed.
 
 ```yaml
 source:

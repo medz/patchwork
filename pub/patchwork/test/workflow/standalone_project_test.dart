@@ -119,13 +119,20 @@ void main() {
       );
       project.editDirectoryFor('0.1.1').deleteSync(recursive: true);
 
+      await project.patchwork(['patch', 'greeter', '--continue', '0.1.0']);
+      expect(
+        project.editFileFor('0.1.1').readAsStringSync(),
+        contains('Hello from a carried patch'),
+      );
+      project.editDirectoryFor('0.1.1').deleteSync(recursive: true);
+
       File(
         p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
       ).writeAsStringSync('tampered\n');
       await project.patchwork(
         ['patch', 'greeter', '--continue', '0.1.0'],
         exitCodes: {1},
-        stderrContains: 'no committed patch record',
+        stderrContains: 'sha256 does not match',
       );
     },
     timeout: const Timeout(Duration(minutes: 3)),

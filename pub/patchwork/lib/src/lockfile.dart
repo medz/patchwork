@@ -102,6 +102,7 @@ final class LockfileStore {
       version: version,
       source: _readSource(package, source),
       patch: _readPatch(value['patch']),
+      patchHistory: _readPatchHistory(package, value['patch-history']),
       applied: _readApplied(value['applied']),
     );
   }
@@ -160,6 +161,52 @@ final class LockfileStore {
     return CommittedPatch(editSha256: editSha256, sha256: sha256);
   }
 
+  SplayTreeMap<String, HistoricalPatch> _readPatchHistory(
+    String package,
+    Object? value,
+  ) {
+    if (value == null) {
+      return SplayTreeMap<String, HistoricalPatch>();
+    }
+    if (value is! YamlMap) {
+      throw PatchworkException(
+        'patchwork.lock patch-history entries must be YAML objects.',
+        code: 'lock.malformed',
+        location: path,
+      );
+    }
+
+    final history = SplayTreeMap<String, HistoricalPatch>();
+    for (final entry in value.entries) {
+      final version = entry.key;
+      final patch = entry.value;
+      if (version is! String || !_isSafePathSegment(version)) {
+        throw PatchworkException(
+          'patchwork.lock patch-history for "$package" must use safe versions.',
+          code: 'lock.malformed',
+          location: path,
+        );
+      }
+      if (patch is! YamlMap) {
+        throw PatchworkException(
+          'patchwork.lock patch-history entries must be YAML objects.',
+          code: 'lock.malformed',
+          location: path,
+        );
+      }
+      final sha256 = patch['sha256'];
+      if (sha256 is! String) {
+        throw PatchworkException(
+          'patchwork.lock patch-history entries must include sha256.',
+          code: 'lock.malformed',
+          location: path,
+        );
+      }
+      history[version] = HistoricalPatch(sha256: sha256);
+    }
+    return history;
+  }
+
   AppliedPatchRecord? _readApplied(Object? value) {
     if (value == null) {
       return null;
@@ -210,18 +257,21 @@ final class LockfilePackage {
     required this.version,
     required this.source,
     this.patch,
+    this.patchHistory = const {},
     this.applied,
   });
 
   final String version;
   final PackageSource source;
   final CommittedPatch? patch;
+  final Map<String, HistoricalPatch> patchHistory;
   final AppliedPatchRecord? applied;
 
   LockfilePackage copyWith({
     String? version,
     PackageSource? source,
     CommittedPatch? patch,
+    Map<String, HistoricalPatch>? patchHistory,
     AppliedPatchRecord? applied,
     bool clearPatch = false,
     bool clearApplied = false,
@@ -230,6 +280,7 @@ final class LockfilePackage {
       version: version ?? this.version,
       source: source ?? this.source,
       patch: clearPatch ? null : patch ?? this.patch,
+      patchHistory: patchHistory ?? this.patchHistory,
       applied: clearApplied ? null : applied ?? this.applied,
     );
   }
@@ -239,6 +290,13 @@ final class LockfilePackage {
       'version': version,
       'source': _sourceToYaml(source),
       if (patch != null) 'patch': patch!.toYaml(),
+      if (patchHistory.isNotEmpty)
+        'patch-history': {
+          for (final entry in SplayTreeMap<String, HistoricalPatch>.of(
+            patchHistory,
+          ).entries)
+            entry.key: entry.value.toYaml(),
+        },
       if (applied != null) 'applied': applied!.toYaml(),
     };
   }
@@ -252,6 +310,16 @@ final class CommittedPatch {
 
   Map<String, Object?> toYaml() {
     return {'edit-sha256': editSha256, 'sha256': sha256};
+  }
+}
+
+final class HistoricalPatch {
+  const HistoricalPatch({required this.sha256});
+
+  final String sha256;
+
+  Map<String, Object?> toYaml() {
+    return {'sha256': sha256};
   }
 }
 

@@ -120,6 +120,13 @@ void main() {
         project.editFileFor('0.1.1').readAsStringSync(),
         contains('Hello from a carried workspace patch'),
       );
+      project.editDirectoryFor('0.1.1').deleteSync(recursive: true);
+
+      await project.patchwork(['patch', 'greeter', '--continue', '0.1.0']);
+      expect(
+        project.editFileFor('0.1.1').readAsStringSync(),
+        contains('Hello from a carried workspace patch'),
+      );
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

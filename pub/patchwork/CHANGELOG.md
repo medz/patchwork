@@ -15,6 +15,8 @@
   carry-forward across dependency upgrades.
 - Reworked `patchwork.lock` into a v2 lockfile with source, patch, and applied
   sha256 records.
+- Added patch history sha records so `--continue <version>` can safely reuse
+  older patch files after a dependency upgrade.
 - Added source records for hosted, custom hosted, path, and git dependencies.
 
 ## 0.1.1 - 2026-06-15

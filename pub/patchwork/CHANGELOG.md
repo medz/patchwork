@@ -9,14 +9,16 @@
   `patches/<pkg>@<version>.patch`, and
   `.dart_tool/patchwork/<pkg>@<version>/`.
 - Added `patchwork commit [pkg]` and removed `patchwork patch --commit`.
-- Added `patchwork undo <pkg>` for safe removal of Patchwork-managed
+- Added `patchwork undo <pkg>` for safe removal of lock-owned
   `pubspec_overrides.yaml` entries and generated applied directories.
 - Added `patchwork patch <pkg> [--continue [version]]` for explicit patch
   carry-forward across dependency upgrades.
-- Reworked `patchwork.lock` into a v2 lockfile with source, patch, and applied
-  sha256 records.
-- Added patch history sha records so `--continue <version>` can safely reuse
-  older patch files after a dependency upgrade.
+- Reworked `patchwork.lock` into a v2 lockfile with source `sha256`,
+  `patch.commit-sha256`, and `applied.patch-sha256` records.
+- Added patch history `commit-sha256` records so `--continue <version>` can
+  safely reuse older patch files after a dependency upgrade.
+- Removed obsolete historical patch files when an unchanged fresh edit proves
+  the upgraded dependency source already contains the fix.
 - Added source records for hosted, custom hosted, path, and git dependencies.
 
 ## 0.1.1 - 2026-06-15

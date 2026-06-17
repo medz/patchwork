@@ -34,6 +34,13 @@ final class Application {
         printCommandHelp(command, out);
         return 0;
       }
+      if (!isKnownCommand(command)) {
+        throw PatchworkException(
+          'Unknown command "$command".',
+          code: 'usage.unknown_command',
+          hint: 'Run patchwork --help to see available commands.',
+        );
+      }
 
       final cwd = workingDirectory ?? io.Directory.current.path;
       final patchwork = await Patchwork.open(cwd);
@@ -44,17 +51,20 @@ final class Application {
         'undo' => await runUndoCommand(patchwork, rest, out),
         'status' => await runStatusCommand(patchwork, rest, out),
         'doctor' => await runDoctorCommand(patchwork, rest, out),
-        _ => throw PatchworkException(
-          'Unknown command "$command".',
-          code: 'usage.unknown_command',
-          hint: 'Run patchwork --help to see available commands.',
-        ),
+        _ => throw StateError('unreachable command: $command'),
       };
     } on PatchworkException catch (error) {
       printError(err, error);
       return error.code.startsWith('usage.') ? 64 : 1;
     }
   }
+}
+
+bool isKnownCommand(String command) {
+  return switch (command) {
+    'patch' || 'commit' || 'apply' || 'undo' || 'status' || 'doctor' => true,
+    _ => false,
+  };
 }
 
 void printGeneralHelp(io.IOSink out) {

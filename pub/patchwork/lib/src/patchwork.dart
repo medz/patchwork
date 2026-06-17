@@ -19,6 +19,7 @@ final class Patchwork {
   Patchwork._({
     required this._rootPath,
     required this._currentPackageRootPath,
+    required this._overrideRootPaths,
     required this._protectedRootPaths,
     required this._layout,
     required this._pubResolutionReader,
@@ -42,6 +43,7 @@ final class Patchwork {
     return Patchwork._(
       rootPath: workspace.rootPath,
       currentPackageRootPath: workspace.currentPackageRootPath,
+      overrideRootPaths: {workspace.rootPath, workspace.currentPackageRootPath},
       protectedRootPaths: workspace.rootPackageRootPaths,
       layout: layout,
       pubResolutionReader: const PubResolutionReader(),
@@ -54,6 +56,7 @@ final class Patchwork {
 
   final String _rootPath;
   final String _currentPackageRootPath;
+  final Set<String> _overrideRootPaths;
   final Set<String> _protectedRootPaths;
   final PathLayout _layout;
   final PubResolutionReader _pubResolutionReader;
@@ -287,6 +290,12 @@ final class Patchwork {
     final canReplaceApplied =
         existingApplied != null &&
         _projectChildPathsMatch(existingApplied.path, relativePath);
+    _rejectBlockingOverride(
+      package: package,
+      version: record.version,
+      command: 'apply',
+      replaceRootOverride: canReplaceApplied,
+    );
     if (!canReplaceApplied && Directory(appliedPath).existsSync()) {
       throw PatchworkException(
         'Applied output path already exists for "$package".',
@@ -504,23 +513,28 @@ final class Patchwork {
     required String package,
     required String version,
     required String command,
+    bool replaceRootOverride = false,
   }) {
-    if (!_pubspecOverrides.hasBlockingPathOverride(
-      workspaceRootPath: _rootPath,
-      package: package,
-      path: _layout.relativeAppliedPath(package, version),
-      replaceExisting: false,
-    )) {
-      return;
-    }
+    for (final overrideRootPath in _overrideRootPaths) {
+      final canReplaceHere =
+          replaceRootOverride && p.equals(overrideRootPath, _rootPath);
+      if (!_pubspecOverrides.hasBlockingPathOverride(
+        workspaceRootPath: overrideRootPath,
+        package: package,
+        path: _layout.appliedPath(package, version),
+        replaceExisting: canReplaceHere,
+      )) {
+        continue;
+      }
 
-    throw PatchworkException(
-      'pubspec_overrides.yaml already has a dependency override for "$package".',
-      code: 'pub.override_conflict',
-      hint:
-          'Remove or resolve the existing override before running patchwork $command $package.',
-      location: p.join(_rootPath, 'pubspec_overrides.yaml'),
-    );
+      throw PatchworkException(
+        'pubspec_overrides.yaml already has a dependency override for "$package".',
+        code: 'pub.override_conflict',
+        hint:
+            'Remove or resolve the existing override before running patchwork $command $package.',
+        location: p.join(overrideRootPath, 'pubspec_overrides.yaml'),
+      );
+    }
   }
 
   PackageVersionPath _singleEditDirectory(String package) {
@@ -596,10 +610,7 @@ final class Patchwork {
       editPath: edit.path,
     );
     if (content.isEmpty) {
-      final patch = File(patchPath);
-      if (patch.existsSync()) {
-        patch.deleteSync();
-      }
+      _deletePatchFiles(edit.package, record);
       lock.packages.remove(edit.package);
       _lockStore.write(lock);
       _packageTree.deleteDirectory(edit.path);
@@ -632,6 +643,15 @@ final class Patchwork {
       editPath: edit.path,
       patchPath: patchPath,
     );
+  }
+
+  void _deletePatchFiles(String package, LockfilePackage record) {
+    for (final version in {record.version, ...record.patchHistory.keys}) {
+      final patch = File(_layout.patchPath(package, version));
+      if (patch.existsSync()) {
+        patch.deleteSync();
+      }
+    }
   }
 
   void _ensureResolutionMatchesLock(
@@ -680,13 +700,20 @@ final class Patchwork {
   }
 
   bool _hasBlockingPendingOverride(String package, LockfilePackage record) {
-    return record.applied == null &&
-        _pubspecOverrides.hasBlockingPathOverride(
-          workspaceRootPath: _rootPath,
-          package: package,
-          path: _layout.relativeAppliedPath(package, record.version),
-          replaceExisting: false,
-        );
+    if (record.applied != null) {
+      return false;
+    }
+    for (final overrideRootPath in _overrideRootPaths) {
+      if (_pubspecOverrides.hasBlockingPathOverride(
+        workspaceRootPath: overrideRootPath,
+        package: package,
+        path: _layout.appliedPath(package, record.version),
+        replaceExisting: false,
+      )) {
+        return true;
+      }
+    }
+    return false;
   }
 
   bool _needsApply(
@@ -796,7 +823,15 @@ final class Patchwork {
 
     final lockPatch = record?.patch;
     final applied = record?.applied;
-    if (lockPatch != null && edit.isNotEmpty) {
+    if (lockPatch == null && edit.isNotEmpty) {
+      problems.add(
+        PatchProblem(
+          code: 'commit.open_edit',
+          message: 'Package "$package" has an uncommitted edit directory.',
+          hint: 'Run patchwork commit $package or delete the edit.',
+        ),
+      );
+    } else if (edit.isNotEmpty) {
       problems.add(
         PatchProblem(
           code: 'apply.open_edit',

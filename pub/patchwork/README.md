@@ -227,6 +227,15 @@ dart pub upgrade collection
 dart pub get
 ```
 
+If the upstream release contains the fix, create a fresh edit from that source
+and commit it unchanged. Patchwork removes the obsolete lock entry and the
+previous patch file recorded in `patch-history`:
+
+```sh
+dart run patchwork patch collection
+dart run patchwork commit collection
+```
+
 If the upstream release does not contain the fix, explicitly continue from the
 older patch file:
 

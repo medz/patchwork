@@ -5,3 +5,5 @@ pubspec_overrides.yaml
 examples/**/patchwork.lock
 examples/**/patches/
 examples/**/.patchwork/
+
+docs/v0.2-programmable-model.zh.md

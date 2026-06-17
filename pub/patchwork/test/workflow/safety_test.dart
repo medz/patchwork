@@ -226,6 +226,49 @@ packages:
   );
 
   test(
+    'patch refuses same-package overrides from a workspace member',
+    () async {
+      final project = await ProjectSandbox.workspace();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      _writeWorkspaceMemberOverride(project);
+      await project.pubGet();
+
+      await project.patchwork(
+        ['patch', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'already has a dependency override',
+      );
+      expect(project.editDirectoryFor('0.1.0').existsSync(), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'apply refuses same-package overrides from a workspace member',
+    () async {
+      final project = await ProjectSandbox.workspace();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a blocked member override');
+      await project.patchwork(['commit', 'greeter']);
+      _writeWorkspaceMemberOverride(project);
+
+      await project.patchwork(
+        ['apply', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'already has a dependency override',
+      );
+      expect(project.overrideFile.existsSync(), isFalse);
+      expect(project.appliedDirectory.existsSync(), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'patch allows user-owned path dependencies under dart_tool patchwork',
     () async {
       final project = await ProjectSandbox.standalone();
@@ -252,6 +295,24 @@ packages:
       final greeter = (lock['packages'] as YamlMap)['greeter'] as YamlMap;
       expect((greeter['source'] as YamlMap)['path'], dependencyPath);
       expect(greeter.containsKey('applied'), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'doctor reports uncommitted edit directories',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+
+      await project.patchwork(
+        ['doctor'],
+        exitCodes: {1},
+        stdoutContains: 'uncommitted edit directory',
+      );
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
@@ -558,6 +619,14 @@ dependency_overrides:
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
+}
+
+void _writeWorkspaceMemberOverride(ProjectSandbox project) {
+  File(p.join(project.appRoot, 'pubspec_overrides.yaml')).writeAsStringSync('''
+dependency_overrides:
+  greeter:
+    path: ${p.relative(project.manualOverrideRoot, from: project.appRoot)}
+''');
 }
 
 void _replaceAppliedPath(ProjectSandbox project, String path) {

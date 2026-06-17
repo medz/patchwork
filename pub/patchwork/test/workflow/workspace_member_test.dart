@@ -170,6 +170,38 @@ void main() {
   );
 
   test(
+    'commit removes historical patch files when workspace dependency has the fix',
+    () async {
+      final project = await ProjectSandbox.workspace();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from workspace upstream');
+      await project.patchwork(['commit', 'greeter']);
+      final oldPatch = File(
+        p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
+      );
+      expect(oldPatch.existsSync(), isTrue);
+
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello from workspace upstream, \$name!',
+      );
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      await project.patchwork([
+        'commit',
+        'greeter',
+      ], stdoutContains: 'has no changes');
+
+      expect(oldPatch.existsSync(), isFalse);
+      await project.patchwork(['doctor'], stdoutContains: 'No patchwork');
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'applies and reports member patch state from the workspace root',
     () async {
       final project = await ProjectSandbox.workspace();

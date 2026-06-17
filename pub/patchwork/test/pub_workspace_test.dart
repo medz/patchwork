@@ -40,7 +40,7 @@ void main() {
       );
       addTearDown(() => workspaceRoot.deleteSync(recursive: true));
 
-      _writePubspec(workspaceRoot.path, 'workspace');
+      _writeWorkspacePubspec(workspaceRoot.path);
       final appRoot = p.join(workspaceRoot.path, 'app');
       _writePubspec(appRoot, 'app');
       _writePackageConfig(workspaceRoot.path, [
@@ -67,6 +67,32 @@ void main() {
         p.join(workspaceRoot.path, 'packages', 'member_greeter'),
       });
     });
+
+    test('protects workspace members when package graph is missing', () {
+      final workspaceRoot = Directory.systemTemp.createTempSync(
+        'patchwork_pub_workspace_',
+      );
+      addTearDown(() => workspaceRoot.deleteSync(recursive: true));
+
+      _writeWorkspacePubspec(workspaceRoot.path);
+      final appRoot = p.join(workspaceRoot.path, 'app');
+      _writePubspec(appRoot, 'app');
+      _writePackageConfig(workspaceRoot.path, [
+        const _PackageConfigEntry(name: 'workspace', rootUri: '..'),
+        const _PackageConfigEntry(name: 'app', rootUri: '../app'),
+        const _PackageConfigEntry(
+          name: 'member_greeter',
+          rootUri: '../packages/member_greeter',
+        ),
+      ]);
+
+      final workspace = const PubWorkspaceLocator().locate(appRoot);
+
+      expect(
+        workspace.rootPackageRootPaths,
+        contains(p.join(workspaceRoot.path, 'packages', 'member_greeter')),
+      );
+    });
   });
 }
 
@@ -78,6 +104,21 @@ publish_to: none
 
 environment:
   sdk: ^3.12.0
+''');
+}
+
+void _writeWorkspacePubspec(String root) {
+  Directory(root).createSync(recursive: true);
+  File(p.join(root, 'pubspec.yaml')).writeAsStringSync('''
+name: workspace
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+workspace:
+  - app
+  - packages/member_greeter
 ''');
 }
 

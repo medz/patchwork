@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
 
 import '../error.dart';
 
@@ -118,6 +119,7 @@ final class PubWorkspaceLocator {
     final paths = <String>{
       p.normalize(p.absolute(resolutionRoot)),
       p.normalize(p.absolute(currentPackageRoot)),
+      ..._pubspecWorkspaceRootPaths(resolutionRoot),
     };
 
     final packageRoots = _packageConfigRootPaths(packageConfigPath);
@@ -128,6 +130,30 @@ final class PubWorkspaceLocator {
       }
     }
     return paths;
+  }
+
+  Set<String> _pubspecWorkspaceRootPaths(String resolutionRoot) {
+    try {
+      final decoded = loadYaml(
+        File(p.join(resolutionRoot, 'pubspec.yaml')).readAsStringSync(),
+      );
+      if (decoded is! YamlMap) {
+        return const {};
+      }
+      final workspace = decoded['workspace'];
+      if (workspace is! YamlList) {
+        return const {};
+      }
+      return {
+        for (final item in workspace.nodes)
+          if (item.value is String)
+            p.normalize(p.absolute(resolutionRoot, item.value as String)),
+      };
+    } on YamlException {
+      return const {};
+    } on FileSystemException {
+      return const {};
+    }
   }
 
   Map<String, String> _packageConfigRootPaths(String packageConfigPath) {

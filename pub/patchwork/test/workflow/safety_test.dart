@@ -135,6 +135,39 @@ packages:
   );
 
   test(
+    'undo refuses sibling workspace package roots without package graph',
+    () async {
+      final project = await ProjectSandbox.workspace();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a package-graph-safe patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+
+      File(
+        p.join(project.stateRoot, '.dart_tool', 'package_graph.json'),
+      ).deleteSync();
+      const memberPath = 'packages/member_greeter';
+      _replaceAppliedPath(project, memberPath);
+
+      await project.patchwork(
+        ['undo', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'must not point to a pub project root',
+      );
+      expect(
+        File(
+          p.join(project.stateRoot, memberPath, 'lib', 'member_greeter.dart'),
+        ).existsSync(),
+        isTrue,
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'undo refuses an applied path that resolves outside through a symlink',
     () async {
       final project = await ProjectSandbox.standalone();

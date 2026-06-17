@@ -508,7 +508,7 @@ final class Patchwork {
       if (patch.existsSync()) {
         patch.deleteSync();
       }
-      lock.packages[edit.package] = record.copyWith(clearPatch: true);
+      lock.packages.remove(edit.package);
       _lockStore.write(lock);
       _packageTree.deleteDirectory(edit.path);
       return PatchWrite(

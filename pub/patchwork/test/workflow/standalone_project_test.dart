@@ -130,4 +130,23 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
+
+  test(
+    'commit removes an unchanged edit without leaving a package record',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      await project.patchwork([
+        'commit',
+        'greeter',
+      ], stdoutContains: 'has no changes');
+
+      expect(project.editDirectoryFor('0.1.0').existsSync(), isFalse);
+      await project.patchwork(['doctor'], stdoutContains: 'No patchwork');
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
 }

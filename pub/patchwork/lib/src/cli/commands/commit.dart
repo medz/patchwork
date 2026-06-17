@@ -11,9 +11,7 @@ Future<int> runCommitCommand(
   io.IOSink out,
 ) async {
   final package = singlePackage('commit', arguments, required: false);
-  final packages = package == null
-      ? (await patchwork.inspect()).openEdits.map((status) => status.package)
-      : [package];
+  final packages = package == null ? patchwork.openEditPackages() : [package];
 
   if (packages.isEmpty) {
     out.writeln('No open edits.');

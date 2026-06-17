@@ -95,7 +95,6 @@ final class Patchwork {
       command: 'patch',
     );
 
-    String? continuedFromVersion;
     String? continuedFromPatchPath;
     String? continuedFromPatchContent;
     if (fromPatch != null) {
@@ -116,7 +115,6 @@ final class Patchwork {
       );
       continuedFromPatchContent = patch.readAsStringSync();
       continuedFromPatchPath = patchPath;
-      continuedFromVersion = patchVersion;
     }
 
     final editExists = Directory(editPath).existsSync();
@@ -166,8 +164,6 @@ final class Patchwork {
       version: resolved.version,
       path: editPath,
       sourcePath: resolved.rootPath,
-      source: resolved.source,
-      continuedFromVersion: continuedFromVersion,
       continuedFromPatchPath: continuedFromPatchPath,
     );
   }
@@ -176,6 +172,57 @@ final class Patchwork {
     _checkPlainPackageName(package);
     final edit = _singleEditDirectory(package);
     return _writePatchFromEdit(edit);
+  }
+
+  List<String> openEditPackages() {
+    final packages =
+        _layout.editDirectories().map((edit) => edit.package).toSet().toList()
+          ..sort();
+    return packages;
+  }
+
+  Future<List<String>> packagesNeedingApply() async {
+    final lock = _lockStore.read();
+    if (lock.packages.isEmpty) {
+      return const [];
+    }
+
+    final edits = _layout.editDirectories();
+    final openEditPackages = {for (final edit in edits) edit.package};
+    final resolution = _readResolution();
+    final packages = <String>[];
+    for (final entry in lock.packages.entries) {
+      final package = entry.key;
+      final record = entry.value;
+      final patch = record.patch;
+      if (patch == null) {
+        continue;
+      }
+
+      if (openEditPackages.contains(package)) {
+        final edit = edits.firstWhere((edit) => edit.package == package);
+        throw PatchworkException(
+          'Package "$package" has an open edit directory.',
+          code: 'apply.open_edit',
+          hint: 'Run patchwork commit $package before applying.',
+          location: edit.path,
+        );
+      }
+
+      if (!File(_layout.patchPath(package, record.version)).existsSync()) {
+        continue;
+      }
+      if (!_resolutionMatchesSource(resolution, package, record)) {
+        continue;
+      }
+      if (_hasBlockingPendingOverride(package, record)) {
+        continue;
+      }
+      if (_needsApply(package, record, patch)) {
+        packages.add(package);
+      }
+    }
+    return packages;
   }
 
   Future<AppliedPatch> applyPatch(String package) async {
@@ -290,7 +337,6 @@ final class Patchwork {
       version: record.version,
       path: appliedPath,
       patchPath: patchPath,
-      patchSha256: patchSha256,
     );
   }
 
@@ -341,14 +387,12 @@ final class Patchwork {
       ...lock.packages.keys,
       ...edits.map((edit) => edit.package),
     };
-    final statuses = <PatchStatus>[];
-    PubResolution? resolution;
-    PatchworkException? resolutionError;
-    try {
-      resolution = _readResolution();
-    } on PatchworkException catch (error) {
-      resolutionError = error;
+    if (packages.isEmpty) {
+      return const PatchworkState(packages: []);
     }
+
+    final statuses = <PatchStatus>[];
+    final resolution = _readResolution();
 
     for (final package in packages.toList()..sort()) {
       final record = lock.packages[package];
@@ -364,7 +408,6 @@ final class Patchwork {
           record: record,
           edit: edit,
           resolution: resolution,
-          resolutionError: resolutionError,
         ),
       );
     }
@@ -513,8 +556,6 @@ final class Patchwork {
         status: PatchWriteStatus.unchanged,
         editPath: edit.path,
         patchPath: patchPath,
-        patchSha256: currentPatch.sha256,
-        editSha256: editSha256,
       );
     }
 
@@ -536,7 +577,6 @@ final class Patchwork {
         status: PatchWriteStatus.removed,
         editPath: edit.path,
         patchPath: patchPath,
-        editSha256: editSha256,
       );
     }
 
@@ -559,8 +599,6 @@ final class Patchwork {
       status: PatchWriteStatus.written,
       editPath: edit.path,
       patchPath: patchPath,
-      patchSha256: patchSha256,
-      editSha256: editSha256,
     );
   }
 
@@ -577,12 +615,7 @@ final class Patchwork {
             'If you upgraded the dependency, run patchwork undo $package, dart pub get, then patchwork patch $package --continue ${record.version}.',
       );
     }
-    final appliedPath = record.applied?.path;
-    if (appliedPath != null &&
-        p.equals(
-          p.normalize(p.absolute(_rootPath, resolved.rootPath)),
-          p.normalize(p.absolute(_rootPath, appliedPath)),
-        )) {
+    if (_resolvesToApplied(resolved, record)) {
       throw PatchworkException(
         'Package "$package" still resolves to the applied Patchwork output.',
         code: 'applied.pub_get_required',
@@ -601,13 +634,69 @@ final class Patchwork {
     }
   }
 
+  bool _resolutionMatchesSource(
+    PubResolution resolution,
+    String package,
+    LockfilePackage record,
+  ) {
+    try {
+      final resolved = resolution.resolvePackage(package);
+      return resolved.version == record.version &&
+          resolved.source == record.source &&
+          !_resolvesToApplied(resolved, record);
+    } on PatchworkException {
+      return false;
+    }
+  }
+
+  bool _resolvesToApplied(ResolvedPubPackage resolved, LockfilePackage record) {
+    final appliedPath = record.applied?.path;
+    return appliedPath != null &&
+        p.equals(
+          p.normalize(p.absolute(_rootPath, resolved.rootPath)),
+          p.normalize(p.absolute(_rootPath, appliedPath)),
+        );
+  }
+
+  bool _hasBlockingPendingOverride(String package, LockfilePackage record) {
+    return record.applied == null &&
+        _pubspecOverrides.hasBlockingPathOverride(
+          workspaceRootPath: _rootPath,
+          package: package,
+          path: _layout.relativeAppliedPath(package, record.version),
+          replaceExisting: false,
+        );
+  }
+
+  bool _needsApply(
+    String package,
+    LockfilePackage record,
+    CommittedPatch patch,
+  ) {
+    final applied = record.applied;
+    if (applied == null) {
+      return true;
+    }
+    if (!_layout.isExpectedAppliedPath(package, record.version, applied.path)) {
+      return false;
+    }
+
+    final appliedPath = p.absolute(_rootPath, applied.path);
+    return !Directory(appliedPath).existsSync() ||
+        !_pubspecOverrides.pointsToPath(
+          workspaceRootPath: _rootPath,
+          package: package,
+          path: applied.path,
+        ) ||
+        applied.patchSha256 != patch.sha256;
+  }
+
   PatchStatus _inspectPackage({
     required String package,
     required String version,
     required LockfilePackage? record,
     required List<PackageVersionPath> edit,
-    required PubResolution? resolution,
-    required PatchworkException? resolutionError,
+    required PubResolution resolution,
   }) {
     final problems = <PatchProblem>[];
     if (edit.length > 1) {
@@ -631,25 +720,10 @@ final class Patchwork {
     var pubResolutionPointsToApplied = false;
     var pubResolutionMatchesSource = false;
 
-    if (resolutionError != null) {
-      problems.add(
-        PatchProblem(
-          code: resolutionError.code,
-          message: resolutionError.message,
-          hint: resolutionError.hint,
-        ),
-      );
-    } else if (resolution != null && record != null) {
+    if (record != null) {
       try {
         final resolved = resolution.resolvePackage(package);
-        final applied = record.applied;
-        final expectedAppliedPath = applied == null
-            ? null
-            : p.normalize(p.absolute(_rootPath, applied.path));
-        final resolvedPath = p.normalize(p.absolute(resolved.rootPath));
-        pubResolutionPointsToApplied =
-            expectedAppliedPath != null &&
-            p.equals(resolvedPath, expectedAppliedPath);
+        pubResolutionPointsToApplied = _resolvesToApplied(resolved, record);
         if (!pubResolutionPointsToApplied) {
           if (resolved.version != record.version ||
               resolved.source != record.source) {
@@ -666,7 +740,7 @@ final class Patchwork {
             pubResolutionMatchesSource = true;
           }
         }
-        if (applied != null && !pubResolutionPointsToApplied) {
+        if (record.applied != null && !pubResolutionPointsToApplied) {
           problems.add(
             PatchProblem(
               code: 'applied.pub_get_required',
@@ -751,17 +825,10 @@ final class Patchwork {
           package: package,
           path: applied.path,
         );
-    final pendingAppliedPath = _layout.relativeAppliedPath(package, version);
     final hasBlockingOverride =
         lockPatch != null &&
         hasPatchFile &&
-        applied == null &&
-        _pubspecOverrides.hasBlockingPathOverride(
-          workspaceRootPath: _rootPath,
-          package: package,
-          path: pendingAppliedPath,
-          replaceExisting: false,
-        );
+        _hasBlockingPendingOverride(package, record!);
     final repairHint = pubResolutionMatchesSource
         ? 'Run patchwork apply $package.'
         : 'Run patchwork undo $package, dart pub get, then patchwork apply $package.';
@@ -835,7 +902,6 @@ final class Patchwork {
       patchPath: patchPath,
       appliedPath: appliedAbsolutePath,
       hasOpenEdit: edit.isNotEmpty,
-      hasCommittedPatch: lockPatch != null,
       hasPatch: lockPatch != null && hasPatchFile,
       isApplied:
           applied != null &&
@@ -849,13 +915,7 @@ final class Patchwork {
           edit.isEmpty &&
           pubResolutionMatchesSource &&
           !hasBlockingOverride &&
-          (applied == null ||
-              !appliedExists ||
-              !overridePointsToApplied ||
-              applied.patchSha256 != lockPatch.sha256),
-      source: record?.source,
-      patchSha256: lockPatch?.sha256,
-      appliedPatchSha256: applied?.patchSha256,
+          _needsApply(package, record!, lockPatch),
       problems: problems,
     );
   }

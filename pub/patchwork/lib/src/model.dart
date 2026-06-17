@@ -46,8 +46,6 @@ final class PreparedEdit {
     required this.version,
     required this.path,
     required this.sourcePath,
-    required this.source,
-    this.continuedFromVersion,
     this.continuedFromPatchPath,
   });
 
@@ -55,8 +53,6 @@ final class PreparedEdit {
   final String version;
   final String path;
   final String sourcePath;
-  final PackageSource source;
-  final String? continuedFromVersion;
   final String? continuedFromPatchPath;
 }
 
@@ -69,8 +65,6 @@ final class PatchWrite {
     required this.status,
     required this.editPath,
     required this.patchPath,
-    this.patchSha256,
-    this.editSha256,
   });
 
   final String package;
@@ -78,8 +72,6 @@ final class PatchWrite {
   final PatchWriteStatus status;
   final String editPath;
   final String patchPath;
-  final String? patchSha256;
-  final String? editSha256;
 }
 
 final class AppliedPatch {
@@ -88,14 +80,12 @@ final class AppliedPatch {
     required this.version,
     required this.path,
     required this.patchPath,
-    required this.patchSha256,
   });
 
   final String package;
   final String version;
   final String path;
   final String patchPath;
-  final String patchSha256;
 }
 
 final class UnappliedPatch {
@@ -126,13 +116,9 @@ final class PatchStatus {
     required this.patchPath,
     required this.appliedPath,
     required this.hasOpenEdit,
-    required this.hasCommittedPatch,
     required this.hasPatch,
     required this.isApplied,
     required this.needsApply,
-    this.source,
-    this.patchSha256,
-    this.appliedPatchSha256,
     this.problems = const [],
   });
 
@@ -142,13 +128,9 @@ final class PatchStatus {
   final String patchPath;
   final String? appliedPath;
   final bool hasOpenEdit;
-  final bool hasCommittedPatch;
   final bool hasPatch;
   final bool isApplied;
   final bool needsApply;
-  final PackageSource? source;
-  final String? patchSha256;
-  final String? appliedPatchSha256;
   final List<PatchProblem> problems;
 }
 
@@ -156,10 +138,6 @@ final class PatchworkState {
   const PatchworkState({required this.packages});
 
   final List<PatchStatus> packages;
-
-  Iterable<PatchStatus> get openEdits {
-    return packages.where((package) => package.hasOpenEdit);
-  }
 
   Iterable<PatchStatus> get needsApply {
     return packages.where((package) => package.needsApply);

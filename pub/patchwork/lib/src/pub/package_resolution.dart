@@ -9,9 +9,7 @@ import '../internal/package_tree.dart';
 import '../model.dart';
 import 'pub_workspace.dart';
 
-enum PubPackageSourceKind { hosted, path, git, sdk, root, unknown }
-
-enum PubPackageDependencyKind { root, directMain, directDev, transitive }
+enum PubPackageSourceKind { hosted, path, git, sdk, unknown }
 
 final class ResolvedPubPackage {
   const ResolvedPubPackage({
@@ -58,9 +56,7 @@ final class PubResolutionReader {
     );
   }
 
-  Map<String, _PackageConfigPackage> _readPackageConfig(
-    PubWorkspace workspace,
-  ) {
+  Map<String, String> _readPackageConfig(PubWorkspace workspace) {
     final packageConfigFile = File(workspace.packageConfigPath);
     try {
       final decoded = jsonDecode(packageConfigFile.readAsStringSync());
@@ -79,7 +75,7 @@ final class PubResolutionReader {
         );
       }
 
-      final entries = <String, _PackageConfigPackage>{};
+      final entries = <String, String>{};
       for (final package in packages) {
         if (package is! Map<String, Object?>) {
           throw _malformedPackageConfig(
@@ -104,9 +100,7 @@ final class PubResolutionReader {
           );
         }
 
-        entries[name] = _PackageConfigPackage(
-          rootPath: _resolvePackageRootUri(workspace, rootUri),
-        );
+        entries[name] = _resolvePackageRootUri(workspace, rootUri);
       }
       return entries;
     } on FormatException catch (error) {
@@ -197,7 +191,6 @@ final class PubResolutionReader {
     if (!packageGraph.existsSync()) {
       return _PackageGraph(
         rootNames: {currentPackageName},
-        currentPackageName: currentPackageName,
         directMainDependencies: dependencies.main,
         directDevDependencies: dependencies.dev,
       );
@@ -219,7 +212,6 @@ final class PubResolutionReader {
 
       return _PackageGraph(
         rootNames: rootNames,
-        currentPackageName: currentPackageName,
         directMainDependencies: dependencies.main,
         directDevDependencies: dependencies.dev,
       );
@@ -288,11 +280,7 @@ final class PubResolutionReader {
     PubWorkspace workspace,
     Object? value, {
     required String fieldName,
-    bool allowMissing = false,
   }) {
-    if (value == null && allowMissing) {
-      return {};
-    }
     if (value is! List<Object?>) {
       throw _malformedPackageGraph(
         workspace,
@@ -412,8 +400,8 @@ final class PubResolution {
     }
 
     if (_graph.isRoot(packageName) ||
-        p.equals(packageConfig.rootPath, workspace.currentPackageRootPath) ||
-        p.equals(packageConfig.rootPath, workspace.rootPath)) {
+        p.equals(packageConfig, workspace.currentPackageRootPath) ||
+        p.equals(packageConfig, workspace.rootPath)) {
       throw PatchworkException(
         'Package "$packageName" is a workspace/root package and cannot be patched.',
         code: 'pub.package_is_project',
@@ -438,9 +426,7 @@ final class PubResolution {
       );
     }
 
-    final dependencyKind = _graph.dependencyKindFor(packageName);
-    if (dependencyKind != PubPackageDependencyKind.directMain &&
-        dependencyKind != PubPackageDependencyKind.directDev) {
+    if (!_graph.isDirectDependency(packageName)) {
       throw PatchworkException(
         'Package "$packageName" is not a direct dependency of the current project.',
         code: 'pub.package_not_direct_dependency',
@@ -449,20 +435,20 @@ final class PubResolution {
       );
     }
 
-    if (!Directory(packageConfig.rootPath).existsSync()) {
+    if (!Directory(packageConfig).existsSync()) {
       throw PatchworkException(
         'Resolved package root does not exist for "$packageName".',
         code: 'pub.package_root_missing',
         hint: 'Run dart pub get to refresh pub resolution metadata.',
-        location: packageConfig.rootPath,
+        location: packageConfig,
       );
     }
 
     return ResolvedPubPackage(
       name: packageName,
       version: metadata.version,
-      rootPath: packageConfig.rootPath,
-      source: _sourceFor(metadata, packageConfig.rootPath, workspace),
+      rootPath: packageConfig,
+      source: _sourceFor(metadata, packageConfig, workspace),
     );
   }
 
@@ -499,7 +485,6 @@ final class PubResolution {
           fields['path'] = path;
         }
       case PubPackageSourceKind.sdk:
-      case PubPackageSourceKind.root:
       case PubPackageSourceKind.unknown:
         break;
     }
@@ -512,21 +497,15 @@ final class PubResolution {
   }
 }
 
-final class _PackageConfigPackage {
-  const _PackageConfigPackage({required this.rootPath});
-
-  final String rootPath;
-}
-
 final class _PackageIndex {
   const _PackageIndex({required this.packageConfig, required this.lockfile});
 
-  final Map<String, _PackageConfigPackage> packageConfig;
+  final Map<String, String> packageConfig;
   final Map<String, _ResolutionMetadataPackage> lockfile;
 
   String currentPackageName(PubWorkspace workspace) {
     for (final entry in packageConfig.entries) {
-      if (p.equals(entry.value.rootPath, workspace.currentPackageRootPath)) {
+      if (p.equals(entry.value, workspace.currentPackageRootPath)) {
         return entry.key;
       }
     }
@@ -561,31 +540,21 @@ final class _PubspecDependencies {
 final class _PackageGraph {
   const _PackageGraph({
     required this.rootNames,
-    required this.currentPackageName,
     required this.directMainDependencies,
     required this.directDevDependencies,
   });
 
   final Set<String> rootNames;
-  final String currentPackageName;
   final Set<String> directMainDependencies;
   final Set<String> directDevDependencies;
 
   bool isRoot(String name) {
-    return rootNames.contains(name) || name == currentPackageName;
+    return rootNames.contains(name);
   }
 
-  PubPackageDependencyKind dependencyKindFor(String name) {
-    if (isRoot(name)) {
-      return PubPackageDependencyKind.root;
-    }
-    if (directMainDependencies.contains(name)) {
-      return PubPackageDependencyKind.directMain;
-    }
-    if (directDevDependencies.contains(name)) {
-      return PubPackageDependencyKind.directDev;
-    }
-    return PubPackageDependencyKind.transitive;
+  bool isDirectDependency(String name) {
+    return directMainDependencies.contains(name) ||
+        directDevDependencies.contains(name);
   }
 }
 

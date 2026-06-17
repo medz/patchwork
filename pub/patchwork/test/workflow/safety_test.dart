@@ -540,6 +540,43 @@ packages:
   );
 
   test(
+    'apply preserves active pubspec_overrides entries over shadowed pubspec',
+    () async {
+      final project = await ProjectSandbox.standalone(
+        includeOtherDependency: true,
+      );
+      addTearDown(project.dispose);
+
+      project.writeOtherOverride();
+      _writePubspecDependencyOverride(
+        project,
+        packageRoot: project.stateRoot,
+        package: 'other_pkg',
+        targetRoot: project.otherRoot!,
+      );
+      await project.pubGet();
+      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello while preserving active overrides');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      await project.pubGet();
+
+      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+      final overrides = project.overrideFile.readAsStringSync();
+      expect(overrides, contains('manual_other_pkg'));
+      expect(
+        overrides,
+        isNot(
+          contains(p.relative(project.otherRoot!, from: project.stateRoot)),
+        ),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'workspace-root apply refuses same-package overrides from a workspace member',
     () async {
       final project = await ProjectSandbox.workspace();

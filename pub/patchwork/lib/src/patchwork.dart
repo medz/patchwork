@@ -497,6 +497,7 @@ final class Patchwork {
       workspaceRootPath: _rootPath,
       package: package,
       path: applied.path,
+      pubspecDependencyOverrides: _pubspecDependencyOverridesForApply(package),
     );
     _packageTree.deleteDirectory(absoluteAppliedPath);
 

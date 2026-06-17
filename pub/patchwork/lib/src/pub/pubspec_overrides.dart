@@ -30,10 +30,16 @@ final class PubspecOverrides {
     Map<String, Object?> pubspecDependencyOverrides = const {},
   }) {
     final overrides = _read(workspaceRootPath);
+    final hasActiveDependencyOverrides = overrides.containsKey(
+      'dependency_overrides',
+    );
     final dependencyOverrides = _dependencyOverrides(
       overrides,
       workspaceRootPath,
-    )..addAll(pubspecDependencyOverrides);
+    );
+    if (!hasActiveDependencyOverrides) {
+      dependencyOverrides.addAll(pubspecDependencyOverrides);
+    }
     dependencyOverrides[package] = {'path': path};
     overrides['dependency_overrides'] = dependencyOverrides;
     _write(workspaceRootPath, overrides);
@@ -100,6 +106,7 @@ final class PubspecOverrides {
     required String workspaceRootPath,
     required String package,
     required String path,
+    Map<String, Object?> pubspecDependencyOverrides = const {},
   }) {
     final overrides = _read(workspaceRootPath);
     final dependencyOverrides = _dependencyOverrides(
@@ -117,6 +124,11 @@ final class PubspecOverrides {
     }
 
     dependencyOverrides.remove(package);
+    _removeRedundantPubspecDependencyOverrides(
+      dependencyOverrides,
+      pubspecDependencyOverrides,
+      workspaceRootPath,
+    );
     if (dependencyOverrides.isEmpty) {
       overrides.remove('dependency_overrides');
     } else {
@@ -226,6 +238,41 @@ final class PubspecOverrides {
   }
 }
 
+void _removeRedundantPubspecDependencyOverrides(
+  Map<String, Object?> dependencyOverrides,
+  Map<String, Object?> pubspecDependencyOverrides,
+  String workspaceRootPath,
+) {
+  if (_hasPatchworkPathOverride(dependencyOverrides, workspaceRootPath)) {
+    return;
+  }
+  for (final entry in pubspecDependencyOverrides.entries) {
+    final existing = dependencyOverrides[entry.key];
+    if (_sameOverrideValue(workspaceRootPath, existing, entry.value)) {
+      dependencyOverrides.remove(entry.key);
+    }
+  }
+}
+
+bool _hasPatchworkPathOverride(
+  Map<String, Object?> dependencyOverrides,
+  String workspaceRootPath,
+) {
+  return dependencyOverrides.values.any((value) {
+    if (value is! Map<String, Object?> || value['path'] is! String) {
+      return false;
+    }
+    final path = value['path'] as String;
+    final absolute = p.normalize(
+      p.isAbsolute(path) ? path : p.absolute(workspaceRootPath, path),
+    );
+    final appliedRoot = p.normalize(
+      p.absolute(workspaceRootPath, '.dart_tool', 'patchwork'),
+    );
+    return p.equals(absolute, appliedRoot) || p.isWithin(appliedRoot, absolute);
+  });
+}
+
 String _path(String workspaceRootPath) {
   return p.join(workspaceRootPath, 'pubspec_overrides.yaml');
 }
@@ -242,6 +289,49 @@ bool _pathsPointToSameLocation(
     p.isAbsolute(right) ? right : p.absolute(workspaceRootPath, right),
   );
   return p.equals(leftAbsolute, rightAbsolute);
+}
+
+bool _sameOverrideValue(String workspaceRootPath, Object? left, Object? right) {
+  if (left is Map<String, Object?> && right is Map<String, Object?>) {
+    final leftPath = left['path'];
+    final rightPath = right['path'];
+    if (leftPath is String && rightPath is String) {
+      final leftRest = Map<String, Object?>.of(left)..remove('path');
+      final rightRest = Map<String, Object?>.of(right)..remove('path');
+      return _pathsPointToSameLocation(
+            workspaceRootPath,
+            leftPath,
+            rightPath,
+          ) &&
+          _sameOverrideValue(workspaceRootPath, leftRest, rightRest);
+    }
+    if (left.length != right.length) {
+      return false;
+    }
+    for (final entry in left.entries) {
+      if (!right.containsKey(entry.key) ||
+          !_sameOverrideValue(
+            workspaceRootPath,
+            entry.value,
+            right[entry.key],
+          )) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (left is List<Object?> && right is List<Object?>) {
+    if (left.length != right.length) {
+      return false;
+    }
+    for (var index = 0; index < left.length; index += 1) {
+      if (!_sameOverrideValue(workspaceRootPath, left[index], right[index])) {
+        return false;
+      }
+    }
+    return true;
+  }
+  return left == right;
 }
 
 Map<String, Object?> _toStringKeyedMap(YamlMap map, String location) {

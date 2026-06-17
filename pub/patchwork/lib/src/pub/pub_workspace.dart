@@ -6,7 +6,14 @@ import 'package:yaml/yaml.dart';
 
 import '../error.dart';
 
+/// The pub project context selected for a Patchwork command.
+///
+/// A command may run from a standalone package, a workspace root, or a workspace
+/// member. This value records both the current package and the root that owns
+/// generated pub resolution files so Patchwork can keep state in the same place
+/// pub will read overrides from.
 final class PubWorkspace {
+  /// Creates workspace metadata discovered from pub files.
   const PubWorkspace({
     required this.rootPath,
     required this.currentPackageRootPath,
@@ -16,17 +23,39 @@ final class PubWorkspace {
     required this.packageGraphPath,
   });
 
+  /// The root that owns `.dart_tool/package_config.json` and `pubspec.lock`.
   final String rootPath;
+
+  /// The nearest package root containing the command's working directory.
   final String currentPackageRootPath;
+
+  /// Package roots that are part of the user's project, not patch targets.
   final Set<String> rootPackageRootPaths;
+
+  /// The active `.dart_tool/package_config.json` path.
   final String packageConfigPath;
+
+  /// The active `pubspec.lock` path.
   final String lockfilePath;
+
+  /// The active `.dart_tool/package_graph.json` path.
   final String packageGraphPath;
 }
 
+/// Locates the pub project context for a command directory.
+///
+/// The locator walks ancestors to find the nearest `pubspec.yaml`, then walks
+/// again to find the pub resolution root whose `package_config.json` contains
+/// that package. This mirrors pub's workspace/member behavior closely enough
+/// for Patchwork to choose where state files belong.
 final class PubWorkspaceLocator {
+  /// Creates a workspace locator.
   const PubWorkspaceLocator();
 
+  /// Returns workspace metadata for [currentDirectory].
+  ///
+  /// Throws [PatchworkException] when no package root or active pub resolution
+  /// can be found.
   PubWorkspace locate(String currentDirectory) {
     final startPath = p.normalize(p.absolute(currentDirectory));
     final currentPackageRoot = _findNearestPackageRoot(startPath);

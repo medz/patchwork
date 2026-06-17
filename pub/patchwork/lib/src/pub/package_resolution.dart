@@ -9,29 +9,71 @@ import '../internal/package_tree.dart';
 import '../model.dart';
 import 'pub_workspace.dart';
 
-enum PubPackageSourceKind { hosted, path, git, sdk, unknown }
+/// Source kinds read from pub's `pubspec.lock`.
+///
+/// Patchwork supports sources that can be copied, hashed, and patched as a
+/// package tree. SDK and unknown sources are represented so callers can produce
+/// precise errors instead of treating them as missing packages.
+enum PubPackageSourceKind {
+  /// A hosted pub package.
+  hosted,
 
+  /// A local path dependency.
+  path,
+
+  /// A Git dependency.
+  git,
+
+  /// A Dart or Flutter SDK package.
+  sdk,
+
+  /// A source kind Patchwork does not understand.
+  unknown,
+}
+
+/// A dependency selected by the current pub resolution.
+///
+/// The [rootPath] comes from `.dart_tool/package_config.json`, while [version]
+/// and source description come from `pubspec.lock`. Patchwork combines both
+/// files because neither one contains enough information on its own.
 final class ResolvedPubPackage {
+  /// Creates resolved dependency metadata.
   const ResolvedPubPackage({
     required this.version,
     required this.rootPath,
     required this.source,
   });
 
+  /// The concrete package version selected by pub.
   final String version;
+
+  /// The package root path selected by pub.
   final String rootPath;
+
+  /// The source identity and content hash Patchwork will lock against.
   final PackageSource source;
 }
 
+/// Reads the active pub resolution for a Dart package or workspace member.
+///
+/// Pub spreads resolution data across generated JSON, `pubspec.lock`, and the
+/// current package's `pubspec.yaml`. This reader normalizes those files into a
+/// [PubResolution] that can answer whether a dependency is direct, patchable,
+/// and safe to use as a baseline.
 final class PubResolutionReader {
+  /// Creates a resolution reader with injectable filesystem helpers.
   const PubResolutionReader({
     this.workspaceLocator = const PubWorkspaceLocator(),
     this.packageTree = const PackageTree(),
   });
 
+  /// Locates the package or workspace that owns the active pub resolution.
   final PubWorkspaceLocator workspaceLocator;
+
+  /// Computes content hashes for resolved package roots.
   final PackageTree packageTree;
 
+  /// Reads and validates the pub resolution active for [currentDirectory].
   PubResolution readFromDirectory(String currentDirectory) {
     final workspace = workspaceLocator.locate(currentDirectory);
     final packages = _PackageIndex(
@@ -362,6 +404,11 @@ final class PubResolutionReader {
   }
 }
 
+/// Provides patch-oriented lookup over an active pub resolution.
+///
+/// The object rejects workspace roots, SDK packages, missing lockfile metadata,
+/// and indirect dependencies when the caller requires a direct dependency. A
+/// successful lookup returns the package tree Patchwork can copy and diff.
 final class PubResolution {
   const PubResolution._({
     required this.workspace,
@@ -371,12 +418,21 @@ final class PubResolution {
     required this.packageTree,
   });
 
+  /// The package or workspace that owns the active pub resolution files.
   final PubWorkspace workspace;
   final _PackageIndex _packages;
   final Set<String> _rootNames;
   final Set<String> _directDependencies;
+
+  /// Computes content hashes used in returned [PackageSource] values.
   final PackageTree packageTree;
 
+  /// Resolves [packageName] to a patchable dependency source.
+  ///
+  /// When [requireDirectDependency] is true, the package must be declared by the
+  /// current package's `dependencies` or `dev_dependencies`. Apply operations
+  /// pass false because they may need to refresh already-recorded patches after
+  /// the direct-dependency relationship has changed.
   ResolvedPubPackage resolvePackage(
     String packageName, {
     bool requireDirectDependency = true,

@@ -4,6 +4,11 @@ import '../../patchwork.dart';
 import '../arguments.dart';
 import '../output.dart';
 
+/// Runs `patchwork doctor`.
+///
+/// The output is the same status report used by `patchwork status`, but the exit
+/// code is non-zero when Patchwork finds problems or patches that still need to
+/// be applied.
 Future<int> runDoctorCommand(
   Patchwork patchwork,
   List<String> arguments,

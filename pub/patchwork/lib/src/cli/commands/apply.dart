@@ -3,6 +3,11 @@ import 'dart:io' as io;
 import '../../patchwork.dart';
 import '../arguments.dart';
 
+/// Runs `patchwork apply`.
+///
+/// Without a package operand this applies every committed patch that currently
+/// needs generated output. When at least one patch is applied, the command also
+/// reminds the user to run `dart pub get` so pub sees the generated overrides.
 Future<int> runApplyCommand(
   Patchwork patchwork,
   List<String> arguments,

@@ -7,11 +7,22 @@ import '../error.dart';
 import '../internal/yaml_writer.dart';
 import '../io/atomic_file_writer.dart';
 
+/// Reads and updates dependency overrides in `pubspec_overrides.yaml`.
+///
+/// Patchwork writes only generated path overrides for patched packages. The
+/// file can also contain user-owned overrides, so removal and replacement
+/// methods verify the existing path before mutating a package entry.
 final class PubspecOverrides {
+  /// Creates an overrides helper with an injectable file writer.
   const PubspecOverrides({this.fileWriter = const AtomicFileWriter()});
 
+  /// The writer used to persist overrides updates.
   final AtomicFileWriter fileWriter;
 
+  /// Inserts or replaces the path override for [package].
+  ///
+  /// The resulting override is written under `dependency_overrides` and points
+  /// at [path], usually a project-relative `.dart_tool/patchwork/...` path.
   void upsertPathOverride({
     required String workspaceRootPath,
     required String package,
@@ -27,6 +38,11 @@ final class PubspecOverrides {
     _write(workspaceRootPath, overrides);
   }
 
+  /// Returns whether an existing override blocks writing [path] for [package].
+  ///
+  /// When [replaceExisting] is true, an override that already points to [path]
+  /// is considered Patchwork-owned and therefore non-blocking. Any other
+  /// same-package override is treated as user-owned state.
   bool hasBlockingPathOverride({
     required String workspaceRootPath,
     required String package,
@@ -54,6 +70,7 @@ final class PubspecOverrides {
     return true;
   }
 
+  /// Returns whether any override entry exists for [package].
   bool hasOverride({
     required String workspaceRootPath,
     required String package,
@@ -65,6 +82,9 @@ final class PubspecOverrides {
     return dependencyOverrides.containsKey(package);
   }
 
+  /// Removes the override for [package] only if it still points at [path].
+  ///
+  /// This protects user edits made after Patchwork applied a package.
   bool removePathOverrideIfMatches({
     required String workspaceRootPath,
     required String package,
@@ -95,6 +115,7 @@ final class PubspecOverrides {
     return true;
   }
 
+  /// Returns whether the override for [package] points at [path].
   bool pointsToPath({
     required String workspaceRootPath,
     required String package,

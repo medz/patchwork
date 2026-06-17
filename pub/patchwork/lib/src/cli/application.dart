@@ -11,13 +11,27 @@ import 'commands/status.dart';
 import 'commands/undo.dart';
 import 'output.dart';
 
+/// Dispatches process arguments to Patchwork commands.
+///
+/// The application layer owns user-facing error rendering and exit-code
+/// translation. Command implementations can throw [PatchworkException] with a
+/// stable code and leave presentation to this class.
 final class Application {
+  /// Creates a CLI runner with optional injected IO and working directory.
   const Application({this.stdout, this.stderr, this.workingDirectory});
 
+  /// The sink used for normal command output.
   final io.IOSink? stdout;
+
+  /// The sink used for command errors.
   final io.IOSink? stderr;
+
+  /// The directory used to locate the active Dart project.
+  ///
+  /// When omitted, [io.Directory.current] is used.
   final String? workingDirectory;
 
+  /// Runs the CLI with process [arguments] and returns a process exit code.
   Future<int> run(List<String> arguments) async {
     final out = stdout ?? io.stdout;
     final err = stderr ?? io.stderr;
@@ -60,6 +74,7 @@ final class Application {
   }
 }
 
+/// Whether [command] is a command name handled by [Application].
 bool isKnownCommand(String command) {
   return switch (command) {
     'patch' || 'commit' || 'apply' || 'undo' || 'status' || 'doctor' => true,
@@ -67,6 +82,7 @@ bool isKnownCommand(String command) {
   };
 }
 
+/// Writes top-level usage help.
 void printGeneralHelp(io.IOSink out) {
   out.writeln('Usage: patchwork <command> [arguments]');
   out.writeln('');
@@ -79,6 +95,7 @@ void printGeneralHelp(io.IOSink out) {
   out.writeln('  doctor');
 }
 
+/// Writes usage help for a single [command].
 void printCommandHelp(String command, io.IOSink out) {
   switch (command) {
     case 'patch':

@@ -6,9 +6,20 @@ import 'package:path/path.dart' as p;
 
 import '../error.dart';
 
+/// Copies and hashes dependency package trees using Patchwork's filter rules.
+///
+/// The hash is intended to describe the source files that matter for patching,
+/// not transient pub or build output. The same filters are used for hashing and
+/// copying so a generated patch is based on the same tree that was fingerprinted.
 final class PackageTree {
+  /// Creates a package tree helper.
   const PackageTree();
 
+  /// Computes Patchwork's deterministic SHA-256 hash for [rootPath].
+  ///
+  /// The hash includes relative paths, file modes, file contents, and symlink
+  /// targets. Entries such as `.dart_tool`, `build`, `.git`, `.packages`, and
+  /// `pubspec.lock` are ignored because they are generated or environment local.
   String sha256Of(String rootPath) {
     final root = Directory(rootPath);
     if (!root.existsSync()) {
@@ -40,6 +51,10 @@ final class PackageTree {
     return digestSink.digest.toString();
   }
 
+  /// Copies a filtered package tree from [sourcePath] to [destinationPath].
+  ///
+  /// Existing contents of [destinationPath] are preserved unless overwritten by
+  /// copied files; callers normally pass a fresh temporary directory.
   void copy(String sourcePath, String destinationPath) {
     final source = Directory(sourcePath);
     if (!source.existsSync()) {
@@ -58,6 +73,7 @@ final class PackageTree {
     _copyDirectory(sourcePath, destinationPath, sourceRootPath: sourcePath);
   }
 
+  /// Deletes [path] recursively when it exists.
   void deleteDirectory(String path) {
     final directory = Directory(path);
     if (directory.existsSync()) {

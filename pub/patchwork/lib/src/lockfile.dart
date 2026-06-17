@@ -8,15 +8,29 @@ import 'internal/yaml_writer.dart';
 import 'io/atomic_file_writer.dart';
 import 'model.dart';
 
+/// Reads and writes `patchwork.lock`.
+///
+/// The store treats a missing or empty file as an empty lockfile, but rejects
+/// malformed content with [PatchworkException]. All writes go through
+/// [fileWriter] so callers get the same atomic-write behavior as other
+/// Patchwork state files.
 final class LockfileStore {
+  /// Creates a store for the lockfile at [path].
   const LockfileStore({
     required this.path,
     this.fileWriter = const AtomicFileWriter(),
   });
 
+  /// The path to `patchwork.lock`.
   final String path;
+
+  /// The writer used to persist lockfile updates.
   final AtomicFileWriter fileWriter;
 
+  /// Reads and validates the lockfile.
+  ///
+  /// Returns [Lockfile.empty] if [path] does not exist or contains only
+  /// whitespace.
   Lockfile read() {
     try {
       final file = File(path);
@@ -92,6 +106,7 @@ final class LockfileStore {
     }
   }
 
+  /// Serializes [lockfile] as deterministic YAML.
   void write(Lockfile lockfile) {
     fileWriter.writeString(path, '${formatYamlMap(lockfile.toYaml())}\n');
   }
@@ -248,16 +263,24 @@ final class LockfileStore {
   }
 }
 
+/// The in-memory representation of a Patchwork lockfile.
+///
+/// A lockfile is intentionally package-keyed so operations can update one
+/// package without depending on the order in which pub reports dependencies.
 final class Lockfile {
+  /// Creates a lockfile with package records sorted by package name.
   Lockfile({required Map<String, LockfilePackage> packages})
     : packages = SplayTreeMap<String, LockfilePackage>.of(packages);
 
+  /// Creates a lockfile with no package records.
   factory Lockfile.empty() {
     return Lockfile(packages: const {});
   }
 
+  /// Package records keyed by dependency package name.
   final SplayTreeMap<String, LockfilePackage> packages;
 
+  /// Converts this lockfile to the versioned YAML structure on disk.
   Map<String, Object?> toYaml() {
     return {
       'version': 2,
@@ -268,7 +291,14 @@ final class Lockfile {
   }
 }
 
+/// Lockfile state for one patched dependency package.
+///
+/// The record captures the source fingerprint Patchwork last accepted, the
+/// committed patch hash currently tied to that source, optional older patch
+/// hashes for continuation workflows, and the generated output path that may be
+/// safely undone.
 final class LockfilePackage {
+  /// Creates lockfile state for one dependency package.
   const LockfilePackage({
     required this.version,
     required this.source,
@@ -277,12 +307,25 @@ final class LockfilePackage {
     this.applied,
   });
 
+  /// The resolved dependency version this record applies to.
   final String version;
+
+  /// The source tree identity Patchwork verified for [version].
   final PackageSource source;
+
+  /// The committed patch tied to [source], when one exists.
   final CommittedPatch? patch;
+
+  /// Patch file hashes for older package versions kept for `--continue`.
   final Map<String, String> patchHistory;
+
+  /// The generated output Patchwork last wrote into pub overrides.
   final AppliedPatchRecord? applied;
 
+  /// Returns a copy with selected fields replaced.
+  ///
+  /// Passing [clearApplied] removes [applied] even if the [applied] parameter is
+  /// omitted.
   LockfilePackage copyWith({
     String? version,
     PackageSource? source,
@@ -300,6 +343,7 @@ final class LockfilePackage {
     );
   }
 
+  /// Converts this package record to the YAML structure stored under its key.
   Map<String, Object?> toYaml() {
     return {
       'version': version,
@@ -317,23 +361,38 @@ final class LockfilePackage {
   }
 }
 
+/// Hashes that bind a committed patch file to the edit that produced it.
 final class CommittedPatch {
+  /// Creates committed patch hashes.
   const CommittedPatch({required this.editSha256, required this.commitSha256});
 
+  /// The hash of the edit tree that produced the patch.
   final String editSha256;
+
+  /// The hash of the committed patch file contents.
   final String commitSha256;
 
+  /// Converts this record to the YAML structure stored in `patch`.
   Map<String, Object?> toYaml() {
     return {'edit-sha256': editSha256, 'commit-sha256': commitSha256};
   }
 }
 
+/// The generated output that Patchwork recorded as applied.
+///
+/// This record lets [Patchwork.undo] distinguish Patchwork-owned generated
+/// output from user-owned overrides or arbitrary project directories.
 final class AppliedPatchRecord {
+  /// Creates applied-output state.
   const AppliedPatchRecord({required this.patchSha256, required this.path});
 
+  /// The committed patch hash used to generate [path].
   final String patchSha256;
+
+  /// The project-relative generated output path.
   final String path;
 
+  /// Converts this record to the YAML structure stored in `applied`.
   Map<String, Object?> toYaml() {
     return {'patch-sha256': patchSha256, 'path': path};
   }

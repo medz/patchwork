@@ -48,18 +48,16 @@ final class PubspecOverrides {
     final canIntroduceMirrors =
         !hasActiveDependencyOverrides ||
         _hasOnlyPatchworkPathOverrides(dependencyOverrides, workspaceRootPath);
-    final nextMirroredPubspecDependencyOverrides = <String, Object?>{};
-    for (final entry in pubspecDependencyOverrides.entries) {
-      if (dependencyOverrides.containsKey(entry.key)) {
-        continue;
-      }
-      if (!canIntroduceMirrors &&
-          !mirroredPubspecDependencyOverrides.containsKey(entry.key)) {
-        continue;
-      }
-      dependencyOverrides[entry.key] = entry.value;
-      nextMirroredPubspecDependencyOverrides[entry.key] = entry.value;
-    }
+    final nextMirroredPubspecDependencyOverrides =
+        _restoreMirroredPubspecDependencyOverrides(
+          dependencyOverrides: dependencyOverrides,
+          pubspecDependencyOverrides: pubspecDependencyOverrides,
+          mirroredPubspecDependencyOverrides:
+              mirroredPubspecDependencyOverrides,
+          workspaceRootPath: workspaceRootPath,
+          canIntroduceMirrors: canIntroduceMirrors,
+          retainPreviousMirrors: true,
+        );
     dependencyOverrides[package] = {'path': path};
     overrides['dependency_overrides'] = dependencyOverrides;
     _write(workspaceRootPath, overrides);
@@ -123,10 +121,14 @@ final class PubspecOverrides {
   /// Removes the override for [package] only if it still points at [path].
   ///
   /// This protects user edits made after Patchwork applied a package.
-  bool removePathOverrideIfMatches({
+  ///
+  /// Returns the next Patchwork-owned mirror set that should remain while other
+  /// Patchwork overrides keep `pubspec_overrides.yaml` active.
+  Map<String, Object?> removePathOverrideIfMatches({
     required String workspaceRootPath,
     required String package,
     required String path,
+    Map<String, Object?> pubspecDependencyOverrides = const {},
     Map<String, Object?> mirroredPubspecDependencyOverrides = const {},
   }) {
     final overrides = _read(workspaceRootPath);
@@ -135,28 +137,41 @@ final class PubspecOverrides {
       workspaceRootPath,
     );
     final existing = dependencyOverrides[package];
-    var removedPathOverride = false;
     if (existing is Map<String, Object?> && existing['path'] is String) {
       final existingPath = existing['path'] as String;
       if (_pathsPointToSameLocation(workspaceRootPath, existingPath, path)) {
         dependencyOverrides.remove(package);
-        removedPathOverride = true;
       }
     }
-    if (!_hasPatchworkPathOverride(dependencyOverrides, workspaceRootPath)) {
-      _removeMirroredPubspecDependencyOverrides(
-        dependencyOverrides,
-        mirroredPubspecDependencyOverrides,
-        workspaceRootPath,
-      );
-    }
+    _removeMirroredPubspecDependencyOverrides(
+      dependencyOverrides,
+      mirroredPubspecDependencyOverrides,
+      workspaceRootPath,
+    );
+    final hasPatchworkPathOverride = _hasPatchworkPathOverride(
+      dependencyOverrides,
+      workspaceRootPath,
+    );
+    final nextMirroredPubspecDependencyOverrides =
+        _restoreMirroredPubspecDependencyOverrides(
+          dependencyOverrides: dependencyOverrides,
+          pubspecDependencyOverrides: pubspecDependencyOverrides,
+          mirroredPubspecDependencyOverrides:
+              mirroredPubspecDependencyOverrides,
+          workspaceRootPath: workspaceRootPath,
+          canIntroduceMirrors: _hasOnlyPatchworkPathOverrides(
+            dependencyOverrides,
+            workspaceRootPath,
+          ),
+          retainPreviousMirrors: hasPatchworkPathOverride,
+        );
     if (dependencyOverrides.isEmpty) {
       overrides.remove('dependency_overrides');
     } else {
       overrides['dependency_overrides'] = dependencyOverrides;
     }
     _write(workspaceRootPath, overrides);
-    return removedPathOverride;
+    return nextMirroredPubspecDependencyOverrides;
   }
 
   /// Returns whether the override for [package] points at [path].
@@ -266,6 +281,31 @@ final class PubspecOverrides {
       );
     }
   }
+}
+
+Map<String, Object?> _restoreMirroredPubspecDependencyOverrides({
+  required Map<String, Object?> dependencyOverrides,
+  required Map<String, Object?> pubspecDependencyOverrides,
+  required Map<String, Object?> mirroredPubspecDependencyOverrides,
+  required String workspaceRootPath,
+  required bool canIntroduceMirrors,
+  required bool retainPreviousMirrors,
+}) {
+  final nextMirroredPubspecDependencyOverrides = <String, Object?>{};
+  for (final entry in pubspecDependencyOverrides.entries) {
+    if (dependencyOverrides.containsKey(entry.key)) {
+      continue;
+    }
+    final wasMirrored = mirroredPubspecDependencyOverrides.containsKey(
+      entry.key,
+    );
+    if (!canIntroduceMirrors && (!retainPreviousMirrors || !wasMirrored)) {
+      continue;
+    }
+    dependencyOverrides[entry.key] = entry.value;
+    nextMirroredPubspecDependencyOverrides[entry.key] = entry.value;
+  }
+  return nextMirroredPubspecDependencyOverrides;
 }
 
 void _removeMirroredPubspecDependencyOverrides(

@@ -548,21 +548,7 @@ packages:
         package: 'third_pkg',
         targetRoot: thirdRoot,
       );
-      await project.patchwork(['patch', 'other_pkg']);
-      File(
-        p.join(
-          project.stateRoot,
-          '.patchwork',
-          'other_pkg@0.1.0',
-          'lib',
-          'other_pkg.dart',
-        ),
-      ).writeAsStringSync('''
-String otherName() {
-  return 'patched_other_pkg';
-}
-''');
-      await project.patchwork(['commit', 'other_pkg']);
+      await _commitOtherPackagePatch(project);
       await project.patchwork(['apply', 'other_pkg']);
       await project.pubGet();
 
@@ -573,6 +559,73 @@ String otherName() {
         contains(p.relative(thirdRoot, from: project.stateRoot)),
       );
       expect(overrides, isNot(contains('manual_third_pkg')));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'undo refreshes mirrored root pubspec overrides while other patches remain',
+    () async {
+      final project = await ProjectSandbox.standalone(
+        includeOtherDependency: true,
+      );
+      addTearDown(project.dispose);
+      final thirdRoot = p.join(project.root.path, 'packages', 'third_pkg');
+      final manualThirdRoot = p.join(project.root.path, 'manual_third_pkg');
+      _writeSimplePackage(thirdRoot, 'third_pkg');
+      _writeSimplePackage(manualThirdRoot, 'third_pkg');
+      _addPathDependency(project, 'third_pkg', thirdRoot);
+
+      await project.pubGet();
+      _writePubspecDependencyOverride(
+        project,
+        packageRoot: project.stateRoot,
+        package: 'third_pkg',
+        targetRoot: manualThirdRoot,
+      );
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello before undo refreshes a remaining mirror');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      await _commitOtherPackagePatch(project);
+      await project.patchwork(['apply', 'other_pkg']);
+      await project.pubGet();
+      project.expectPackageResolvedTo('third_pkg', manualThirdRoot);
+
+      _writePubspecDependencyOverride(
+        project,
+        packageRoot: project.stateRoot,
+        package: 'third_pkg',
+        targetRoot: thirdRoot,
+      );
+      await project.patchwork(['undo', 'greeter']);
+      await project.pubGet();
+
+      project.expectPackageResolvedTo('third_pkg', thirdRoot);
+      expect(
+        Directory(
+          p.join(
+            project.stateRoot,
+            '.dart_tool',
+            'patchwork',
+            'other_pkg@0.1.0',
+          ),
+        ).existsSync(),
+        isTrue,
+      );
+      final overrides = project.overrideFile.readAsStringSync();
+      expect(overrides, contains('other_pkg:'));
+      expect(
+        overrides,
+        contains(p.relative(thirdRoot, from: project.stateRoot)),
+      );
+      expect(overrides, isNot(contains('manual_third_pkg')));
+      final lockfile = project.lockfile.readAsStringSync();
+      expect(
+        lockfile,
+        contains(p.relative(thirdRoot, from: project.stateRoot)),
+      );
+      expect(lockfile, isNot(contains('manual_third_pkg')));
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
@@ -1289,6 +1342,24 @@ dependency_overrides:
   greeter:
     path: ${p.relative(project.manualOverrideRoot, from: project.appRoot)}
 ''');
+}
+
+Future<void> _commitOtherPackagePatch(ProjectSandbox project) async {
+  await project.patchwork(['patch', 'other_pkg']);
+  File(
+    p.join(
+      project.stateRoot,
+      '.patchwork',
+      'other_pkg@0.1.0',
+      'lib',
+      'other_pkg.dart',
+    ),
+  ).writeAsStringSync('''
+String otherName() {
+  return 'patched_other_pkg';
+}
+''');
+  await project.patchwork(['commit', 'other_pkg']);
 }
 
 void _appendPubspecOverridesPathOverride(

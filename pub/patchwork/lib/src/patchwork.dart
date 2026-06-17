@@ -457,9 +457,7 @@ final class Patchwork {
           workspaceRootPath: _rootPath,
           package: package,
           path: appliedRecordPath,
-          pubspecDependencyOverrides: _pubspecDependencyOverridesForApply(
-            package,
-          ),
+          pubspecDependencyOverrides: _rootPubspecDependencyOverrides(package),
           mirroredPubspecDependencyOverrides:
               previousMirroredPubspecDependencyOverrides,
         );
@@ -507,18 +505,21 @@ final class Patchwork {
     );
     final mirroredPubspecDependencyOverrides =
         _mirroredPubspecDependencyOverrides(lock);
-    _pubspecOverrides.removePathOverrideIfMatches(
-      workspaceRootPath: _rootPath,
-      package: package,
-      path: applied.path,
-      mirroredPubspecDependencyOverrides: mirroredPubspecDependencyOverrides,
-    );
+    final nextMirroredPubspecDependencyOverrides = _pubspecOverrides
+        .removePathOverrideIfMatches(
+          workspaceRootPath: _rootPath,
+          package: package,
+          path: applied.path,
+          pubspecDependencyOverrides: _rootPubspecDependencyOverrides(),
+          mirroredPubspecDependencyOverrides:
+              mirroredPubspecDependencyOverrides,
+        );
     _packageTree.deleteDirectory(absoluteAppliedPath);
 
     lock.packages[package] = record.copyWith(clearApplied: true);
     _setMirroredPubspecDependencyOverrides(
       lock,
-      mirroredPubspecDependencyOverrides,
+      nextMirroredPubspecDependencyOverrides,
     );
     _lockStore.write(lock);
 
@@ -921,7 +922,9 @@ final class Patchwork {
     return false;
   }
 
-  Map<String, Object?> _pubspecDependencyOverridesForApply(String package) {
+  Map<String, Object?> _rootPubspecDependencyOverrides([
+    String? skippedPackage,
+  ]) {
     final dependencyOverrides = <String, Object?>{};
     // `pubspec_overrides.yaml` replaces only the state-root pubspec fields.
     // Workspace member overrides remain active in their own pubspec files.
@@ -929,7 +932,7 @@ final class Patchwork {
       packageRootPath: _rootPath,
     );
     for (final entry in rootOverrides.entries) {
-      if (entry.key == package) {
+      if (entry.key == skippedPackage) {
         continue;
       }
       dependencyOverrides[entry.key] = _rootRelativePathOverride(entry.value);

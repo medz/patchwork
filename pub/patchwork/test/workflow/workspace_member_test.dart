@@ -170,7 +170,7 @@ void main() {
   );
 
   test(
-    'commit removes historical patch files when workspace dependency has the fix',
+    'commit leaves stale patch files when workspace dependency has the fix',
     () async {
       final project = await ProjectSandbox.workspace();
       addTearDown(project.dispose);
@@ -195,8 +195,12 @@ void main() {
         'greeter',
       ], stdoutContains: 'has no changes');
 
-      expect(oldPatch.existsSync(), isFalse);
-      await project.patchwork(['doctor'], stdoutContains: 'No patchwork');
+      expect(oldPatch.existsSync(), isTrue);
+      await project.patchwork(
+        ['doctor'],
+        exitCodes: {1},
+        stdoutContains: 'targets "greeter@0.1.0"',
+      );
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

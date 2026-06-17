@@ -7,7 +7,7 @@ import 'package:patchwork/src/model.dart';
 import 'package:test/test.dart';
 
 void main() {
-  test('round-trips source, patch, and applied records', () {
+  test('round-trips source and applied safety records', () {
     final root = Directory.systemTemp.createTempSync('patchwork_lockfile_');
     addTearDown(() => root.deleteSync(recursive: true));
 
@@ -26,7 +26,6 @@ void main() {
               editSha256: 'edit-sha',
               commitSha256: 'patch-sha',
             ),
-            patchHistory: {'0.0.9': 'old-patch-sha'},
             applied: AppliedPatchRecord(
               patchSha256: 'patch-sha',
               path: '.dart_tool/patchwork/foo@0.1.0',
@@ -48,12 +47,52 @@ void main() {
     expect(foo.source.sha256, 'source-sha');
     expect(foo.patch!.editSha256, 'edit-sha');
     expect(foo.patch!.commitSha256, 'patch-sha');
-    expect(foo.patchHistory['0.0.9'], 'old-patch-sha');
     expect(foo.applied!.patchSha256, 'patch-sha');
     expect(foo.applied!.path, '.dart_tool/patchwork/foo@0.1.0');
     expect(foo.applied!.mirroredPubspecDependencyOverrides, {
       'bar': {'path': 'packages/bar'},
     });
+    final content = File(store.path).readAsStringSync();
+    expect(content, contains('edit-sha256: "edit-sha"'));
+    expect(content, contains('commit-sha256: "patch-sha"'));
+    expect(content, contains('patch-sha256: "patch-sha"'));
+  });
+
+  test('drops legacy patch history on write', () {
+    final root = Directory.systemTemp.createTempSync('patchwork_lockfile_');
+    addTearDown(() => root.deleteSync(recursive: true));
+
+    final path = p.join(root.path, 'patchwork.lock');
+    File(path).writeAsStringSync('''
+version: 2
+packages:
+  foo:
+    version: 0.1.0
+    source:
+      type: hosted
+      sha256: source-sha
+    patch:
+      edit-sha256: edit-sha
+      commit-sha256: patch-sha
+    patch-history:
+      0.0.9:
+        commit-sha256: old-patch-sha
+    applied:
+      patch-sha256: patch-sha
+      path: .dart_tool/patchwork/foo@0.1.0
+''');
+    final store = LockfileStore(path: path);
+    final lockfile = store.read();
+
+    store.write(lockfile);
+
+    final content = File(path).readAsStringSync();
+    expect(content, contains('path: ".dart_tool/patchwork/foo@0.1.0"'));
+    expect(content, contains('patch:'));
+    expect(content, contains('edit-sha256: "edit-sha"'));
+    expect(content, contains('commit-sha256: "patch-sha"'));
+    expect(content, isNot(contains('patch-history:')));
+    expect(content, contains('patch-sha256: "patch-sha"'));
   });
 
   test('rejects unsupported versions', () {

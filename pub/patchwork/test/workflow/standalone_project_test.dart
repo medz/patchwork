@@ -139,7 +139,7 @@ void main() {
       await project.patchwork(
         ['doctor'],
         exitCodes: {1},
-        stdoutContains: 'only historical patches',
+        stdoutContains: 'targets "greeter@0.1.0"',
       );
 
       await project.patchwork(['patch', 'greeter', '--continue', '0.1.0']);
@@ -155,7 +155,7 @@ void main() {
       await project.patchwork(
         ['patch', 'greeter', '--continue', '0.1.0'],
         exitCodes: {1},
-        stderrContains: 'sha256 does not match',
+        stderrContains: 'Could not apply patch',
       );
     },
     timeout: const Timeout(Duration(minutes: 3)),
@@ -219,7 +219,7 @@ void main() {
   );
 
   test(
-    'commit removes historical patch files when upstream contains the fix',
+    'commit leaves stale patch files when upstream contains the fix',
     () async {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
@@ -244,8 +244,12 @@ void main() {
         'greeter',
       ], stdoutContains: 'has no changes');
 
-      expect(oldPatch.existsSync(), isFalse);
-      await project.patchwork(['doctor'], stdoutContains: 'No patchwork');
+      expect(oldPatch.existsSync(), isTrue);
+      await project.patchwork(
+        ['doctor'],
+        exitCodes: {1},
+        stdoutContains: 'targets "greeter@0.1.0"',
+      );
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

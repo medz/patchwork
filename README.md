@@ -59,5 +59,6 @@ It generates local state in:
 - `.dart_tool/patchwork/`
 - `pubspec_overrides.yaml`
 
-Generated state should be reproducible from the committed lockfile and patch
-files.
+Generated state should be reproducible from committed patch files plus the
+lockfile safety state Patchwork writes for the current source, current patch,
+and active generated output.

@@ -1274,7 +1274,46 @@ String otherName() {
   );
 
   test(
-    'apply-all skips stale applied records until pub resolves the source',
+    'apply-all skips patch files for packages no longer selected',
+    () async {
+      final project = await ProjectSandbox.standalone(
+        includeOtherDependency: true,
+      );
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from selected apply');
+      await project.patchwork(['commit', 'greeter']);
+      await _commitOtherPackagePatch(project);
+
+      project.replaceAppPubspecText(
+        '  other_pkg:\n    path: ../packages/other_pkg\n',
+        '',
+      );
+      await project.pubGet();
+
+      await project.patchwork([
+        'apply',
+      ], stdoutContains: 'Applied patches/greeter@0.1.0.patch');
+      expect(project.appliedDirectory.existsSync(), isTrue);
+      expect(
+        Directory(
+          p.join(
+            project.stateRoot,
+            '.dart_tool',
+            'patchwork',
+            'other_pkg@0.1.0',
+          ),
+        ).existsSync(),
+        isFalse,
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'doctor reports stale applied patches while apply-all waits for source resolution',
     () async {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
@@ -1285,6 +1324,7 @@ String otherName() {
       await project.patchwork(['commit', 'greeter']);
       await project.patchwork(['apply', 'greeter']);
       await project.pubGet();
+
       project.lockfile.writeAsStringSync(
         project.lockfile.readAsStringSync().replaceFirst(
           RegExp(r'patch-sha256: "[0-9a-f]+"'),
@@ -1298,15 +1338,27 @@ String otherName() {
         stdoutContains:
             'Applied patch sha256 differs from the committed patch.',
       );
-      await project.patchwork(
-        ['doctor'],
-        exitCodes: {1},
-        stdoutContains:
-            'Run patchwork undo greeter, dart pub get, then patchwork apply greeter.',
-      );
       await project.patchwork([
         'apply',
       ], stdoutContains: 'No patches need apply.');
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'patch continue rejects unsafe version segments',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+
+      await project.patchwork(
+        ['patch', 'greeter', '--continue=../greeter@0.1.0'],
+        exitCodes: {1},
+        stderrContains: 'not a safe path segment',
+      );
+      expect(project.editDirectoryFor('0.1.0').existsSync(), isFalse);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

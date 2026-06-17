@@ -18,8 +18,10 @@ void main() {
       expect(lockfile, contains('type: "git"'));
       expect(lockfile, contains('branch: "main"'));
       expect(lockfile, contains('commit:'));
+      expect(lockfile, contains('patch:'));
 
       await project.patchwork(['apply', 'greeter']);
+
       await project.pubGet();
       await project.runApp('Hello from a git patch, Patchwork!');
     },

@@ -41,11 +41,11 @@ final class PubResolutionReader {
       lockfile: _readLockfile(workspace),
     );
     final currentPackageName = packages.currentPackageName(workspace);
-    final dependencies = _readCurrentPubspecDependencies(workspace);
+    final directDependencies = _readCurrentPubspecDependencyNames(workspace);
     final graph = _readPackageGraph(
       workspace,
       currentPackageName,
-      dependencies: dependencies,
+      directDependencies: directDependencies,
     );
 
     return PubResolution._(
@@ -185,14 +185,13 @@ final class PubResolutionReader {
   _PackageGraph _readPackageGraph(
     PubWorkspace workspace,
     String currentPackageName, {
-    required _PubspecDependencies dependencies,
+    required Set<String> directDependencies,
   }) {
     final packageGraph = File(workspace.packageGraphPath);
     if (!packageGraph.existsSync()) {
       return _PackageGraph(
         rootNames: {currentPackageName},
-        directMainDependencies: dependencies.main,
-        directDevDependencies: dependencies.dev,
+        directDependencies: directDependencies,
       );
     }
 
@@ -212,8 +211,7 @@ final class PubResolutionReader {
 
       return _PackageGraph(
         rootNames: rootNames,
-        directMainDependencies: dependencies.main,
-        directDevDependencies: dependencies.dev,
+        directDependencies: directDependencies,
       );
     } on FormatException catch (error) {
       throw _malformedPackageGraph(workspace, error.message);
@@ -227,7 +225,7 @@ final class PubResolutionReader {
     }
   }
 
-  _PubspecDependencies _readCurrentPubspecDependencies(PubWorkspace workspace) {
+  Set<String> _readCurrentPubspecDependencyNames(PubWorkspace workspace) {
     final pubspecPath = p.join(
       workspace.currentPackageRootPath,
       'pubspec.yaml',
@@ -237,10 +235,10 @@ final class PubResolutionReader {
       if (decoded is! YamlMap) {
         throw _malformedPubspec(pubspecPath, 'Expected a YAML object.');
       }
-      return _PubspecDependencies(
-        main: _readDependencyNames(pubspecPath, decoded['dependencies']),
-        dev: _readDependencyNames(pubspecPath, decoded['dev_dependencies']),
-      );
+      return {
+        ..._readDependencyNames(pubspecPath, decoded['dependencies']),
+        ..._readDependencyNames(pubspecPath, decoded['dev_dependencies']),
+      };
     } on YamlException catch (error) {
       throw _malformedPubspec(pubspecPath, error.message);
     } on FileSystemException catch (error) {
@@ -534,31 +532,21 @@ final class _ResolutionMetadataPackage {
   final Map<String, String> description;
 }
 
-final class _PubspecDependencies {
-  const _PubspecDependencies({required this.main, required this.dev});
-
-  final Set<String> main;
-  final Set<String> dev;
-}
-
 final class _PackageGraph {
   const _PackageGraph({
     required this.rootNames,
-    required this.directMainDependencies,
-    required this.directDevDependencies,
+    required this.directDependencies,
   });
 
   final Set<String> rootNames;
-  final Set<String> directMainDependencies;
-  final Set<String> directDevDependencies;
+  final Set<String> directDependencies;
 
   bool isRoot(String name) {
     return rootNames.contains(name);
   }
 
   bool isDirectDependency(String name) {
-    return directMainDependencies.contains(name) ||
-        directDevDependencies.contains(name);
+    return directDependencies.contains(name);
   }
 }
 

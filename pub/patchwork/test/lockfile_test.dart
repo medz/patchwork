@@ -22,7 +22,12 @@ void main() {
               sha256: 'source-sha',
               fields: {'url': 'https://pub.dev'},
             ),
+            patch: CommittedPatch(
+              editSha256: 'edit-sha',
+              commitSha256: 'patch-sha',
+            ),
             applied: AppliedPatchRecord(
+              patchSha256: 'patch-sha',
               path: '.dart_tool/patchwork/foo@0.1.0',
               mirroredPubspecDependencyOverrides: {
                 'bar': {'path': 'packages/bar'},
@@ -40,14 +45,20 @@ void main() {
     expect(foo.source.type, 'hosted');
     expect(foo.source.fields, {'url': 'https://pub.dev'});
     expect(foo.source.sha256, 'source-sha');
+    expect(foo.patch!.editSha256, 'edit-sha');
+    expect(foo.patch!.commitSha256, 'patch-sha');
+    expect(foo.applied!.patchSha256, 'patch-sha');
     expect(foo.applied!.path, '.dart_tool/patchwork/foo@0.1.0');
     expect(foo.applied!.mirroredPubspecDependencyOverrides, {
       'bar': {'path': 'packages/bar'},
     });
-    expect(File(store.path).readAsStringSync(), isNot(contains('patch-sha')));
+    final content = File(store.path).readAsStringSync();
+    expect(content, contains('edit-sha256: "edit-sha"'));
+    expect(content, contains('commit-sha256: "patch-sha"'));
+    expect(content, contains('patch-sha256: "patch-sha"'));
   });
 
-  test('drops legacy committed patch manifest fields on write', () {
+  test('drops legacy patch history on write', () {
     final root = Directory.systemTemp.createTempSync('patchwork_lockfile_');
     addTearDown(() => root.deleteSync(recursive: true));
 
@@ -77,9 +88,11 @@ packages:
 
     final content = File(path).readAsStringSync();
     expect(content, contains('path: ".dart_tool/patchwork/foo@0.1.0"'));
-    expect(content, isNot(contains('patch:')));
+    expect(content, contains('patch:'));
+    expect(content, contains('edit-sha256: "edit-sha"'));
+    expect(content, contains('commit-sha256: "patch-sha"'));
     expect(content, isNot(contains('patch-history:')));
-    expect(content, isNot(contains('patch-sha256')));
+    expect(content, contains('patch-sha256: "patch-sha"'));
   });
 
   test('rejects unsupported versions', () {

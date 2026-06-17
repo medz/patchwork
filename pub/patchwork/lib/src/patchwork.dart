@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import 'error.dart';
@@ -168,6 +169,7 @@ final class Patchwork {
             package: package,
             editPath: editPath,
             resolved: resolved,
+            record: existingRecord,
           )) {
         throw PatchworkException(
           'Edit directory has uncommitted changes for "$package".',
@@ -221,27 +223,23 @@ final class Patchwork {
     required String package,
     required String editPath,
     required ResolvedPubPackage resolved,
+    required LockfilePackage? record,
   }) {
     final editSha256 = _packageTree.sha256Of(editPath);
     if (editSha256 == resolved.source.sha256) {
       return true;
     }
 
+    final patch = record?.patch;
+    if (record?.version != resolved.version ||
+        patch == null ||
+        patch.editSha256 != editSha256) {
+      return false;
+    }
+
     final patchFile = File(_layout.patchPath(package, resolved.version));
-    if (!patchFile.existsSync()) {
-      return false;
-    }
-    try {
-      return _patchFile.build(
-            sourcePath: resolved.rootPath,
-            editPath: editPath,
-          ) ==
-          patchFile.readAsStringSync();
-    } on PatchworkException {
-      return false;
-    } on FileSystemException {
-      return false;
-    }
+    return patchFile.existsSync() &&
+        _sha256(patchFile.readAsBytesSync()) == patch.commitSha256;
   }
 
   /// Commits the open edit directory for [package] into `patches/`.
@@ -353,14 +351,25 @@ final class Patchwork {
           targetPath: _layout.appliedPath(package, patch.version),
         );
       }
+      final patchBytes = File(patch.path).readAsBytesSync();
+      final patchSha256 = _sha256(patchBytes);
+      final lockPatch = record?.version == patch.version ? record?.patch : null;
+      if (lockPatch != null && patchSha256 != lockPatch.commitSha256) {
+        throw PatchworkException(
+          'Patch file sha256 does not match patchwork.lock.',
+          code: 'apply.patch_sha_mismatch',
+          location: patch.path,
+        );
+      }
       if (_needsApply(
         package: package,
         version: patch.version,
+        patchSha256: patchSha256,
         applied: applied,
       )) {
         _patchFile.validate(
           sourcePath: resolved.rootPath,
-          patchContent: File(patch.path).readAsStringSync(),
+          patchContent: utf8.decode(patchBytes),
         );
         packages.add(package);
       }
@@ -394,11 +403,18 @@ final class Patchwork {
       package,
       requireDirectDependency: false,
     );
-    final patchPath = _layout.patchPath(package, resolved.version);
-    final patchBytes = _readCommittedPatchBytes(package, resolved.version);
-
     final lock = _lockStore.read();
     final record = lock.packages[package];
+    final lockPatch = record?.version == resolved.version
+        ? record?.patch
+        : null;
+    final patchPath = _layout.patchPath(package, resolved.version);
+    final patchBytes = _readCommittedPatchBytes(
+      package,
+      resolved.version,
+      lockPatch,
+    );
+    final patchSha256 = _sha256(patchBytes);
     final existingApplied = record?.applied;
 
     final appliedRecordPath = _layout.relativeAppliedPath(
@@ -464,10 +480,16 @@ final class Patchwork {
           mirroredPubspecDependencyOverrides:
               previousMirroredPubspecDependencyOverrides,
         );
+    final canPreservePatch =
+        record != null &&
+        record.version == resolved.version &&
+        record.source == resolved.source;
     lock.packages[package] = LockfilePackage(
       version: resolved.version,
       source: resolved.source,
+      patch: canPreservePatch ? record.patch : null,
       applied: AppliedPatchRecord(
+        patchSha256: patchSha256,
         path: appliedRecordPath,
         mirroredPubspecDependencyOverrides: mirroredPubspecDependencyOverrides,
       ),
@@ -588,7 +610,11 @@ final class Patchwork {
     return _pubResolutionReader.readFromDirectory(_currentPackageRootPath);
   }
 
-  List<int> _readCommittedPatchBytes(String package, String version) {
+  List<int> _readCommittedPatchBytes(
+    String package,
+    String version, [
+    CommittedPatch? expectedPatch,
+  ]) {
     final patchPath = _layout.patchPath(package, version);
     final file = File(patchPath);
     if (!file.existsSync()) {
@@ -599,14 +625,22 @@ final class Patchwork {
         location: patchPath,
       );
     }
-    return file.readAsBytesSync();
+    final bytes = file.readAsBytesSync();
+    if (expectedPatch != null && _sha256(bytes) != expectedPatch.commitSha256) {
+      throw PatchworkException(
+        'Patch file sha256 does not match patchwork.lock.',
+        code: 'apply.patch_sha_mismatch',
+        location: patchPath,
+      );
+    }
+    return bytes;
   }
 
   LockfilePackage _packageRecordAfterSourceRefresh({
     required LockfilePackage? previous,
     required ResolvedPubPackage resolved,
   }) {
-    final canPreserveApplied =
+    final canPreserveState =
         previous != null &&
         previous.version == resolved.version &&
         previous.source == resolved.source;
@@ -614,7 +648,8 @@ final class Patchwork {
     return LockfilePackage(
       version: resolved.version,
       source: resolved.source,
-      applied: canPreserveApplied ? previous.applied : null,
+      patch: canPreserveState ? previous.patch : null,
+      applied: canPreserveState ? previous.applied : null,
     );
   }
 
@@ -728,13 +763,13 @@ final class Patchwork {
     _ensureResolutionMatchesLock(edit.package, resolved, record);
 
     final patchPath = _layout.patchPath(edit.package, edit.version);
-    final existingPatchFile = File(patchPath);
-    final content = _patchFile.build(
-      sourcePath: resolved.rootPath,
-      editPath: edit.path,
-    );
-    if (existingPatchFile.existsSync() &&
-        content == existingPatchFile.readAsStringSync()) {
+    final editSha256 = _packageTree.sha256Of(edit.path);
+    final currentPatch = record.patch;
+    if (currentPatch != null &&
+        currentPatch.editSha256 == editSha256 &&
+        File(patchPath).existsSync() &&
+        _sha256(File(patchPath).readAsBytesSync()) ==
+            currentPatch.commitSha256) {
       _packageTree.deleteDirectory(edit.path);
       return PatchWrite(
         package: edit.package,
@@ -745,6 +780,11 @@ final class Patchwork {
       );
     }
 
+    final existingPatchFile = File(patchPath);
+    final content = _patchFile.build(
+      sourcePath: resolved.rootPath,
+      editPath: edit.path,
+    );
     if (content.isEmpty) {
       if (existingPatchFile.existsSync()) {
         existingPatchFile.deleteSync();
@@ -763,8 +803,11 @@ final class Patchwork {
 
     _patchFile.validate(sourcePath: resolved.rootPath, patchContent: content);
     final patchBytes = utf8.encode(content);
+    final patchSha256 = _sha256(patchBytes);
     writeBytesFileAtomically(patchPath, patchBytes);
-    _removeLockRecordIfUnused(lock, edit.package);
+    lock.packages[edit.package] = record.copyWith(
+      patch: CommittedPatch(editSha256: editSha256, commitSha256: patchSha256),
+    );
     _lockStore.write(lock);
     _packageTree.deleteDirectory(edit.path);
 
@@ -936,6 +979,7 @@ final class Patchwork {
       }
       lock.packages[entry.key] = entry.value.copyWith(
         applied: AppliedPatchRecord(
+          patchSha256: applied.patchSha256,
           path: applied.path,
           mirroredPubspecDependencyOverrides: dependencyOverrides,
         ),
@@ -962,6 +1006,7 @@ final class Patchwork {
   bool _needsApply({
     required String package,
     required String version,
+    required String patchSha256,
     required AppliedPatchRecord? applied,
   }) {
     if (applied == null) {
@@ -977,7 +1022,8 @@ final class Patchwork {
           workspaceRootPath: _rootPath,
           package: package,
           path: applied.path,
-        );
+        ) ||
+        applied.patchSha256 != patchSha256;
   }
 
   PatchStatus _inspectPackage({
@@ -1079,6 +1125,12 @@ final class Patchwork {
     final hasPatchFile = patchFiles.any(
       (patch) => patch.version == version && p.equals(patch.path, patchPath),
     );
+    final patchSha256 = hasPatchFile
+        ? _sha256(File(patchPath).readAsBytesSync())
+        : null;
+    final lockPatch = record?.version == version ? record?.patch : null;
+    final patchMatchesLock =
+        lockPatch == null || patchSha256 == lockPatch.commitSha256;
     if (!hasPatchFile && edit.isNotEmpty) {
       problems.add(
         PatchProblem(
@@ -1093,6 +1145,26 @@ final class Patchwork {
           code: 'apply.open_edit',
           message: 'Package "$package" has an open edit directory.',
           hint: 'Commit or delete the edit before applying this patch.',
+        ),
+      );
+    }
+    if (lockPatch != null && !hasPatchFile) {
+      problems.add(
+        PatchProblem(
+          code: 'patch.file_missing',
+          message:
+              'patchwork.lock records a patch, but the patch file is missing.',
+          hint: 'Run patchwork commit $package to recreate it.',
+        ),
+      );
+    }
+    if (lockPatch != null && patchSha256 != null && !patchMatchesLock) {
+      problems.add(
+        PatchProblem(
+          code: 'patch.sha_mismatch',
+          message: 'Patch file sha256 differs from patchwork.lock.',
+          hint:
+              'Review the patch file and run patchwork commit $package again if the edit is intentional.',
         ),
       );
     }
@@ -1171,6 +1243,18 @@ final class Patchwork {
         ),
       );
     }
+    final expectedAppliedPatchSha256 = lockPatch?.commitSha256 ?? patchSha256;
+    if (applied != null &&
+        expectedAppliedPatchSha256 != null &&
+        applied.patchSha256 != expectedAppliedPatchSha256) {
+      problems.add(
+        PatchProblem(
+          code: 'applied.patch_stale',
+          message: 'Applied patch sha256 differs from the committed patch.',
+          hint: repairHint,
+        ),
+      );
+    }
     if (applied != null && appliedPathInProject == null) {
       problems.add(
         PatchProblem(
@@ -1206,7 +1290,14 @@ final class Patchwork {
           resolved.version == version &&
           pubResolutionMatchesSource &&
           !hasBlockingOverride &&
-          _needsApply(package: package, version: version, applied: applied),
+          patchSha256 != null &&
+          patchMatchesLock &&
+          _needsApply(
+            package: package,
+            version: version,
+            patchSha256: patchSha256,
+            applied: applied,
+          ),
       problems: problems,
     );
   }
@@ -1344,4 +1435,8 @@ void _checkPlainPackageName(String package) {
           'Use patchwork patch foo, not pub:foo, foo@1.2.3, path:foo, or a filesystem path.',
     );
   }
+}
+
+String _sha256(List<int> bytes) {
+  return sha256.convert(bytes).toString();
 }

@@ -619,6 +619,28 @@ dependency_overrides:
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
+
+  test(
+    'apply uses the applied path recorded in patchwork.lock for standalone projects',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await _expectApplyUsesRecordedPath(project);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'apply uses the applied path recorded in patchwork.lock for workspace members',
+    () async {
+      final project = await ProjectSandbox.workspace();
+      addTearDown(project.dispose);
+
+      await _expectApplyUsesRecordedPath(project);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
 }
 
 void _writeWorkspaceMemberOverride(ProjectSandbox project) {
@@ -659,4 +681,33 @@ Future<void> _expectUndoUsesRecordedPath(ProjectSandbox project) async {
 
   expect(movedDirectory.existsSync(), isFalse);
   expect(project.overrideFile.existsSync(), isFalse);
+}
+
+Future<void> _expectApplyUsesRecordedPath(ProjectSandbox project) async {
+  await project.pubGet();
+  await project.patchwork(['patch', 'greeter']);
+  project.writeEdit('Hello from a movable apply');
+  await project.patchwork(['commit', 'greeter']);
+  await (await Patchwork.open(project.commandRoot)).apply('greeter');
+
+  const originalPath = '.dart_tool/patchwork/greeter@0.1.0';
+  const movedPath = '.dart_tool/patchwork-moved/greeter@0.1.0';
+  final movedDirectory = Directory(p.join(project.stateRoot, movedPath));
+  movedDirectory.parent.createSync(recursive: true);
+  project.appliedDirectory.renameSync(movedDirectory.path);
+  File(p.join(movedDirectory.path, 'sentinel')).writeAsStringSync('stale');
+  project.lockfile.writeAsStringSync(
+    project.lockfile.readAsStringSync().replaceAll(originalPath, movedPath),
+  );
+  project.overrideFile.writeAsStringSync(
+    project.overrideFile.readAsStringSync().replaceAll(originalPath, movedPath),
+  );
+
+  await (await Patchwork.open(project.commandRoot)).apply('greeter');
+
+  expect(project.appliedDirectory.existsSync(), isFalse);
+  expect(movedDirectory.existsSync(), isTrue);
+  expect(File(p.join(movedDirectory.path, 'sentinel')).existsSync(), isFalse);
+  expect(project.overrideFile.readAsStringSync(), contains(movedPath));
+  expect(project.lockfile.readAsStringSync(), contains(movedPath));
 }

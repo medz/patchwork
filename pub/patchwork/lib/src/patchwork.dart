@@ -97,8 +97,8 @@ final class Patchwork {
     }
     _rejectBlockingOverride(
       package: package,
-      version: resolved.version,
       command: 'patch',
+      targetPath: _layout.appliedPath(package, resolved.version),
     );
 
     String? continuedFromPatchPath;
@@ -244,8 +244,8 @@ final class Patchwork {
       if (_hasBlockingPendingOverride(package, record)) {
         _rejectBlockingOverride(
           package: package,
-          version: record.version,
           command: 'apply',
+          targetPath: _layout.appliedPath(package, record.version),
         );
       }
       if (_needsApply(package, record, patch)) {
@@ -284,19 +284,25 @@ final class Patchwork {
     final patchBytes = _readCommittedPatchBytes(package, record);
     final patchSha256 = record.patch!.commitSha256;
 
-    final appliedPath = _layout.appliedPath(package, record.version);
-    final relativePath = _layout.relativeAppliedPath(package, record.version);
     final existingApplied = record.applied;
-    final canReplaceApplied =
-        existingApplied != null &&
-        _projectChildPathsMatch(existingApplied.path, relativePath);
+    final appliedRecordPath =
+        existingApplied?.path ??
+        _layout.relativeAppliedPath(package, record.version);
+    final appliedPath = existingApplied == null
+        ? _layout.appliedPath(package, record.version)
+        : _requireDeletableProjectChildPath(
+            existingApplied.path,
+            code: 'apply.applied_path_not_deletable',
+            message:
+                'patchwork.lock applied path must stay inside the project and must not point to a pub project root.',
+          );
     _rejectBlockingOverride(
       package: package,
-      version: record.version,
       command: 'apply',
-      replaceRootOverride: canReplaceApplied,
+      targetPath: appliedPath,
+      replaceRootOverride: existingApplied != null,
     );
-    if (!canReplaceApplied && Directory(appliedPath).existsSync()) {
+    if (existingApplied == null && Directory(appliedPath).existsSync()) {
       throw PatchworkException(
         'Applied output path already exists for "$package".',
         code: 'apply.applied_path_exists',
@@ -305,13 +311,6 @@ final class Patchwork {
         location: appliedPath,
       );
     }
-    _pubspecOverrides.assertCanUpsertPathOverride(
-      workspaceRootPath: _rootPath,
-      package: package,
-      path: relativePath,
-      replaceExisting: canReplaceApplied,
-    );
-
     final resolution = _readResolution();
     final resolved = resolution.resolvePackage(
       package,
@@ -342,11 +341,13 @@ final class Patchwork {
     _pubspecOverrides.upsertPathOverride(
       workspaceRootPath: _rootPath,
       package: package,
-      path: relativePath,
-      replaceExisting: canReplaceApplied,
+      path: appliedRecordPath,
     );
     lock.packages[package] = record.copyWith(
-      applied: AppliedPatchRecord(patchSha256: patchSha256, path: relativePath),
+      applied: AppliedPatchRecord(
+        patchSha256: patchSha256,
+        path: appliedRecordPath,
+      ),
     );
     _lockStore.write(lock);
 
@@ -511,8 +512,8 @@ final class Patchwork {
 
   void _rejectBlockingOverride({
     required String package,
-    required String version,
     required String command,
+    required String targetPath,
     bool replaceRootOverride = false,
   }) {
     for (final overrideRootPath in _overrideRootPaths) {
@@ -521,7 +522,7 @@ final class Patchwork {
       if (!_pubspecOverrides.hasBlockingPathOverride(
         workspaceRootPath: overrideRootPath,
         package: package,
-        path: _layout.appliedPath(package, version),
+        path: targetPath,
         replaceExisting: canReplaceHere,
       )) {
         continue;
@@ -1045,14 +1046,6 @@ final class Patchwork {
       }
     }
     return false;
-  }
-
-  bool _projectChildPathsMatch(String left, String right) {
-    final leftPath = _projectChildPath(left);
-    final rightPath = _projectChildPath(right);
-    return leftPath != null &&
-        rightPath != null &&
-        p.equals(leftPath, rightPath);
   }
 }
 

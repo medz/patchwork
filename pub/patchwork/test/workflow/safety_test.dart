@@ -422,22 +422,54 @@ packages:
   );
 
   test(
-    'patch allows unrelated dependency overrides from project pubspecs',
+    'apply preserves unrelated dependency overrides from project pubspecs',
     () async {
-      final project = await ProjectSandbox.standalone(
+      final standalone = await ProjectSandbox.standalone(
         includeOtherDependency: true,
       );
-      addTearDown(project.dispose);
+      final workspace = await ProjectSandbox.workspace(
+        includeOtherDependency: true,
+      );
+      addTearDown(standalone.dispose);
+      addTearDown(workspace.dispose);
 
-      await project.pubGet();
+      await standalone.pubGet();
       _writePubspecDependencyOverride(
-        project,
-        packageRoot: project.stateRoot,
+        standalone,
+        packageRoot: standalone.stateRoot,
         package: 'other_pkg',
       );
-      await project.patchwork(['patch', 'greeter']);
+      await standalone.patchwork(['patch', 'greeter']);
+      standalone.writeEdit('Hello with a root pubspec override');
+      await standalone.patchwork(['commit', 'greeter']);
+      await standalone.patchwork(['apply', 'greeter']);
+      await standalone.pubGet();
 
-      expect(project.editDirectoryFor('0.1.0').existsSync(), isTrue);
+      await workspace.pubGet();
+      _writePubspecDependencyOverride(
+        workspace,
+        packageRoot: workspace.appRoot,
+        package: 'other_pkg',
+      );
+      await workspace.patchwork(['patch', 'greeter']);
+      workspace.writeEdit('Hello with a member pubspec override');
+      await workspace.patchwork(['commit', 'greeter']);
+      await workspace.patchwork(['apply', 'greeter']);
+      await workspace.pubGet();
+
+      standalone.expectPackageResolvedTo(
+        'other_pkg',
+        standalone.otherOverrideRoot!,
+      );
+      workspace.expectPackageResolvedTo(
+        'other_pkg',
+        workspace.otherOverrideRoot!,
+      );
+      expect(standalone.overrideFile.readAsStringSync(), contains('other_pkg'));
+      expect(
+        workspace.overrideFile.readAsStringSync(),
+        isNot(contains('other_pkg')),
+      );
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

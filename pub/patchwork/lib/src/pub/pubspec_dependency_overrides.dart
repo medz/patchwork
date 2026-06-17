@@ -12,14 +12,21 @@ final class PubspecDependencyOverrides {
 
   /// Returns whether [packageRootPath]/`pubspec.yaml` overrides [package].
   bool hasOverride({required String packageRootPath, required String package}) {
+    return dependencyOverrides(
+      packageRootPath: packageRootPath,
+    ).containsKey(package);
+  }
+
+  /// Returns `dependency_overrides` from [packageRootPath]/`pubspec.yaml`.
+  Map<String, Object?> dependencyOverrides({required String packageRootPath}) {
     final pubspecPath = p.join(packageRootPath, 'pubspec.yaml');
     if (!File(pubspecPath).existsSync()) {
-      return false;
+      return const {};
     }
     final pubspec = _read(pubspecPath);
     final dependencyOverrides = pubspec['dependency_overrides'];
     if (dependencyOverrides == null) {
-      return false;
+      return const {};
     }
     if (dependencyOverrides is! YamlMap) {
       throw PatchworkException(
@@ -29,20 +36,7 @@ final class PubspecDependencyOverrides {
       );
     }
 
-    for (final entry in dependencyOverrides.entries) {
-      final name = entry.key;
-      if (name is! String) {
-        throw PatchworkException(
-          'pubspec.yaml dependency_overrides contains a non-string package name.',
-          code: 'pub.malformed_pubspec',
-          location: pubspecPath,
-        );
-      }
-      if (name == package) {
-        return true;
-      }
-    }
-    return false;
+    return _toStringKeyedMap(dependencyOverrides, pubspecPath);
   }
 
   YamlMap _read(String pubspecPath) {
@@ -73,4 +67,35 @@ final class PubspecDependencyOverrides {
       );
     }
   }
+}
+
+Map<String, Object?> _toStringKeyedMap(YamlMap map, String location) {
+  final result = <String, Object?>{};
+  for (final entry in map.entries) {
+    final key = entry.key;
+    if (key is! String) {
+      throw PatchworkException(
+        'pubspec.yaml dependency_overrides contains a non-string package name.',
+        code: 'pub.malformed_pubspec',
+        location: location,
+      );
+    }
+    result[key] = _convertYamlValue(entry.value, location);
+  }
+  return result;
+}
+
+Object? _convertYamlValue(Object? value, String location) {
+  if (value is YamlMap) {
+    return _toStringKeyedMap(value, location);
+  }
+  if (value is YamlList) {
+    return [
+      for (final item in value.nodes) _convertYamlValue(item.value, location),
+    ];
+  }
+  if (value == null || value is String || value is num || value is bool) {
+    return value;
+  }
+  return value.toString();
 }

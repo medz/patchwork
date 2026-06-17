@@ -27,12 +27,12 @@ final class PubspecOverrides {
     required String workspaceRootPath,
     required String package,
     required String path,
+    Map<String, Object?> pubspecDependencyOverrides = const {},
   }) {
     final overrides = _read(workspaceRootPath);
-    final dependencyOverrides = _dependencyOverrides(
-      overrides,
-      workspaceRootPath,
-    );
+    final dependencyOverrides = Map<String, Object?>.of(
+      pubspecDependencyOverrides,
+    )..addAll(_dependencyOverrides(overrides, workspaceRootPath));
     dependencyOverrides[package] = {'path': path};
     overrides['dependency_overrides'] = dependencyOverrides;
     _write(workspaceRootPath, overrides);

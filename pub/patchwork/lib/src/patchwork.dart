@@ -454,6 +454,7 @@ final class Patchwork {
       workspaceRootPath: _rootPath,
       package: package,
       path: appliedRecordPath,
+      pubspecDependencyOverrides: _pubspecDependencyOverridesForApply(package),
     );
     lock.packages[package] = record.copyWith(
       applied: AppliedPatchRecord(
@@ -890,6 +891,38 @@ final class Patchwork {
       return true;
     }
     return false;
+  }
+
+  Map<String, Object?> _pubspecDependencyOverridesForApply(String package) {
+    final dependencyOverrides = <String, Object?>{};
+    // `pubspec_overrides.yaml` replaces only the state-root pubspec fields.
+    // Workspace member overrides remain active in their own pubspec files.
+    final rootOverrides = _pubspecDependencyOverrides.dependencyOverrides(
+      packageRootPath: _rootPath,
+    );
+    for (final entry in rootOverrides.entries) {
+      if (entry.key == package) {
+        continue;
+      }
+      dependencyOverrides[entry.key] = _rootRelativePathOverride(entry.value);
+    }
+    return dependencyOverrides;
+  }
+
+  Object? _rootRelativePathOverride(Object? value) {
+    if (value is Map<String, Object?> && value['path'] is String) {
+      final path = value['path'] as String;
+      final absolutePath = p.normalize(
+        p.isAbsolute(path) ? path : p.absolute(_rootPath, path),
+      );
+      return {
+        ...value,
+        'path': p.posix.joinAll(
+          p.split(p.relative(absolutePath, from: _rootPath)),
+        ),
+      };
+    }
+    return value;
   }
 
   bool _needsApply(

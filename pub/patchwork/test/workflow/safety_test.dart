@@ -61,7 +61,7 @@ packages:
       sha256: "source"
     patch:
       edit-sha256: "edit"
-      sha256: "patch"
+      commit-sha256: "patch"
     applied:
       patch-sha256: "patch"
       path: ".dart_tool/patchwork/greeter@0.1.0/../../../victim"

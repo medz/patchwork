@@ -22,8 +22,11 @@ void main() {
               sha256: 'source-sha',
               fields: {'url': 'https://pub.dev'},
             ),
-            patch: CommittedPatch(editSha256: 'edit-sha', sha256: 'patch-sha'),
-            patchHistory: {'0.0.9': HistoricalPatch(sha256: 'old-patch-sha')},
+            patch: CommittedPatch(
+              editSha256: 'edit-sha',
+              commitSha256: 'patch-sha',
+            ),
+            patchHistory: {'0.0.9': 'old-patch-sha'},
             applied: AppliedPatchRecord(
               patchSha256: 'patch-sha',
               path: '.dart_tool/patchwork/foo@0.1.0',
@@ -41,8 +44,8 @@ void main() {
     expect(foo.source.fields, {'url': 'https://pub.dev'});
     expect(foo.source.sha256, 'source-sha');
     expect(foo.patch!.editSha256, 'edit-sha');
-    expect(foo.patch!.sha256, 'patch-sha');
-    expect(foo.patchHistory['0.0.9']!.sha256, 'old-patch-sha');
+    expect(foo.patch!.commitSha256, 'patch-sha');
+    expect(foo.patchHistory['0.0.9'], 'old-patch-sha');
     expect(foo.applied!.patchSha256, 'patch-sha');
     expect(foo.applied!.path, '.dart_tool/patchwork/foo@0.1.0');
   });

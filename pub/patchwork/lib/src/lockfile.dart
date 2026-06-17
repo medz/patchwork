@@ -150,23 +150,23 @@ final class LockfileStore {
     }
 
     final editSha256 = value['edit-sha256'];
-    final sha256 = value['sha256'];
-    if (editSha256 is! String || sha256 is! String) {
+    final commitSha256 = value['commit-sha256'];
+    if (editSha256 is! String || commitSha256 is! String) {
       throw PatchworkException(
-        'patchwork.lock patch entries must include edit-sha256 and sha256.',
+        'patchwork.lock patch entries must include edit-sha256 and commit-sha256.',
         code: 'lock.malformed',
         location: path,
       );
     }
-    return CommittedPatch(editSha256: editSha256, sha256: sha256);
+    return CommittedPatch(editSha256: editSha256, commitSha256: commitSha256);
   }
 
-  SplayTreeMap<String, HistoricalPatch> _readPatchHistory(
+  SplayTreeMap<String, String> _readPatchHistory(
     String package,
     Object? value,
   ) {
     if (value == null) {
-      return SplayTreeMap<String, HistoricalPatch>();
+      return SplayTreeMap<String, String>();
     }
     if (value is! YamlMap) {
       throw PatchworkException(
@@ -176,7 +176,7 @@ final class LockfileStore {
       );
     }
 
-    final history = SplayTreeMap<String, HistoricalPatch>();
+    final history = SplayTreeMap<String, String>();
     for (final entry in value.entries) {
       final version = entry.key;
       final patch = entry.value;
@@ -194,15 +194,15 @@ final class LockfileStore {
           location: path,
         );
       }
-      final sha256 = patch['sha256'];
-      if (sha256 is! String) {
+      final commitSha256 = patch['commit-sha256'];
+      if (commitSha256 is! String) {
         throw PatchworkException(
-          'patchwork.lock patch-history entries must include sha256.',
+          'patchwork.lock patch-history entries must include commit-sha256.',
           code: 'lock.malformed',
           location: path,
         );
       }
-      history[version] = HistoricalPatch(sha256: sha256);
+      history[version] = commitSha256;
     }
     return history;
   }
@@ -264,14 +264,14 @@ final class LockfilePackage {
   final String version;
   final PackageSource source;
   final CommittedPatch? patch;
-  final Map<String, HistoricalPatch> patchHistory;
+  final Map<String, String> patchHistory;
   final AppliedPatchRecord? applied;
 
   LockfilePackage copyWith({
     String? version,
     PackageSource? source,
     CommittedPatch? patch,
-    Map<String, HistoricalPatch>? patchHistory,
+    Map<String, String>? patchHistory,
     AppliedPatchRecord? applied,
     bool clearApplied = false,
   }) {
@@ -291,10 +291,10 @@ final class LockfilePackage {
       if (patch != null) 'patch': patch!.toYaml(),
       if (patchHistory.isNotEmpty)
         'patch-history': {
-          for (final entry in SplayTreeMap<String, HistoricalPatch>.of(
+          for (final entry in SplayTreeMap<String, String>.of(
             patchHistory,
           ).entries)
-            entry.key: entry.value.toYaml(),
+            entry.key: {'commit-sha256': entry.value},
         },
       if (applied != null) 'applied': applied!.toYaml(),
     };
@@ -302,23 +302,13 @@ final class LockfilePackage {
 }
 
 final class CommittedPatch {
-  const CommittedPatch({required this.editSha256, required this.sha256});
+  const CommittedPatch({required this.editSha256, required this.commitSha256});
 
   final String editSha256;
-  final String sha256;
+  final String commitSha256;
 
   Map<String, Object?> toYaml() {
-    return {'edit-sha256': editSha256, 'sha256': sha256};
-  }
-}
-
-final class HistoricalPatch {
-  const HistoricalPatch({required this.sha256});
-
-  final String sha256;
-
-  Map<String, Object?> toYaml() {
-    return {'sha256': sha256};
+    return {'edit-sha256': editSha256, 'commit-sha256': commitSha256};
   }
 }
 

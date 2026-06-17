@@ -279,7 +279,7 @@ final class Patchwork {
 
     final patchPath = _layout.patchPath(package, record.version);
     final patchBytes = _readCommittedPatchBytes(package, record);
-    final patchSha256 = record.patch!.sha256;
+    final patchSha256 = record.patch!.commitSha256;
 
     final appliedPath = _layout.appliedPath(package, record.version);
     final relativePath = _layout.relativeAppliedPath(package, record.version);
@@ -438,7 +438,7 @@ final class Patchwork {
     }
 
     final bytes = file.readAsBytesSync();
-    if (_sha256(bytes) != record.patch!.sha256) {
+    if (_sha256(bytes) != record.patch!.commitSha256) {
       throw PatchworkException(
         'Patch file sha256 does not match patchwork.lock.',
         code: 'apply.patch_sha_mismatch',
@@ -456,13 +456,11 @@ final class Patchwork {
         previous != null &&
         previous.version == resolved.version &&
         previous.source == resolved.source;
-    final patchHistory = <String, HistoricalPatch>{
+    final patchHistory = <String, String>{
       if (previous != null) ...previous.patchHistory,
     };
     if (!canPreservePatch && previous?.patch != null) {
-      patchHistory[previous!.version] = HistoricalPatch(
-        sha256: previous.patch!.sha256,
-      );
+      patchHistory[previous!.version] = previous.patch!.commitSha256;
     }
 
     return LockfilePackage(
@@ -483,8 +481,8 @@ final class Patchwork {
     final expectedSha256 = record == null
         ? null
         : record.version == version
-        ? record.patch?.sha256 ?? record.patchHistory[version]?.sha256
-        : record.patchHistory[version]?.sha256;
+        ? record.patch?.commitSha256 ?? record.patchHistory[version]
+        : record.patchHistory[version];
     if (expectedSha256 == null) {
       throw PatchworkException(
         'patchwork.lock has no committed patch record for "$package@$version".',
@@ -581,7 +579,8 @@ final class Patchwork {
     if (currentPatch != null &&
         currentPatch.editSha256 == editSha256 &&
         File(patchPath).existsSync() &&
-        _sha256(File(patchPath).readAsBytesSync()) == currentPatch.sha256) {
+        _sha256(File(patchPath).readAsBytesSync()) ==
+            currentPatch.commitSha256) {
       _packageTree.deleteDirectory(edit.path);
       return PatchWrite(
         package: edit.package,
@@ -617,10 +616,10 @@ final class Patchwork {
     final patchBytes = utf8.encode(content);
     final patchSha256 = _sha256(patchBytes);
     writeBytesFileAtomically(patchPath, patchBytes);
-    final patchHistory = Map<String, HistoricalPatch>.of(record.patchHistory)
+    final patchHistory = Map<String, String>.of(record.patchHistory)
       ..remove(edit.version);
     lock.packages[edit.package] = record.copyWith(
-      patch: CommittedPatch(editSha256: editSha256, sha256: patchSha256),
+      patch: CommittedPatch(editSha256: editSha256, commitSha256: patchSha256),
       patchHistory: patchHistory,
     );
     _lockStore.write(lock);
@@ -710,7 +709,7 @@ final class Patchwork {
           package: package,
           path: applied.path,
         ) ||
-        applied.patchSha256 != patch.sha256;
+        applied.patchSha256 != patch.commitSha256;
   }
 
   PatchStatus _inspectPackage({
@@ -832,7 +831,7 @@ final class Patchwork {
     }
     if (lockPatch != null &&
         actualPatchSha256 != null &&
-        actualPatchSha256 != lockPatch.sha256) {
+        actualPatchSha256 != lockPatch.commitSha256) {
       problems.add(
         PatchProblem(
           code: 'patch.sha_mismatch',
@@ -899,7 +898,7 @@ final class Patchwork {
     }
     if (applied != null &&
         lockPatch != null &&
-        applied.patchSha256 != lockPatch.sha256) {
+        applied.patchSha256 != lockPatch.commitSha256) {
       problems.add(
         PatchProblem(
           code: 'applied.patch_stale',
@@ -946,7 +945,7 @@ final class Patchwork {
           lockPatch != null &&
           hasPatchFile &&
           edit.isEmpty &&
-          actualPatchSha256 == lockPatch.sha256 &&
+          actualPatchSha256 == lockPatch.commitSha256 &&
           pubResolutionMatchesSource &&
           !hasBlockingOverride &&
           _needsApply(package, record!, lockPatch),

@@ -104,10 +104,10 @@ packages:
       sha256: "<source-tree-sha>"
     patch:
       edit-sha256: "<edit-tree-sha>"
-      sha256: "<patch-file-sha>"
+      commit-sha256: "<patch-file-sha>"
     patch-history:
       "1.19.0":
-        sha256: "<older-patch-file-sha>"
+        commit-sha256: "<older-patch-file-sha>"
     applied:
       patch-sha256: "<applied-patch-file-sha>"
       path: ".dart_tool/patchwork/collection@1.19.1"

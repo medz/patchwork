@@ -6,8 +6,6 @@ final class PatchRef {
   const PatchRef.version(String version) : this._(version);
 
   final String? version;
-
-  bool get isCurrent => version == null;
 }
 
 final class PackageSource {

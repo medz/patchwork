@@ -12,30 +12,6 @@ final class PubspecOverrides {
 
   final AtomicFileWriter fileWriter;
 
-  Map<String, String> readPathOverrides(String workspaceRootPath) {
-    final overrides = _read(workspaceRootPath);
-    final dependencyOverrides = overrides['dependency_overrides'];
-    if (dependencyOverrides == null) {
-      return const {};
-    }
-    if (dependencyOverrides is! Map<String, Object?>) {
-      throw PatchworkException(
-        'pubspec_overrides.yaml dependency_overrides is malformed.',
-        code: 'pub.overrides_malformed',
-        location: _path(workspaceRootPath),
-      );
-    }
-
-    final paths = <String, String>{};
-    for (final entry in dependencyOverrides.entries) {
-      final value = entry.value;
-      if (value is Map<String, Object?> && value['path'] is String) {
-        paths[entry.key] = value['path'] as String;
-      }
-    }
-    return paths;
-  }
-
   void upsertPathOverride({
     required String workspaceRootPath,
     required String package,
@@ -146,10 +122,19 @@ final class PubspecOverrides {
     required String package,
     required String path,
   }) {
-    final pathOverrides = readPathOverrides(workspaceRootPath);
-    final current = pathOverrides[package];
-    return current != null &&
-        _pathsPointToSameLocation(workspaceRootPath, current, path);
+    final dependencyOverrides = _dependencyOverrides(
+      _read(workspaceRootPath),
+      workspaceRootPath,
+      create: false,
+    );
+    final existing = dependencyOverrides[package];
+    return existing is Map<String, Object?> &&
+        existing['path'] is String &&
+        _pathsPointToSameLocation(
+          workspaceRootPath,
+          existing['path'] as String,
+          path,
+        );
   }
 
   Map<String, Object?> _read(String workspaceRootPath) {

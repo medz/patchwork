@@ -4,6 +4,7 @@ import '../../patchwork.dart';
 import '../arguments.dart';
 import '../output.dart';
 
+/// Runs `patchwork status`.
 Future<int> runStatusCommand(
   Patchwork patchwork,
   List<String> arguments,

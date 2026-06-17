@@ -5,6 +5,7 @@ import '../../model.dart';
 import '../../patchwork.dart';
 import '../arguments.dart';
 
+/// Runs `patchwork patch`.
 Future<int> runPatchCommand(
   Patchwork patchwork,
   List<String> arguments,

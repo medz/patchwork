@@ -6,9 +6,12 @@ import 'package:path/path.dart' as p;
 
 import '../error.dart';
 
+/// Provides deterministic copy and hashing operations for package trees.
 final class PackageTree {
+  /// Creates a package tree helper.
   const PackageTree();
 
+  /// Computes Patchwork's deterministic SHA-256 hash for [rootPath].
   String sha256Of(String rootPath) {
     final root = Directory(rootPath);
     if (!root.existsSync()) {
@@ -40,6 +43,7 @@ final class PackageTree {
     return digestSink.digest.toString();
   }
 
+  /// Copies a filtered package tree from [sourcePath] to [destinationPath].
   void copy(String sourcePath, String destinationPath) {
     final source = Directory(sourcePath);
     if (!source.existsSync()) {
@@ -58,6 +62,7 @@ final class PackageTree {
     _copyDirectory(sourcePath, destinationPath, sourceRootPath: sourcePath);
   }
 
+  /// Deletes [path] recursively when it exists.
   void deleteDirectory(String path) {
     final directory = Directory(path);
     if (directory.existsSync()) {

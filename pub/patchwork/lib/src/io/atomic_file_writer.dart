@@ -3,18 +3,24 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+/// Renames a temporary file into its final destination.
 typedef AtomicFileRename =
     void Function(String sourcePath, String destinationPath);
 
+/// Writes files through a temporary sibling and final rename.
 final class AtomicFileWriter {
+  /// Creates an atomic writer with an injectable rename operation.
   const AtomicFileWriter({this.renameFile = _renameFile});
 
+  /// The operation used to move a completed temporary file into place.
   final AtomicFileRename renameFile;
 
+  /// Writes [content] to [path] using [encoding].
   void writeString(String path, String content, {Encoding encoding = utf8}) {
     writeBytes(path, encoding.encode(content));
   }
 
+  /// Writes [bytes] to [path].
   void writeBytes(String path, List<int> bytes) {
     final destinationFile = File(path);
     destinationFile.parent.createSync(recursive: true);
@@ -36,10 +42,12 @@ final class AtomicFileWriter {
   }
 }
 
+/// Writes a UTF-8 string file atomically.
 void writeStringFileAtomically(String path, String content) {
   const AtomicFileWriter().writeString(path, content);
 }
 
+/// Writes a byte file atomically.
 void writeBytesFileAtomically(String path, List<int> bytes) {
   const AtomicFileWriter().writeBytes(path, bytes);
 }

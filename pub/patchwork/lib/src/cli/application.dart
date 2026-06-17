@@ -11,13 +11,21 @@ import 'commands/status.dart';
 import 'commands/undo.dart';
 import 'output.dart';
 
+/// Runs the Patchwork command-line interface.
 final class Application {
+  /// Creates a CLI application with optional injected IO and working directory.
   const Application({this.stdout, this.stderr, this.workingDirectory});
 
+  /// The sink used for normal command output.
   final io.IOSink? stdout;
+
+  /// The sink used for command errors.
   final io.IOSink? stderr;
+
+  /// The working directory used to locate the active Dart project.
   final String? workingDirectory;
 
+  /// Runs the CLI with parsed process [arguments].
   Future<int> run(List<String> arguments) async {
     final out = stdout ?? io.stdout;
     final err = stderr ?? io.stderr;
@@ -60,6 +68,7 @@ final class Application {
   }
 }
 
+/// Returns whether [command] is a built-in Patchwork command.
 bool isKnownCommand(String command) {
   return switch (command) {
     'patch' || 'commit' || 'apply' || 'undo' || 'status' || 'doctor' => true,
@@ -67,6 +76,7 @@ bool isKnownCommand(String command) {
   };
 }
 
+/// Writes top-level usage help to [out].
 void printGeneralHelp(io.IOSink out) {
   out.writeln('Usage: patchwork <command> [arguments]');
   out.writeln('');
@@ -79,6 +89,7 @@ void printGeneralHelp(io.IOSink out) {
   out.writeln('  doctor');
 }
 
+/// Writes usage help for a single [command] to [out].
 void printCommandHelp(String command, io.IOSink out) {
   switch (command) {
     case 'patch':

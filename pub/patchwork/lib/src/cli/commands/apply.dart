@@ -3,6 +3,7 @@ import 'dart:io' as io;
 import '../../patchwork.dart';
 import '../arguments.dart';
 
+/// Runs `patchwork apply`.
 Future<int> runApplyCommand(
   Patchwork patchwork,
   List<String> arguments,

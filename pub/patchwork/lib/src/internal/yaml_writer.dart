@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+/// Formats a string-keyed map as deterministic YAML.
 String formatYamlMap(Map<String, Object?> value) {
   final buffer = StringBuffer();
   for (final entry in value.entries) {
@@ -8,6 +9,7 @@ String formatYamlMap(Map<String, Object?> value) {
   return buffer.toString();
 }
 
+/// Writes one YAML map entry to [buffer].
 void writeYamlEntry(
   StringBuffer buffer,
   String key,
@@ -42,6 +44,7 @@ void writeYamlEntry(
   buffer.writeln('$prefix${formatYamlKey(key)}: ${formatYamlScalar(value)}');
 }
 
+/// Writes one YAML list item to [buffer].
 void writeYamlListItem(
   StringBuffer buffer,
   Object? value, {
@@ -63,6 +66,7 @@ void writeYamlListItem(
   buffer.writeln('$prefix- ${formatYamlScalar(value)}');
 }
 
+/// Formats a YAML key, quoting it only when required.
 String formatYamlKey(String value) {
   if (RegExp(r'^[A-Za-z0-9._/@:%+=-]+$').hasMatch(value)) {
     return value;
@@ -70,6 +74,7 @@ String formatYamlKey(String value) {
   return jsonEncode(value);
 }
 
+/// Formats a scalar YAML value.
 String formatYamlScalar(Object? value) {
   if (value == null) {
     return 'null';

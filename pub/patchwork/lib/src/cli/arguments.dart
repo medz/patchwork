@@ -1,13 +1,16 @@
 import '../error.dart';
 
+/// Returns whether [argument] requests CLI help.
 bool isHelp(String argument) {
   return argument == '-h' || argument == '--help' || argument == 'help';
 }
 
+/// Returns whether the full argument list is exactly one help argument.
 bool isHelpOnly(List<String> arguments) {
   return arguments.length == 1 && isHelp(arguments.single);
 }
 
+/// Parses zero or one package operand for [command].
 String? singlePackage(
   String command,
   List<String> arguments, {
@@ -38,6 +41,7 @@ String? singlePackage(
   return arguments.single;
 }
 
+/// Throws when [arguments] contains any command operands.
 void expectNoArguments(String command, List<String> arguments) {
   if (arguments.isEmpty) {
     return;
@@ -49,6 +53,7 @@ void expectNoArguments(String command, List<String> arguments) {
   );
 }
 
+/// Creates a usage error for an unsupported [option].
 PatchworkException unknownOption(String option, String command) {
   return PatchworkException(
     'Unknown option "$option" for "$command".',
@@ -57,6 +62,7 @@ PatchworkException unknownOption(String option, String command) {
   );
 }
 
+/// Creates a usage error for an option that was passed more than once.
 PatchworkException duplicateOption(String option) {
   return PatchworkException(
     'Option "$option" can only be passed once.',

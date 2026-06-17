@@ -8,15 +8,21 @@ import 'internal/yaml_writer.dart';
 import 'io/atomic_file_writer.dart';
 import 'model.dart';
 
+/// Reads and writes a Patchwork lockfile.
 final class LockfileStore {
+  /// Creates a lockfile store for [path].
   const LockfileStore({
     required this.path,
     this.fileWriter = const AtomicFileWriter(),
   });
 
+  /// The lockfile path.
   final String path;
+
+  /// The writer used to persist lockfile updates.
   final AtomicFileWriter fileWriter;
 
+  /// Reads the lockfile, returning an empty model when the file is absent.
   Lockfile read() {
     try {
       final file = File(path);
@@ -92,6 +98,7 @@ final class LockfileStore {
     }
   }
 
+  /// Writes [lockfile] to disk.
   void write(Lockfile lockfile) {
     fileWriter.writeString(path, '${formatYamlMap(lockfile.toYaml())}\n');
   }
@@ -248,16 +255,21 @@ final class LockfileStore {
   }
 }
 
+/// The in-memory representation of `patchwork.lock`.
 final class Lockfile {
+  /// Creates a lockfile with package records sorted by package name.
   Lockfile({required Map<String, LockfilePackage> packages})
     : packages = SplayTreeMap<String, LockfilePackage>.of(packages);
 
+  /// Creates an empty lockfile.
   factory Lockfile.empty() {
     return Lockfile(packages: const {});
   }
 
+  /// Package records keyed by package name.
   final SplayTreeMap<String, LockfilePackage> packages;
 
+  /// Converts this lockfile to a YAML-compatible map.
   Map<String, Object?> toYaml() {
     return {
       'version': 2,
@@ -268,7 +280,9 @@ final class Lockfile {
   }
 }
 
+/// A Patchwork lockfile record for one package.
 final class LockfilePackage {
+  /// Creates a package lock record.
   const LockfilePackage({
     required this.version,
     required this.source,
@@ -277,12 +291,22 @@ final class LockfilePackage {
     this.applied,
   });
 
+  /// The package version this record applies to.
   final String version;
+
+  /// The source tree metadata for this package version.
   final PackageSource source;
+
+  /// The committed patch metadata, when a patch is recorded.
   final CommittedPatch? patch;
+
+  /// Patch hashes for older versions used by continuation flows.
   final Map<String, String> patchHistory;
+
+  /// The generated output recorded as currently applied.
   final AppliedPatchRecord? applied;
 
+  /// Returns a copy with selected fields replaced.
   LockfilePackage copyWith({
     String? version,
     PackageSource? source,
@@ -300,6 +324,7 @@ final class LockfilePackage {
     );
   }
 
+  /// Converts this package record to a YAML-compatible map.
   Map<String, Object?> toYaml() {
     return {
       'version': version,
@@ -317,23 +342,35 @@ final class LockfilePackage {
   }
 }
 
+/// Metadata for a committed patch file.
 final class CommittedPatch {
+  /// Creates committed patch metadata.
   const CommittedPatch({required this.editSha256, required this.commitSha256});
 
+  /// The hash of the edit tree that produced the patch.
   final String editSha256;
+
+  /// The hash of the committed patch file contents.
   final String commitSha256;
 
+  /// Converts this record to a YAML-compatible map.
   Map<String, Object?> toYaml() {
     return {'edit-sha256': editSha256, 'commit-sha256': commitSha256};
   }
 }
 
+/// Metadata for generated output currently applied to pub overrides.
 final class AppliedPatchRecord {
+  /// Creates applied patch metadata.
   const AppliedPatchRecord({required this.patchSha256, required this.path});
 
+  /// The committed patch hash that generated the output.
   final String patchSha256;
+
+  /// The project-relative generated output path.
   final String path;
 
+  /// Converts this record to a YAML-compatible map.
   Map<String, Object?> toYaml() {
     return {'patch-sha256': patchSha256, 'path': path};
   }

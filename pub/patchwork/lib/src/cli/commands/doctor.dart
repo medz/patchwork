@@ -4,6 +4,7 @@ import '../../patchwork.dart';
 import '../arguments.dart';
 import '../output.dart';
 
+/// Runs `patchwork doctor`.
 Future<int> runDoctorCommand(
   Patchwork patchwork,
   List<String> arguments,

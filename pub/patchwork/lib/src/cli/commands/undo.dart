@@ -3,6 +3,7 @@ import 'dart:io' as io;
 import '../../patchwork.dart';
 import '../arguments.dart';
 
+/// Runs `patchwork undo`.
 Future<int> runUndoCommand(
   Patchwork patchwork,
   List<String> arguments,

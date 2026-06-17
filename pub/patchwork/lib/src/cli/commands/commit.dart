@@ -4,6 +4,7 @@ import '../../model.dart';
 import '../../patchwork.dart';
 import '../arguments.dart';
 
+/// Runs `patchwork commit`.
 Future<int> runCommitCommand(
   Patchwork patchwork,
   List<String> arguments,

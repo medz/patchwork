@@ -18,6 +18,7 @@ import 'pub/pub_workspace.dart';
 const _invalidAppliedPathMessage =
     'patchwork.lock applied path must point at the generated Patchwork output for this package.';
 
+/// Coordinates Patchwork operations for one Dart project or workspace.
 final class Patchwork {
   Patchwork._({
     required this._rootPath,
@@ -32,6 +33,10 @@ final class Patchwork {
     required this._pubspecOverrides,
   });
 
+  /// Opens the Patchwork project containing [root].
+  ///
+  /// [root] may be a [Directory] or path string inside a Dart package or
+  /// workspace member.
   static Future<Patchwork> open(Object root) async {
     final rootPath = switch (root) {
       Directory directory => directory.path,
@@ -68,6 +73,7 @@ final class Patchwork {
   final PatchFile _patchFile;
   final PubspecOverrides _pubspecOverrides;
 
+  /// Returns [path] relative to the Patchwork project root when possible.
   String relativePath(String path) {
     final absolute = p.normalize(p.absolute(path));
     final root = p.normalize(p.absolute(_rootPath));
@@ -80,6 +86,11 @@ final class Patchwork {
     return path;
   }
 
+  /// Creates an editable copy for [package] under `.patchwork/`.
+  ///
+  /// When [fromPatch] is provided, the matching committed patch is applied to
+  /// the fresh edit directory as a seed. Set [replaceExisting] to discard an
+  /// existing safe edit directory.
   Future<PreparedEdit> patch(
     String package, {
     PatchRef? fromPatch,
@@ -206,12 +217,14 @@ final class Patchwork {
         _sha256(patchFile.readAsBytesSync()) == patch.commitSha256;
   }
 
+  /// Commits the open edit directory for [package] into `patches/`.
   Future<PatchWrite> commit(String package) async {
     _checkPlainPackageName(package);
     final edit = _singleEditDirectory(package);
     return _commitEdit(edit);
   }
 
+  /// Commits every open edit directory in package-name order.
   Future<List<PatchWrite>> commitAll() async {
     final writes = <PatchWrite>[];
     for (final package in _openEditPackages()) {
@@ -227,6 +240,7 @@ final class Patchwork {
     return packages;
   }
 
+  /// Applies every committed patch that needs generated output.
   Future<List<AppliedPatch>> applyAll() async {
     final applied = <AppliedPatch>[];
     for (final package in await _packagesNeedingApply()) {
@@ -305,6 +319,7 @@ final class Patchwork {
     return packages;
   }
 
+  /// Applies the committed patch for [package] into generated output.
   Future<AppliedPatch> apply(String package) async {
     _checkPlainPackageName(package);
     final openEdits = _layout
@@ -411,6 +426,7 @@ final class Patchwork {
     );
   }
 
+  /// Removes Patchwork-generated output and override state for [package].
   Future<UnappliedPatch> undo(String package) async {
     _checkPlainPackageName(package);
     final lock = _lockStore.read();
@@ -444,6 +460,7 @@ final class Patchwork {
     );
   }
 
+  /// Inspects edit directories, patch files, applied output, and lock state.
   Future<PatchworkState> inspect() async {
     final lock = _lockStore.read();
     final edits = _layout.editDirectories();

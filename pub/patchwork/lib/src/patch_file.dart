@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'error.dart';
 import 'internal/package_tree.dart';
 
+/// Runs a git subprocess for patch operations.
 typedef GitProcessRunner =
     ProcessResult Function(
       List<String> arguments, {
@@ -25,7 +26,9 @@ ProcessResult _defaultGitRunner(
   );
 }
 
+/// Builds, validates, and applies Patchwork patch files.
 final class PatchFile {
+  /// Creates a patch helper with injectable git and tree operations.
   const PatchFile({GitProcessRunner? gitRunner, PackageTree? packageTree})
     : _gitRunner = gitRunner ?? _defaultGitRunner,
       _packageTree = packageTree ?? const PackageTree();
@@ -33,6 +36,7 @@ final class PatchFile {
   final GitProcessRunner _gitRunner;
   final PackageTree _packageTree;
 
+  /// Builds a patch from [sourcePath] to [editPath].
   String build({required String sourcePath, required String editPath}) {
     final sourceRoot = Directory(sourcePath);
     final editRoot = Directory(editPath);
@@ -90,6 +94,7 @@ final class PatchFile {
     }
   }
 
+  /// Verifies that [patchContent] applies cleanly to [sourcePath].
   void validate({required String sourcePath, required String patchContent}) {
     final tempRoot = Directory.systemTemp.createTempSync('patchwork_validate_');
     try {
@@ -112,6 +117,7 @@ final class PatchFile {
     }
   }
 
+  /// Applies [patchContent] to the package copy at [packagePath].
   void apply({required String packagePath, required String patchContent}) {
     final packageRoot = Directory(packagePath);
     if (!packageRoot.existsSync()) {

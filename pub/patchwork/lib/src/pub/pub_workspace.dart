@@ -6,7 +6,9 @@ import 'package:yaml/yaml.dart';
 
 import '../error.dart';
 
+/// Describes the Dart workspace or package resolution Patchwork is using.
 final class PubWorkspace {
+  /// Creates workspace metadata discovered from pub files.
   const PubWorkspace({
     required this.rootPath,
     required this.currentPackageRootPath,
@@ -16,17 +18,31 @@ final class PubWorkspace {
     required this.packageGraphPath,
   });
 
+  /// The package or workspace root that owns `.dart_tool/package_config.json`.
   final String rootPath;
+
+  /// The nearest package root for the current command directory.
   final String currentPackageRootPath;
+
+  /// Root package paths that Patchwork must not patch as dependencies.
   final Set<String> rootPackageRootPaths;
+
+  /// The active `.dart_tool/package_config.json` path.
   final String packageConfigPath;
+
+  /// The active `pubspec.lock` path.
   final String lockfilePath;
+
+  /// The active `.dart_tool/package_graph.json` path.
   final String packageGraphPath;
 }
 
+/// Locates the pub workspace or package for a command directory.
 final class PubWorkspaceLocator {
+  /// Creates a pub workspace locator.
   const PubWorkspaceLocator();
 
+  /// Returns workspace metadata for [currentDirectory].
   PubWorkspace locate(String currentDirectory) {
     final startPath = p.normalize(p.absolute(currentDirectory));
     final currentPackageRoot = _findNearestPackageRoot(startPath);

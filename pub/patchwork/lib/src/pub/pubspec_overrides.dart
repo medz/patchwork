@@ -7,11 +7,15 @@ import '../error.dart';
 import '../internal/yaml_writer.dart';
 import '../io/atomic_file_writer.dart';
 
+/// Reads and updates Patchwork-managed entries in `pubspec_overrides.yaml`.
 final class PubspecOverrides {
+  /// Creates an overrides helper with an injectable file writer.
   const PubspecOverrides({this.fileWriter = const AtomicFileWriter()});
 
+  /// The writer used to persist overrides updates.
   final AtomicFileWriter fileWriter;
 
+  /// Inserts or replaces a path override for [package].
   void upsertPathOverride({
     required String workspaceRootPath,
     required String package,
@@ -27,6 +31,7 @@ final class PubspecOverrides {
     _write(workspaceRootPath, overrides);
   }
 
+  /// Returns whether an existing override blocks writing [path] for [package].
   bool hasBlockingPathOverride({
     required String workspaceRootPath,
     required String package,
@@ -54,6 +59,7 @@ final class PubspecOverrides {
     return true;
   }
 
+  /// Returns whether `pubspec_overrides.yaml` contains any override for [package].
   bool hasOverride({
     required String workspaceRootPath,
     required String package,
@@ -65,6 +71,7 @@ final class PubspecOverrides {
     return dependencyOverrides.containsKey(package);
   }
 
+  /// Removes a path override for [package] only when it still points at [path].
   bool removePathOverrideIfMatches({
     required String workspaceRootPath,
     required String package,
@@ -95,6 +102,7 @@ final class PubspecOverrides {
     return true;
   }
 
+  /// Returns whether the override for [package] points at [path].
   bool pointsToPath({
     required String workspaceRootPath,
     required String package,

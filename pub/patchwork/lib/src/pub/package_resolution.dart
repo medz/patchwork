@@ -9,29 +9,58 @@ import '../internal/package_tree.dart';
 import '../model.dart';
 import 'pub_workspace.dart';
 
-enum PubPackageSourceKind { hosted, path, git, sdk, unknown }
+/// Pub source kinds Patchwork recognizes from `pubspec.lock`.
+enum PubPackageSourceKind {
+  /// A hosted pub package.
+  hosted,
 
+  /// A local path dependency.
+  path,
+
+  /// A Git dependency.
+  git,
+
+  /// A Dart or Flutter SDK package.
+  sdk,
+
+  /// A source kind Patchwork does not understand.
+  unknown,
+}
+
+/// A package selected by the current pub resolution.
 final class ResolvedPubPackage {
+  /// Creates resolved package metadata.
   const ResolvedPubPackage({
     required this.version,
     required this.rootPath,
     required this.source,
   });
 
+  /// The concrete resolved package version.
   final String version;
+
+  /// The resolved package root path from package configuration.
   final String rootPath;
+
+  /// Source metadata and content hash for the resolved package.
   final PackageSource source;
 }
 
+/// Reads pub resolution metadata from a Dart project or workspace.
 final class PubResolutionReader {
+  /// Creates a pub resolution reader.
   const PubResolutionReader({
     this.workspaceLocator = const PubWorkspaceLocator(),
     this.packageTree = const PackageTree(),
   });
 
+  /// Locates active pub workspace files.
   final PubWorkspaceLocator workspaceLocator;
+
+  /// Computes source tree hashes for resolved packages.
   final PackageTree packageTree;
 
+  /// Reads the pub resolution active for [currentDirectory].
   PubResolution readFromDirectory(String currentDirectory) {
     final workspace = workspaceLocator.locate(currentDirectory);
     final packages = _PackageIndex(
@@ -362,6 +391,7 @@ final class PubResolutionReader {
   }
 }
 
+/// Provides dependency lookup against the active pub resolution.
 final class PubResolution {
   const PubResolution._({
     required this.workspace,
@@ -371,12 +401,16 @@ final class PubResolution {
     required this.packageTree,
   });
 
+  /// The workspace that owns the active pub resolution files.
   final PubWorkspace workspace;
   final _PackageIndex _packages;
   final Set<String> _rootNames;
   final Set<String> _directDependencies;
+
+  /// Computes source tree hashes for resolved packages.
   final PackageTree packageTree;
 
+  /// Resolves [packageName] to a patchable package source.
   ResolvedPubPackage resolvePackage(
     String packageName, {
     bool requireDirectDependency = true,

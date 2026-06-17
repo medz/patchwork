@@ -4,6 +4,7 @@ import '../error.dart';
 import '../model.dart';
 import '../patchwork.dart';
 
+/// Writes a Patchwork error in the human-readable CLI format.
 void printError(io.IOSink err, PatchworkException error) {
   err.writeln('error: ${error.message}');
   if (error.hint != null && error.hint!.isNotEmpty) {
@@ -14,6 +15,7 @@ void printError(io.IOSink err, PatchworkException error) {
   }
 }
 
+/// Writes project patch state in the human-readable CLI format.
 void printStatus(Patchwork patchwork, PatchworkState state, io.IOSink out) {
   if (state.packages.isEmpty) {
     out.writeln('No patchwork packages.');

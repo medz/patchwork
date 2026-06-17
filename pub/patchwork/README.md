@@ -70,6 +70,31 @@ dart run patchwork status
 After a successful apply, Patchwork prints the `dart pub get` next step so pub
 refreshes dependency resolution through the generated overrides.
 
+## Library API
+
+The CLI uses the same API that hooks or other Dart tooling can call:
+
+```dart
+import 'dart:io';
+
+import 'package:patchwork/patchwork.dart';
+
+Future<void> main() async {
+  final patchwork = await Patchwork.open(Directory.current);
+
+  await patchwork.patch('collection');
+  await patchwork.commit('collection');
+  await patchwork.apply('collection');
+  await patchwork.undo('collection');
+
+  final state = await patchwork.inspect();
+  stdout.writeln('${state.packages.length} patchwork packages');
+}
+```
+
+Use `PatchRef.version('1.19.0')` with `patch` when carrying an older patch onto
+a newer dependency source.
+
 ## What To Commit
 
 Commit these files in projects that use Patchwork:

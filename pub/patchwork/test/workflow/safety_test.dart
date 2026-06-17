@@ -516,6 +516,99 @@ packages:
   );
 
   test(
+    'apply refreshes mirrored root pubspec overrides while still applied',
+    () async {
+      final project = await ProjectSandbox.standalone(
+        includeOtherDependency: true,
+      );
+      addTearDown(project.dispose);
+      final thirdRoot = p.join(project.root.path, 'packages', 'third_pkg');
+      final manualThirdRoot = p.join(project.root.path, 'manual_third_pkg');
+      _writeSimplePackage(thirdRoot, 'third_pkg');
+      _writeSimplePackage(manualThirdRoot, 'third_pkg');
+      _addPathDependency(project, 'third_pkg', thirdRoot);
+
+      await project.pubGet();
+      _writePubspecDependencyOverride(
+        project,
+        packageRoot: project.stateRoot,
+        package: 'third_pkg',
+        targetRoot: manualThirdRoot,
+      );
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello while refreshing an applied mirror');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      await project.pubGet();
+      project.expectPackageResolvedTo('third_pkg', manualThirdRoot);
+
+      _writePubspecDependencyOverride(
+        project,
+        packageRoot: project.stateRoot,
+        package: 'third_pkg',
+        targetRoot: thirdRoot,
+      );
+      await project.patchwork(['patch', 'other_pkg']);
+      File(
+        p.join(
+          project.stateRoot,
+          '.patchwork',
+          'other_pkg@0.1.0',
+          'lib',
+          'other_pkg.dart',
+        ),
+      ).writeAsStringSync('''
+String otherName() {
+  return 'patched_other_pkg';
+}
+''');
+      await project.patchwork(['commit', 'other_pkg']);
+      await project.patchwork(['apply', 'other_pkg']);
+      await project.pubGet();
+
+      project.expectPackageResolvedTo('third_pkg', thirdRoot);
+      final overrides = project.overrideFile.readAsStringSync();
+      expect(
+        overrides,
+        contains(p.relative(thirdRoot, from: project.stateRoot)),
+      );
+      expect(overrides, isNot(contains('manual_third_pkg')));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'undo removes stale mirrored root pubspec overrides',
+    () async {
+      final project = await ProjectSandbox.standalone(
+        includeOtherDependency: true,
+      );
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      _writePubspecDependencyOverride(
+        project,
+        packageRoot: project.stateRoot,
+        package: 'other_pkg',
+      );
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello before removing a mirrored override');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      await project.pubGet();
+      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+
+      _removePubspecDependencyOverrides(project.stateRoot);
+      await project.patchwork(['undo', 'greeter']);
+      await project.pubGet();
+
+      project.expectPackageResolvedTo('other_pkg', project.otherRoot!);
+      expect(project.overrideFile.existsSync(), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'patch and apply ignore shadowed same-package pubspec overrides',
     () async {
       final project = await ProjectSandbox.standalone(
@@ -572,6 +665,38 @@ packages:
           contains(p.relative(project.otherRoot!, from: project.stateRoot)),
         ),
       );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'undo preserves active pubspec_overrides entries matching pubspec',
+    () async {
+      final project = await ProjectSandbox.standalone(
+        includeOtherDependency: true,
+      );
+      addTearDown(project.dispose);
+
+      project.writeOtherOverride();
+      _writePubspecDependencyOverride(
+        project,
+        packageRoot: project.stateRoot,
+        package: 'other_pkg',
+      );
+      await project.pubGet();
+      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello without deleting active overrides');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      await project.patchwork(['undo', 'greeter']);
+      await project.pubGet();
+
+      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+      final overrides = project.overrideFile.readAsStringSync();
+      expect(overrides, contains('other_pkg:'));
+      expect(overrides, isNot(contains('greeter:')));
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
@@ -1038,6 +1163,38 @@ dependency_overrides:
 ''');
 }
 
+void _writeSimplePackage(String root, String package) {
+  Directory(p.join(root, 'lib')).createSync(recursive: true);
+  File(p.join(root, 'pubspec.yaml')).writeAsStringSync('''
+name: $package
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+''');
+  File(p.join(root, 'lib', '$package.dart')).writeAsStringSync('''
+String packageName() {
+  return '$package';
+}
+''');
+}
+
+void _addPathDependency(
+  ProjectSandbox project,
+  String package,
+  String packageRoot,
+) {
+  final pubspec = File(p.join(project.stateRoot, 'pubspec.yaml'));
+  pubspec.writeAsStringSync(
+    pubspec.readAsStringSync().replaceFirst('dependencies:\n', '''
+dependencies:
+  $package:
+    path: ${p.relative(packageRoot, from: project.stateRoot)}
+'''),
+  );
+}
+
 void _writePubspecDependencyOverride(
   ProjectSandbox project, {
   required String packageRoot,
@@ -1056,6 +1213,13 @@ dependency_overrides:
   $package:
     path: ${p.relative(overrideRoot, from: packageRoot)}
 ''');
+}
+
+void _removePubspecDependencyOverrides(String packageRoot) {
+  final pubspec = File(p.join(packageRoot, 'pubspec.yaml'));
+  pubspec.writeAsStringSync(
+    '${_withoutPubspecDependencyOverrides(pubspec.readAsStringSync())}\n',
+  );
 }
 
 String _withoutPubspecDependencyOverrides(String content) {

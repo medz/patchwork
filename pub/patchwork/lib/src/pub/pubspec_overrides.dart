@@ -23,26 +23,41 @@ final class PubspecOverrides {
   ///
   /// The resulting override is written under `dependency_overrides` and points
   /// at [path], usually a project-relative `.dart_tool/patchwork/...` path.
-  void upsertPathOverride({
+  Map<String, Object?> upsertPathOverride({
     required String workspaceRootPath,
     required String package,
     required String path,
     Map<String, Object?> pubspecDependencyOverrides = const {},
+    Map<String, Object?> mirroredPubspecDependencyOverrides = const {},
   }) {
     final overrides = _read(workspaceRootPath);
-    final hasActiveDependencyOverrides = overrides.containsKey(
-      'dependency_overrides',
-    );
     final dependencyOverrides = _dependencyOverrides(
       overrides,
       workspaceRootPath,
     );
-    if (!hasActiveDependencyOverrides) {
-      dependencyOverrides.addAll(pubspecDependencyOverrides);
+    _removeMirroredPubspecDependencyOverrides(
+      dependencyOverrides,
+      mirroredPubspecDependencyOverrides,
+      workspaceRootPath,
+    );
+
+    final nextMirroredPubspecDependencyOverrides = <String, Object?>{};
+    if (_canMirrorPubspecDependencyOverrides(
+      dependencyOverrides,
+      workspaceRootPath,
+    )) {
+      for (final entry in pubspecDependencyOverrides.entries) {
+        if (dependencyOverrides.containsKey(entry.key)) {
+          continue;
+        }
+        dependencyOverrides[entry.key] = entry.value;
+        nextMirroredPubspecDependencyOverrides[entry.key] = entry.value;
+      }
     }
     dependencyOverrides[package] = {'path': path};
     overrides['dependency_overrides'] = dependencyOverrides;
     _write(workspaceRootPath, overrides);
+    return nextMirroredPubspecDependencyOverrides;
   }
 
   /// Returns whether an existing override blocks writing [path] for [package].
@@ -106,7 +121,7 @@ final class PubspecOverrides {
     required String workspaceRootPath,
     required String package,
     required String path,
-    Map<String, Object?> pubspecDependencyOverrides = const {},
+    Map<String, Object?> mirroredPubspecDependencyOverrides = const {},
   }) {
     final overrides = _read(workspaceRootPath);
     final dependencyOverrides = _dependencyOverrides(
@@ -124,11 +139,13 @@ final class PubspecOverrides {
     }
 
     dependencyOverrides.remove(package);
-    _removeRedundantPubspecDependencyOverrides(
-      dependencyOverrides,
-      pubspecDependencyOverrides,
-      workspaceRootPath,
-    );
+    if (!_hasPatchworkPathOverride(dependencyOverrides, workspaceRootPath)) {
+      _removeMirroredPubspecDependencyOverrides(
+        dependencyOverrides,
+        mirroredPubspecDependencyOverrides,
+        workspaceRootPath,
+      );
+    }
     if (dependencyOverrides.isEmpty) {
       overrides.remove('dependency_overrides');
     } else {
@@ -238,15 +255,12 @@ final class PubspecOverrides {
   }
 }
 
-void _removeRedundantPubspecDependencyOverrides(
+void _removeMirroredPubspecDependencyOverrides(
   Map<String, Object?> dependencyOverrides,
-  Map<String, Object?> pubspecDependencyOverrides,
+  Map<String, Object?> mirroredPubspecDependencyOverrides,
   String workspaceRootPath,
 ) {
-  if (_hasPatchworkPathOverride(dependencyOverrides, workspaceRootPath)) {
-    return;
-  }
-  for (final entry in pubspecDependencyOverrides.entries) {
+  for (final entry in mirroredPubspecDependencyOverrides.entries) {
     final existing = dependencyOverrides[entry.key];
     if (_sameOverrideValue(workspaceRootPath, existing, entry.value)) {
       dependencyOverrides.remove(entry.key);
@@ -254,23 +268,36 @@ void _removeRedundantPubspecDependencyOverrides(
   }
 }
 
+bool _canMirrorPubspecDependencyOverrides(
+  Map<String, Object?> dependencyOverrides,
+  String workspaceRootPath,
+) {
+  return dependencyOverrides.values.every(
+    (value) => _isPatchworkPathOverride(value, workspaceRootPath),
+  );
+}
+
 bool _hasPatchworkPathOverride(
   Map<String, Object?> dependencyOverrides,
   String workspaceRootPath,
 ) {
-  return dependencyOverrides.values.any((value) {
-    if (value is! Map<String, Object?> || value['path'] is! String) {
-      return false;
-    }
-    final path = value['path'] as String;
-    final absolute = p.normalize(
-      p.isAbsolute(path) ? path : p.absolute(workspaceRootPath, path),
-    );
-    final appliedRoot = p.normalize(
-      p.absolute(workspaceRootPath, '.dart_tool', 'patchwork'),
-    );
-    return p.equals(absolute, appliedRoot) || p.isWithin(appliedRoot, absolute);
-  });
+  return dependencyOverrides.values.any(
+    (value) => _isPatchworkPathOverride(value, workspaceRootPath),
+  );
+}
+
+bool _isPatchworkPathOverride(Object? value, String workspaceRootPath) {
+  if (value is! Map<String, Object?> || value['path'] is! String) {
+    return false;
+  }
+  final path = value['path'] as String;
+  final absolute = p.normalize(
+    p.isAbsolute(path) ? path : p.absolute(workspaceRootPath, path),
+  );
+  final appliedRoot = p.normalize(
+    p.absolute(workspaceRootPath, '.dart_tool', 'patchwork'),
+  );
+  return p.equals(absolute, appliedRoot) || p.isWithin(appliedRoot, absolute);
 }
 
 String _path(String workspaceRootPath) {

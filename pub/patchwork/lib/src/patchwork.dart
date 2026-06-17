@@ -450,17 +450,29 @@ final class Patchwork {
       rethrow;
     }
 
-    _pubspecOverrides.upsertPathOverride(
-      workspaceRootPath: _rootPath,
-      package: package,
-      path: appliedRecordPath,
-      pubspecDependencyOverrides: _pubspecDependencyOverridesForApply(package),
-    );
+    final previousMirroredPubspecDependencyOverrides =
+        _mirroredPubspecDependencyOverrides(lock);
+    final mirroredPubspecDependencyOverrides = _pubspecOverrides
+        .upsertPathOverride(
+          workspaceRootPath: _rootPath,
+          package: package,
+          path: appliedRecordPath,
+          pubspecDependencyOverrides: _pubspecDependencyOverridesForApply(
+            package,
+          ),
+          mirroredPubspecDependencyOverrides:
+              previousMirroredPubspecDependencyOverrides,
+        );
     lock.packages[package] = record.copyWith(
       applied: AppliedPatchRecord(
         patchSha256: patchSha256,
         path: appliedRecordPath,
+        mirroredPubspecDependencyOverrides: mirroredPubspecDependencyOverrides,
       ),
+    );
+    _setMirroredPubspecDependencyOverrides(
+      lock,
+      mirroredPubspecDependencyOverrides,
     );
     _lockStore.write(lock);
 
@@ -493,15 +505,21 @@ final class Patchwork {
       code: 'undo.applied_path_not_deletable',
       message: _invalidAppliedPathMessage,
     );
+    final mirroredPubspecDependencyOverrides =
+        _mirroredPubspecDependencyOverrides(lock);
     _pubspecOverrides.removePathOverrideIfMatches(
       workspaceRootPath: _rootPath,
       package: package,
       path: applied.path,
-      pubspecDependencyOverrides: _pubspecDependencyOverridesForApply(package),
+      mirroredPubspecDependencyOverrides: mirroredPubspecDependencyOverrides,
     );
     _packageTree.deleteDirectory(absoluteAppliedPath);
 
     lock.packages[package] = record.copyWith(clearApplied: true);
+    _setMirroredPubspecDependencyOverrides(
+      lock,
+      mirroredPubspecDependencyOverrides,
+    );
     _lockStore.write(lock);
 
     return UnappliedPatch(
@@ -917,6 +935,37 @@ final class Patchwork {
       dependencyOverrides[entry.key] = _rootRelativePathOverride(entry.value);
     }
     return dependencyOverrides;
+  }
+
+  Map<String, Object?> _mirroredPubspecDependencyOverrides(Lockfile lock) {
+    final dependencyOverrides = <String, Object?>{};
+    for (final record in lock.packages.values) {
+      final applied = record.applied;
+      if (applied == null) {
+        continue;
+      }
+      dependencyOverrides.addAll(applied.mirroredPubspecDependencyOverrides);
+    }
+    return dependencyOverrides;
+  }
+
+  void _setMirroredPubspecDependencyOverrides(
+    Lockfile lock,
+    Map<String, Object?> dependencyOverrides,
+  ) {
+    for (final entry in lock.packages.entries) {
+      final applied = entry.value.applied;
+      if (applied == null) {
+        continue;
+      }
+      lock.packages[entry.key] = entry.value.copyWith(
+        applied: AppliedPatchRecord(
+          patchSha256: applied.patchSha256,
+          path: applied.path,
+          mirroredPubspecDependencyOverrides: dependencyOverrides,
+        ),
+      );
+    }
   }
 
   Object? _rootRelativePathOverride(Object? value) {

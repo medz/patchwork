@@ -30,6 +30,9 @@ void main() {
             applied: AppliedPatchRecord(
               patchSha256: 'patch-sha',
               path: '.dart_tool/patchwork/foo@0.1.0',
+              mirroredPubspecDependencyOverrides: {
+                'bar': {'path': 'packages/bar'},
+              },
             ),
           ),
         },
@@ -48,6 +51,9 @@ void main() {
     expect(foo.patchHistory['0.0.9'], 'old-patch-sha');
     expect(foo.applied!.patchSha256, 'patch-sha');
     expect(foo.applied!.path, '.dart_tool/patchwork/foo@0.1.0');
+    expect(foo.applied!.mirroredPubspecDependencyOverrides, {
+      'bar': {'path': 'packages/bar'},
+    });
   });
 
   test('rejects unsupported versions', () {

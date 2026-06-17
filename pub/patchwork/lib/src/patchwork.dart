@@ -225,10 +225,29 @@ final class Patchwork {
 
     final appliedPath = _layout.appliedPath(package, record.version);
     final relativePath = _layout.relativeAppliedPath(package, record.version);
+    final existingApplied = record.applied;
+    final canReplaceApplied =
+        existingApplied != null &&
+        existingApplied.path == relativePath &&
+        _layout.isExpectedAppliedPath(
+          package,
+          record.version,
+          existingApplied.path,
+        );
+    if (!canReplaceApplied && Directory(appliedPath).existsSync()) {
+      throw PatchworkException(
+        'Applied output path already exists for "$package".',
+        code: 'apply.applied_path_exists',
+        hint:
+            'Patchwork cannot replace it without a matching patchwork.lock applied record.',
+        location: appliedPath,
+      );
+    }
     _pubspecOverrides.assertCanUpsertPathOverride(
       workspaceRootPath: _rootPath,
       package: package,
       path: relativePath,
+      replaceExisting: canReplaceApplied,
     );
 
     final resolution = _readResolution();
@@ -259,6 +278,7 @@ final class Patchwork {
       workspaceRootPath: _rootPath,
       package: package,
       path: relativePath,
+      replaceExisting: canReplaceApplied,
     );
     lock.packages[package] = record.copyWith(
       applied: AppliedPatchRecord(patchSha256: patchSha256, path: relativePath),
@@ -435,6 +455,7 @@ final class Patchwork {
       workspaceRootPath: _rootPath,
       package: package,
       path: _layout.relativeAppliedPath(package, version),
+      replaceExisting: false,
     )) {
       return;
     }
@@ -752,6 +773,7 @@ final class Patchwork {
           workspaceRootPath: _rootPath,
           package: package,
           path: pendingAppliedPath,
+          replaceExisting: false,
         );
     final repairHint = pubResolutionMatchesSource
         ? 'Run patchwork apply $package.'

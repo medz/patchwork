@@ -40,11 +40,13 @@ final class PubspecOverrides {
     required String workspaceRootPath,
     required String package,
     required String path,
+    required bool replaceExisting,
   }) {
     assertCanUpsertPathOverride(
       workspaceRootPath: workspaceRootPath,
       package: package,
       path: path,
+      replaceExisting: replaceExisting,
     );
     final overrides = _read(workspaceRootPath);
     final dependencyOverrides = _dependencyOverrides(
@@ -60,11 +62,13 @@ final class PubspecOverrides {
     required String workspaceRootPath,
     required String package,
     required String path,
+    required bool replaceExisting,
   }) {
     if (!hasBlockingPathOverride(
       workspaceRootPath: workspaceRootPath,
       package: package,
       path: path,
+      replaceExisting: replaceExisting,
     )) {
       return;
     }
@@ -82,6 +86,7 @@ final class PubspecOverrides {
     required String workspaceRootPath,
     required String package,
     required String path,
+    required bool replaceExisting,
   }) {
     final overrides = _read(workspaceRootPath);
     final dependencyOverrides = _dependencyOverrides(
@@ -93,7 +98,9 @@ final class PubspecOverrides {
     if (existing == null) {
       return false;
     }
-    if (existing is Map<String, Object?> && existing['path'] is String) {
+    if (replaceExisting &&
+        existing is Map<String, Object?> &&
+        existing['path'] is String) {
       final existingPath = existing['path'] as String;
       if (_pathsPointToSameLocation(workspaceRootPath, existingPath, path)) {
         return false;

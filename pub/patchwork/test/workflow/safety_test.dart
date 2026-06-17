@@ -218,6 +218,42 @@ packages:
   );
 
   test(
+    'apply refuses to replace unowned applied output or override paths',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from an owned patch');
+      await project.patchwork(['commit', 'greeter']);
+
+      final sentinel = File(p.join(project.appliedDirectory.path, 'SENTINEL'));
+      sentinel.parent.createSync(recursive: true);
+      sentinel.writeAsStringSync('user data');
+      await project.patchwork(
+        ['apply', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'Applied output path already exists',
+      );
+      expect(sentinel.readAsStringSync(), 'user data');
+
+      project.appliedDirectory.deleteSync(recursive: true);
+      project.overrideFile.writeAsStringSync('''
+dependency_overrides:
+  greeter:
+    path: .dart_tool/patchwork/greeter@0.1.0
+''');
+      await project.patchwork(
+        ['apply', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'already has a dependency override',
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'undo leaves a same-package user override in place',
     () async {
       final project = await ProjectSandbox.standalone(

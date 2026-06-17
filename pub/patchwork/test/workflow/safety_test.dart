@@ -149,6 +149,13 @@ packages:
       File(
         p.join(project.stateRoot, '.dart_tool', 'package_graph.json'),
       ).deleteSync();
+      final pubspec = File(p.join(project.stateRoot, 'pubspec.yaml'));
+      pubspec.writeAsStringSync(
+        pubspec.readAsStringSync().replaceFirst(
+          '  - packages/member_greeter',
+          '  - packages/*',
+        ),
+      );
       const memberPath = 'packages/member_greeter';
       _replaceAppliedPath(project, memberPath);
 

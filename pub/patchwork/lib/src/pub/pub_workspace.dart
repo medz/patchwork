@@ -147,13 +147,42 @@ final class PubWorkspaceLocator {
       return {
         for (final item in workspace.nodes)
           if (item.value is String)
-            p.normalize(p.absolute(resolutionRoot, item.value as String)),
+            ..._expandWorkspacePath(resolutionRoot, item.value as String),
       };
     } on YamlException {
       return const {};
     } on FileSystemException {
       return const {};
     }
+  }
+
+  Set<String> _expandWorkspacePath(
+    String resolutionRoot,
+    String workspacePath,
+  ) {
+    final segments = p.split(workspacePath);
+    var paths = {p.normalize(p.absolute(resolutionRoot))};
+    for (final segment in segments) {
+      final next = <String>{};
+      for (final base in paths) {
+        if (segment == '*') {
+          final directory = Directory(base);
+          if (!directory.existsSync()) {
+            continue;
+          }
+          for (final entity in directory.listSync(followLinks: false)) {
+            if (FileSystemEntity.typeSync(entity.path, followLinks: false) ==
+                FileSystemEntityType.directory) {
+              next.add(p.normalize(entity.path));
+            }
+          }
+        } else {
+          next.add(p.normalize(p.join(base, segment)));
+        }
+      }
+      paths = next;
+    }
+    return paths;
   }
 
   Map<String, String> _packageConfigRootPaths(String packageConfigPath) {

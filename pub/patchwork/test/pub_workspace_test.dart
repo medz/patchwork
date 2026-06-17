@@ -93,6 +93,31 @@ void main() {
         contains(p.join(workspaceRoot.path, 'packages', 'member_greeter')),
       );
     });
+
+    test('expands wildcard workspace members without package graph', () {
+      final workspaceRoot = Directory.systemTemp.createTempSync(
+        'patchwork_pub_workspace_',
+      );
+      addTearDown(() => workspaceRoot.deleteSync(recursive: true));
+
+      _writeWorkspacePubspec(workspaceRoot.path, memberPath: 'pub/*');
+      final appRoot = p.join(workspaceRoot.path, 'app');
+      final memberRoot = p.join(workspaceRoot.path, 'pub', 'patchwork');
+      _writePubspec(appRoot, 'app');
+      _writePubspec(memberRoot, 'patchwork');
+      _writePackageConfig(workspaceRoot.path, [
+        const _PackageConfigEntry(name: 'workspace', rootUri: '..'),
+        const _PackageConfigEntry(name: 'app', rootUri: '../app'),
+        const _PackageConfigEntry(
+          name: 'patchwork',
+          rootUri: '../pub/patchwork',
+        ),
+      ]);
+
+      final workspace = const PubWorkspaceLocator().locate(appRoot);
+
+      expect(workspace.rootPackageRootPaths, contains(memberRoot));
+    });
   });
 }
 
@@ -107,7 +132,10 @@ environment:
 ''');
 }
 
-void _writeWorkspacePubspec(String root) {
+void _writeWorkspacePubspec(
+  String root, {
+  String memberPath = 'packages/member_greeter',
+}) {
   Directory(root).createSync(recursive: true);
   File(p.join(root, 'pubspec.yaml')).writeAsStringSync('''
 name: workspace
@@ -118,7 +146,7 @@ environment:
 
 workspace:
   - app
-  - packages/member_greeter
+  - $memberPath
 ''');
 }
 

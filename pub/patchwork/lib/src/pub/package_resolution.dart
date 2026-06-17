@@ -11,34 +11,20 @@ import 'pub_workspace.dart';
 
 enum PubPackageSourceKind { hosted, path, git, sdk, root, unknown }
 
-enum PubPackageDependencyKind {
-  root,
-  directMain,
-  directDev,
-  transitive,
-  unknown,
-}
+enum PubPackageDependencyKind { root, directMain, directDev, transitive }
 
 final class ResolvedPubPackage {
   const ResolvedPubPackage({
     required this.name,
     required this.version,
-    required this.sourceKind,
-    required this.dependencyKind,
     required this.rootPath,
-    required this.packageUri,
     required this.source,
-    this.languageVersion,
   });
 
   final String name;
   final String version;
-  final PubPackageSourceKind sourceKind;
-  final PubPackageDependencyKind dependencyKind;
   final String rootPath;
-  final String packageUri;
   final PackageSource source;
-  final String? languageVersion;
 }
 
 final class PubResolutionReader {
@@ -62,7 +48,6 @@ final class PubResolutionReader {
       workspace,
       currentPackageName,
       dependencies: dependencies,
-      workspaceRootNames: _readWorkspaceRootNames(workspace),
     );
 
     return PubResolution._(
@@ -105,12 +90,10 @@ final class PubResolutionReader {
 
         final name = package['name'];
         final rootUri = package['rootUri'];
-        final packageUri = package['packageUri'];
-        final languageVersion = package['languageVersion'];
-        if (name is! String || rootUri is! String || packageUri is! String) {
+        if (name is! String || rootUri is! String) {
           throw _malformedPackageConfig(
             workspace,
-            'Expected package_config entries to include name, rootUri, and packageUri.',
+            'Expected package_config entries to include name and rootUri.',
           );
         }
         if (entries.containsKey(name)) {
@@ -123,8 +106,6 @@ final class PubResolutionReader {
 
         entries[name] = _PackageConfigPackage(
           rootPath: _resolvePackageRootUri(workspace, rootUri),
-          packageUri: packageUri,
-          languageVersion: languageVersion is String ? languageVersion : null,
         );
       }
       return entries;
@@ -191,7 +172,6 @@ final class PubResolutionReader {
         entries[name] = _ResolutionMetadataPackage(
           version: version.toString(),
           sourceKind: _parseSourceKind(value['source']),
-          dependencyKind: _parseLockDependencyKind(value['dependency']),
           description: _yamlMapToStringMap(value['description']),
         );
       }
@@ -212,16 +192,14 @@ final class PubResolutionReader {
     PubWorkspace workspace,
     String currentPackageName, {
     required _PubspecDependencies dependencies,
-    required Set<String> workspaceRootNames,
   }) {
     final packageGraph = File(workspace.packageGraphPath);
     if (!packageGraph.existsSync()) {
       return _PackageGraph(
-        rootNames: workspaceRootNames,
+        rootNames: {currentPackageName},
         currentPackageName: currentPackageName,
         directMainDependencies: dependencies.main,
         directDevDependencies: dependencies.dev,
-        hasCurrentPackage: true,
       );
     }
 
@@ -236,31 +214,14 @@ final class PubResolutionReader {
 
       final rootNames = {
         ..._readStringSet(workspace, decoded['roots'], fieldName: 'roots'),
-        ...workspaceRootNames,
+        currentPackageName,
       };
-      final packages = decoded['packages'];
-      if (packages is! List<Object?>) {
-        throw _malformedPackageGraph(
-          workspace,
-          'Expected package_graph.json to contain a packages list.',
-        );
-      }
-
-      for (final package in packages) {
-        if (package is! Map<String, Object?>) {
-          throw _malformedPackageGraph(
-            workspace,
-            'Expected each package_graph package entry to be an object.',
-          );
-        }
-      }
 
       return _PackageGraph(
         rootNames: rootNames,
         currentPackageName: currentPackageName,
         directMainDependencies: dependencies.main,
         directDevDependencies: dependencies.dev,
-        hasCurrentPackage: true,
       );
     } on FormatException catch (error) {
       throw _malformedPackageGraph(workspace, error.message);
@@ -293,162 +254,6 @@ final class PubResolutionReader {
     } on FileSystemException catch (error) {
       throw PatchworkException(
         'Could not read pubspec.yaml.',
-        code: 'pub.pubspec_not_readable',
-        hint: error.message,
-        location: pubspecPath,
-      );
-    }
-  }
-
-  Set<String> _readWorkspaceRootNames(PubWorkspace workspace) {
-    final pubspecPath = p.join(workspace.rootPath, 'pubspec.yaml');
-    try {
-      final decoded = loadYaml(File(pubspecPath).readAsStringSync());
-      if (decoded is! YamlMap) {
-        throw _malformedPubspec(pubspecPath, 'Expected a YAML object.');
-      }
-      final workspaceEntries = decoded['workspace'];
-      if (workspaceEntries == null) {
-        return const {};
-      }
-      if (workspaceEntries is! YamlList) {
-        throw _malformedPubspec(
-          pubspecPath,
-          'Expected workspace to be a YAML list.',
-        );
-      }
-
-      final names = <String>{};
-      for (final entry in workspaceEntries.nodes) {
-        final value = entry.value;
-        if (value is! String) {
-          throw _malformedPubspec(
-            pubspecPath,
-            'Expected workspace entries to be strings.',
-          );
-        }
-        for (final packageRoot in _workspacePackageRoots(
-          workspace.rootPath,
-          value,
-        )) {
-          names.add(_readPackageName(packageRoot));
-        }
-      }
-      return names;
-    } on YamlException catch (error) {
-      throw _malformedPubspec(pubspecPath, error.message);
-    } on FileSystemException catch (error) {
-      throw PatchworkException(
-        'Could not read pubspec.yaml.',
-        code: 'pub.pubspec_not_readable',
-        hint: error.message,
-        location: pubspecPath,
-      );
-    }
-  }
-
-  List<String> _workspacePackageRoots(String workspaceRoot, String entry) {
-    if (!_containsGlob(entry)) {
-      return [p.join(workspaceRoot, entry)];
-    }
-
-    var candidates = [workspaceRoot];
-    for (final part in p.split(entry)) {
-      if (part == '.' || part.isEmpty) {
-        continue;
-      }
-      if (part == '**') {
-        candidates = [
-          for (final candidate in candidates)
-            ..._descendantDirectories(candidate, includeSelf: true),
-        ];
-        continue;
-      }
-      if (_containsGlob(part)) {
-        final pattern = _globSegmentPattern(part);
-        candidates = [
-          for (final candidate in candidates)
-            if (Directory(candidate).existsSync())
-              for (final entity in Directory(
-                candidate,
-              ).listSync(followLinks: false))
-                if (FileSystemEntity.typeSync(
-                      entity.path,
-                      followLinks: false,
-                    ) ==
-                    FileSystemEntityType.directory)
-                  if (pattern.hasMatch(p.basename(entity.path))) entity.path,
-        ];
-        continue;
-      }
-      candidates = [
-        for (final candidate in candidates) p.join(candidate, part),
-      ];
-    }
-
-    return [
-      for (final candidate in candidates)
-        if (File(p.join(candidate, 'pubspec.yaml')).existsSync()) candidate,
-    ];
-  }
-
-  Iterable<String> _descendantDirectories(
-    String root, {
-    required bool includeSelf,
-  }) sync* {
-    final directory = Directory(root);
-    if (!directory.existsSync()) {
-      return;
-    }
-    if (includeSelf) {
-      yield root;
-    }
-    for (final entity in directory.listSync(followLinks: false)) {
-      if (FileSystemEntity.typeSync(entity.path, followLinks: false) !=
-          FileSystemEntityType.directory) {
-        continue;
-      }
-      yield entity.path;
-      yield* _descendantDirectories(entity.path, includeSelf: false);
-    }
-  }
-
-  RegExp _globSegmentPattern(String segment) {
-    final buffer = StringBuffer('^');
-    for (var index = 0; index < segment.length; index += 1) {
-      final character = segment[index];
-      if (character == '*') {
-        buffer.write('[^/]*');
-      } else if (character == '?') {
-        buffer.write('[^/]');
-      } else {
-        buffer.write(RegExp.escape(character));
-      }
-    }
-    buffer.write(r'$');
-    return RegExp(buffer.toString());
-  }
-
-  String _readPackageName(String packageRoot) {
-    final pubspecPath = p.join(packageRoot, 'pubspec.yaml');
-    try {
-      final decoded = loadYaml(File(pubspecPath).readAsStringSync());
-      if (decoded is! YamlMap) {
-        throw _malformedPubspec(pubspecPath, 'Expected a YAML object.');
-      }
-      final name = decoded['name'];
-      if (name is! String || name.isEmpty) {
-        throw _malformedPubspec(
-          pubspecPath,
-          'Expected package name to be a non-empty string.',
-        );
-      }
-      return name;
-    } on YamlException catch (error) {
-      throw _malformedPubspec(pubspecPath, error.message);
-    } on FileSystemException catch (error) {
-      throw PatchworkException(
-        'Could not read workspace member pubspec.yaml.',
         code: 'pub.pubspec_not_readable',
         hint: error.message,
         location: pubspecPath,
@@ -541,15 +346,6 @@ final class PubResolutionReader {
     };
   }
 
-  PubPackageDependencyKind _parseLockDependencyKind(Object? dependency) {
-    return switch (dependency) {
-      'direct main' => PubPackageDependencyKind.directMain,
-      'direct dev' => PubPackageDependencyKind.directDev,
-      'transitive' => PubPackageDependencyKind.transitive,
-      _ => PubPackageDependencyKind.unknown,
-    };
-  }
-
   PatchworkException _malformedPackageConfig(
     PubWorkspace workspace,
     String message,
@@ -590,10 +386,6 @@ final class PubResolutionReader {
       location: path,
     );
   }
-}
-
-bool _containsGlob(String value) {
-  return value.contains('*') || value.contains('?');
 }
 
 final class PubResolution {
@@ -646,10 +438,7 @@ final class PubResolution {
       );
     }
 
-    final dependencyKind = _graph.dependencyKindFor(
-      packageName,
-      metadata.dependencyKind,
-    );
+    final dependencyKind = _graph.dependencyKindFor(packageName);
     if (dependencyKind != PubPackageDependencyKind.directMain &&
         dependencyKind != PubPackageDependencyKind.directDev) {
       throw PatchworkException(
@@ -672,11 +461,7 @@ final class PubResolution {
     return ResolvedPubPackage(
       name: packageName,
       version: metadata.version,
-      sourceKind: metadata.sourceKind,
-      dependencyKind: dependencyKind,
       rootPath: packageConfig.rootPath,
-      packageUri: packageConfig.packageUri,
-      languageVersion: packageConfig.languageVersion,
       source: _sourceFor(metadata, packageConfig.rootPath, workspace),
     );
   }
@@ -728,15 +513,9 @@ final class PubResolution {
 }
 
 final class _PackageConfigPackage {
-  const _PackageConfigPackage({
-    required this.rootPath,
-    required this.packageUri,
-    required this.languageVersion,
-  });
+  const _PackageConfigPackage({required this.rootPath});
 
   final String rootPath;
-  final String packageUri;
-  final String? languageVersion;
 }
 
 final class _PackageIndex {
@@ -764,13 +543,11 @@ final class _ResolutionMetadataPackage {
   const _ResolutionMetadataPackage({
     required this.version,
     required this.sourceKind,
-    required this.dependencyKind,
     required this.description,
   });
 
   final String version;
   final PubPackageSourceKind sourceKind;
-  final PubPackageDependencyKind dependencyKind;
   final Map<String, String> description;
 }
 
@@ -787,23 +564,18 @@ final class _PackageGraph {
     required this.currentPackageName,
     required this.directMainDependencies,
     required this.directDevDependencies,
-    required this.hasCurrentPackage,
   });
 
   final Set<String> rootNames;
   final String currentPackageName;
   final Set<String> directMainDependencies;
   final Set<String> directDevDependencies;
-  final bool hasCurrentPackage;
 
   bool isRoot(String name) {
     return rootNames.contains(name) || name == currentPackageName;
   }
 
-  PubPackageDependencyKind dependencyKindFor(
-    String name,
-    PubPackageDependencyKind fallback,
-  ) {
+  PubPackageDependencyKind dependencyKindFor(String name) {
     if (isRoot(name)) {
       return PubPackageDependencyKind.root;
     }
@@ -813,10 +585,7 @@ final class _PackageGraph {
     if (directDevDependencies.contains(name)) {
       return PubPackageDependencyKind.directDev;
     }
-    if (hasCurrentPackage) {
-      return PubPackageDependencyKind.transitive;
-    }
-    return fallback;
+    return PubPackageDependencyKind.transitive;
   }
 }
 

@@ -147,65 +147,6 @@ packages:
       ),
     );
   });
-
-  test('rejects workspace members declared through glob entries', () {
-    final root = Directory.systemTemp.createTempSync('patchwork_resolution_');
-    addTearDown(() => root.deleteSync(recursive: true));
-
-    final appRoot = p.join(root.path, 'packages', 'app');
-    final memberRoot = p.join(root.path, 'packages', 'member_pkg');
-    _writePubspec(root.path, '''
-name: workspace_root
-publish_to: none
-
-environment:
-  sdk: ^3.12.0
-
-workspace:
-  - packages/*
-''');
-    _writePubspec(appRoot, '''
-name: app
-publish_to: none
-
-environment:
-  sdk: ^3.12.0
-
-dependencies:
-  member_pkg: ^0.1.0
-''');
-    _writePackage(memberRoot, 'member_pkg');
-    _writePackageConfig(root.path, {
-      'workspace_root': root.path,
-      'app': appRoot,
-      'member_pkg': memberRoot,
-    });
-    _writeLockfile(root.path, '''
-sdks:
-  dart: ">=3.12.0 <4.0.0"
-packages:
-  member_pkg:
-    dependency: "direct main"
-    description:
-      path: "packages/member_pkg"
-      relative: true
-    source: path
-    version: "0.1.0"
-''');
-
-    final resolution = const PubResolutionReader().readFromDirectory(appRoot);
-
-    expect(
-      () => resolution.resolvePackage('member_pkg'),
-      throwsA(
-        isA<PatchworkException>().having(
-          (error) => error.code,
-          'code',
-          'pub.package_is_project',
-        ),
-      ),
-    );
-  });
 }
 
 void _writePackage(String root, String name) {

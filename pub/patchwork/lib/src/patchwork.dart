@@ -681,6 +681,15 @@ final class Patchwork {
 
     final lockPatch = record?.patch;
     final applied = record?.applied;
+    if (lockPatch != null && edit.isNotEmpty) {
+      problems.add(
+        PatchProblem(
+          code: 'apply.open_edit',
+          message: 'Package "$package" has an open edit directory.',
+          hint: 'Commit or delete the edit before applying this patch.',
+        ),
+      );
+    }
     if (lockPatch != null && !hasPatchFile) {
       problems.add(
         PatchProblem(

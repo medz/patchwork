@@ -8,8 +8,8 @@ patches through generated `pubspec_overrides.yaml` path overrides.
 ## Repository Layout
 
 ```text
-pub/patchwork/       Dart package implementation
-examples/            Workspace-level runnable examples
+pub/patchwork/       Publishable Dart package
+examples/            Runnable examples
 .github/             CI and repository metadata
 ```
 
@@ -27,8 +27,8 @@ dart pub publish --dry-run
 
 ## Example
 
-The workspace example demonstrates the 0.2 patch flow against a small app and a
-local pub dependency:
+The example demonstrates the 0.2 patch flow against a small app and a local pub
+dependency:
 
 ```sh
 cd examples/hello_patch/app

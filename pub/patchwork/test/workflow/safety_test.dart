@@ -128,6 +128,14 @@ packages:
       project.writeEdit('Hello from an uncommitted edit');
 
       await project.patchwork(
+        ['doctor'],
+        exitCodes: {1},
+        stdoutContains: 'open edit directory',
+      );
+      await project.patchwork([
+        'status',
+      ], stdoutContains: 'open edit directory');
+      await project.patchwork(
         ['apply', 'greeter'],
         exitCodes: {1},
         stderrContains: 'open edit directory',

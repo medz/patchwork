@@ -56,12 +56,6 @@ final class PackageTree {
     _copyDirectory(sourcePath, destinationPath, sourceRootPath: sourcePath);
   }
 
-  void replace(String sourcePath, String destinationPath) {
-    deleteDirectory(destinationPath);
-    Directory(destinationPath).createSync(recursive: true);
-    copy(sourcePath, destinationPath);
-  }
-
   void deleteDirectory(String path) {
     final directory = Directory(path);
     if (directory.existsSync()) {
@@ -148,13 +142,6 @@ final class PackageTree {
       }
     }
   }
-}
-
-bool shouldIncludePackageTreePath(
-  String relativePath,
-  FileSystemEntityType type,
-) {
-  return _shouldInclude(relativePath, type);
 }
 
 bool _shouldInclude(String relativePath, FileSystemEntityType type) {

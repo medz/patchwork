@@ -3,7 +3,6 @@ import 'dart:io' as io;
 import '../../model.dart';
 import '../../patchwork.dart';
 import '../arguments.dart';
-import '../output.dart';
 
 Future<int> runCommitCommand(
   Patchwork patchwork,
@@ -29,7 +28,7 @@ Future<int> runCommitCommand(
 void _printPatchWrite(Patchwork patchwork, PatchWrite write, io.IOSink out) {
   switch (write.status) {
     case PatchWriteStatus.written:
-      out.writeln('Wrote ${relativePath(patchwork, write.patchPath)}.');
+      out.writeln('Wrote ${patchwork.relativePath(write.patchPath)}.');
     case PatchWriteStatus.unchanged:
       out.writeln(
         '${write.package}@${write.version} patch is already current; '

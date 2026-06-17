@@ -2,7 +2,6 @@ import 'dart:io' as io;
 
 import '../../patchwork.dart';
 import '../arguments.dart';
-import '../output.dart';
 
 Future<int> runApplyCommand(
   Patchwork patchwork,
@@ -21,8 +20,8 @@ Future<int> runApplyCommand(
 
   for (final patch in applied) {
     out.writeln(
-      'Applied ${relativePath(patchwork, patch.patchPath)} to '
-      '${relativePath(patchwork, patch.path)}.',
+      'Applied ${patchwork.relativePath(patch.patchPath)} to '
+      '${patchwork.relativePath(patch.path)}.',
     );
   }
   out.writeln('Run dart pub get.');

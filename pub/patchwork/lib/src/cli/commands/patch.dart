@@ -4,7 +4,6 @@ import '../../error.dart';
 import '../../model.dart';
 import '../../patchwork.dart';
 import '../arguments.dart';
-import '../output.dart';
 
 Future<int> runPatchCommand(
   Patchwork patchwork,
@@ -58,12 +57,12 @@ Future<int> runPatchCommand(
     replaceExisting: force,
   );
   out.writeln(
-    'Created edit ${relativePath(patchwork, edit.path)} from '
-    '${relativePath(patchwork, edit.sourcePath)}.',
+    'Created edit ${patchwork.relativePath(edit.path)} from '
+    '${patchwork.relativePath(edit.sourcePath)}.',
   );
   if (edit.continuedFromPatchPath != null) {
     out.writeln(
-      'Applied ${relativePath(patchwork, edit.continuedFromPatchPath!)}.',
+      'Applied ${patchwork.relativePath(edit.continuedFromPatchPath!)}.',
     );
   }
   return 0;

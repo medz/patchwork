@@ -1,9 +1,9 @@
 # Patchwork
 
-Patchwork is a patch management tool for Dart projects.
-create a fresh editable copy of a resolved
-dependency, commit the edit as a versioned patch file, and apply committed
-patches through generated `pubspec_overrides.yaml` path overrides.
+Patchwork is a patch manager for Dart pub dependencies. It creates a fresh
+editable copy of a resolved dependency, commits the edit as a versioned patch
+file, and applies committed patches through generated
+`pubspec_overrides.yaml` path overrides.
 
 ## Repository Layout
 

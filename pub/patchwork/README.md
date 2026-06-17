@@ -1,5 +1,9 @@
 # Patchwork
 
+[![pub package](https://img.shields.io/pub/v/patchwork.svg)](https://pub.dev/packages/patchwork)
+[![CI](https://github.com/medz/patchwork/actions/workflows/ci.yml/badge.svg)](https://github.com/medz/patchwork/actions/workflows/ci.yml)
+[![license](https://img.shields.io/github/license/medz/patchwork.svg)](https://github.com/medz/patchwork/blob/main/LICENSE)
+
 Patchwork keeps Dart pub dependency fixes in reviewable patch files without
 editing your shared `.pub-cache`.
 

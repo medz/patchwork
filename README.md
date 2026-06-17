@@ -1,5 +1,9 @@
 # Patchwork
 
+[![CI](https://github.com/medz/patchwork/actions/workflows/ci.yml/badge.svg)](https://github.com/medz/patchwork/actions/workflows/ci.yml)
+[![pub package](https://img.shields.io/pub/v/patchwork.svg?label=patchwork)](https://pub.dev/packages/patchwork)
+[![license](https://img.shields.io/github/license/medz/patchwork.svg)](https://github.com/medz/patchwork/blob/main/LICENSE)
+
 Patchwork is a patch manager for Dart pub dependencies. It creates a fresh
 editable copy of a resolved dependency, commits the edit as a versioned patch
 file, and applies committed patches through generated

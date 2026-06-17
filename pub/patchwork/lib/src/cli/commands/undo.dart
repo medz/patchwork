@@ -9,7 +9,7 @@ Future<int> runUndoCommand(
   io.IOSink out,
 ) async {
   final package = singlePackage('undo', arguments, required: true)!;
-  final result = await patchwork.unapplyPatch(package);
+  final result = await patchwork.undo(package);
   if (!result.changed) {
     out.writeln('No applied patch for $package.');
     return 0;

@@ -52,7 +52,7 @@ Future<int> runPatchCommand(
   }
 
   final package = singlePackage('patch', packages, required: true)!;
-  final edit = await patchwork.prepareEdit(
+  final edit = await patchwork.patch(
     package,
     fromPatch: continueFrom,
     replaceExisting: force,

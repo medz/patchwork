@@ -11,8 +11,8 @@ Future<int> runApplyCommand(
 ) async {
   final package = singlePackage('apply', arguments, required: false);
   final applied = package == null
-      ? await patchwork.applyPatches()
-      : [await patchwork.applyPatch(package)];
+      ? await patchwork.applyAll()
+      : [await patchwork.apply(package)];
 
   if (applied.isEmpty) {
     out.writeln('No patches need apply.');

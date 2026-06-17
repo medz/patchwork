@@ -74,7 +74,7 @@ final class Patchwork {
     return path;
   }
 
-  Future<PreparedEdit> prepareEdit(
+  Future<PreparedEdit> patch(
     String package, {
     PatchRef? fromPatch,
     bool replaceExisting = false,
@@ -171,16 +171,16 @@ final class Patchwork {
     );
   }
 
-  Future<PatchWrite> writePatch(String package) async {
+  Future<PatchWrite> commit(String package) async {
     _checkPlainPackageName(package);
     final edit = _singleEditDirectory(package);
-    return _writePatchFromEdit(edit);
+    return _commitEdit(edit);
   }
 
-  Future<List<PatchWrite>> writePatches() async {
+  Future<List<PatchWrite>> commitAll() async {
     final writes = <PatchWrite>[];
     for (final package in _openEditPackages()) {
-      writes.add(await writePatch(package));
+      writes.add(await commit(package));
     }
     return writes;
   }
@@ -192,10 +192,10 @@ final class Patchwork {
     return packages;
   }
 
-  Future<List<AppliedPatch>> applyPatches() async {
+  Future<List<AppliedPatch>> applyAll() async {
     final applied = <AppliedPatch>[];
     for (final package in await _packagesNeedingApply()) {
-      applied.add(await applyPatch(package));
+      applied.add(await apply(package));
     }
     return applied;
   }
@@ -252,7 +252,7 @@ final class Patchwork {
     return packages;
   }
 
-  Future<AppliedPatch> applyPatch(String package) async {
+  Future<AppliedPatch> apply(String package) async {
     _checkPlainPackageName(package);
     final openEdits = _layout
         .editDirectories()
@@ -349,7 +349,7 @@ final class Patchwork {
     );
   }
 
-  Future<UnappliedPatch> unapplyPatch(String package) async {
+  Future<UnappliedPatch> undo(String package) async {
     _checkPlainPackageName(package);
     final lock = _lockStore.read();
     final record = lock.packages[package];
@@ -546,7 +546,7 @@ final class Patchwork {
     return edits.single;
   }
 
-  Future<PatchWrite> _writePatchFromEdit(PackageVersionPath edit) async {
+  Future<PatchWrite> _commitEdit(PackageVersionPath edit) async {
     final resolution = _readResolution();
     final resolved = resolution.resolvePackage(
       edit.package,

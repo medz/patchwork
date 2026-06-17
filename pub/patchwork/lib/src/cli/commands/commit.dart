@@ -12,8 +12,8 @@ Future<int> runCommitCommand(
 ) async {
   final package = singlePackage('commit', arguments, required: false);
   final writes = package == null
-      ? await patchwork.writePatches()
-      : [await patchwork.writePatch(package)];
+      ? await patchwork.commitAll()
+      : [await patchwork.commit(package)];
 
   if (writes.isEmpty) {
     out.writeln('No open edits.');

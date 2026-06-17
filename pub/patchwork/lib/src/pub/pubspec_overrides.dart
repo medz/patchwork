@@ -54,6 +54,17 @@ final class PubspecOverrides {
     return true;
   }
 
+  bool hasOverride({
+    required String workspaceRootPath,
+    required String package,
+  }) {
+    final dependencyOverrides = _dependencyOverrides(
+      _read(workspaceRootPath),
+      workspaceRootPath,
+    );
+    return dependencyOverrides.containsKey(package);
+  }
+
   bool removePathOverrideIfMatches({
     required String workspaceRootPath,
     required String package,

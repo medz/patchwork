@@ -200,10 +200,18 @@ final class ProjectSandbox {
       environment: environment,
     );
     if (stdoutContains != null) {
-      expect(result.stdout, contains(stdoutContains));
+      expect(
+        result.stdout,
+        contains(stdoutContains),
+        reason: 'stderr:\n${result.stderr}',
+      );
     }
     if (stderrContains != null) {
-      expect(result.stderr, contains(stderrContains));
+      expect(
+        result.stderr,
+        contains(stderrContains),
+        reason: 'stdout:\n${result.stdout}',
+      );
     }
   }
 

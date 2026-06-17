@@ -269,6 +269,24 @@ final class Patchwork {
         package,
         requireDirectDependency: false,
       );
+      final applied = record.applied;
+      if (applied != null &&
+          _patchworkAppliedPath(package, record.version, applied.path) ==
+              null) {
+        throw PatchworkException(
+          _invalidAppliedPathMessage,
+          code: 'apply.applied_path_not_deletable',
+          location: applied.path,
+        );
+      }
+      if (_hasForeignOverride(package, applied)) {
+        throw PatchworkException(
+          'pubspec_overrides.yaml already has a dependency override for "$package".',
+          code: 'pub.override_conflict',
+          hint:
+              'Remove or resolve the existing override before running patchwork apply $package.',
+        );
+      }
       if (_resolvesToApplied(package, resolved, record)) {
         continue;
       }
@@ -278,16 +296,6 @@ final class Patchwork {
           package: package,
           command: 'apply',
           targetPath: _layout.appliedPath(package, record.version),
-        );
-      }
-      final applied = record.applied;
-      if (applied != null &&
-          _patchworkAppliedPath(package, record.version, applied.path) ==
-              null) {
-        throw PatchworkException(
-          _invalidAppliedPathMessage,
-          code: 'apply.applied_path_not_deletable',
-          location: applied.path,
         );
       }
       if (_needsApply(package, record, patch)) {
@@ -766,6 +774,28 @@ final class Patchwork {
     return false;
   }
 
+  bool _hasForeignOverride(String package, AppliedPatchRecord? applied) {
+    for (final overrideRootPath in _overrideRootPaths) {
+      if (!_pubspecOverrides.hasOverride(
+        workspaceRootPath: overrideRootPath,
+        package: package,
+      )) {
+        continue;
+      }
+      if (p.equals(overrideRootPath, _rootPath) &&
+          applied != null &&
+          _pubspecOverrides.pointsToPath(
+            workspaceRootPath: overrideRootPath,
+            package: package,
+            path: applied.path,
+          )) {
+        continue;
+      }
+      return true;
+    }
+    return false;
+  }
+
   bool _needsApply(
     String package,
     LockfilePackage record,
@@ -954,7 +984,8 @@ final class Patchwork {
     final hasBlockingOverride =
         lockPatch != null &&
         hasPatchFile &&
-        _hasBlockingPendingOverride(package, record!);
+        (_hasBlockingPendingOverride(package, record!) ||
+            _hasForeignOverride(package, applied));
     final repairHint = pubResolutionMatchesSource
         ? 'Run patchwork apply $package.'
         : 'Run patchwork undo $package, dart pub get, then patchwork apply $package.';

@@ -370,6 +370,40 @@ packages:
   );
 
   test(
+    'workspace-root inspect reports member overrides after apply',
+    () async {
+      final project = await ProjectSandbox.workspace();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from an applied root patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      await project.pubGet();
+      _writeWorkspaceMemberOverride(project);
+
+      final patchwork = await Patchwork.open(project.stateRoot);
+      final state = await patchwork.inspect();
+      expect(
+        state.problems.map((problem) => problem.code),
+        contains('pub.override_conflict'),
+      );
+      await expectLater(
+        patchwork.applyAll(),
+        throwsA(
+          isA<PatchworkException>().having(
+            (error) => error.code,
+            'code',
+            'pub.override_conflict',
+          ),
+        ),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'patch allows user-owned path dependencies under dart_tool patchwork',
     () async {
       final project = await ProjectSandbox.standalone();

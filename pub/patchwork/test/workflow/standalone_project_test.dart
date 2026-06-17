@@ -56,7 +56,7 @@ void main() {
       );
       await project.runApp('Hello, Patchwork!');
 
-      await project.patchwork(['patch', 'greeter', '--continue']);
+      await project.patchwork(['patch', '--continue', 'greeter']);
       expect(
         project.editFile.readAsStringSync(),
         contains('Hello from a standalone patch'),

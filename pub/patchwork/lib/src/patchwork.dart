@@ -174,14 +174,30 @@ final class Patchwork {
     return _writePatchFromEdit(edit);
   }
 
-  List<String> openEditPackages() {
+  Future<List<PatchWrite>> writePatches() async {
+    final writes = <PatchWrite>[];
+    for (final package in _openEditPackages()) {
+      writes.add(await writePatch(package));
+    }
+    return writes;
+  }
+
+  List<String> _openEditPackages() {
     final packages =
         _layout.editDirectories().map((edit) => edit.package).toSet().toList()
           ..sort();
     return packages;
   }
 
-  Future<List<String>> packagesNeedingApply() async {
+  Future<List<AppliedPatch>> applyPatches() async {
+    final applied = <AppliedPatch>[];
+    for (final package in await _packagesNeedingApply()) {
+      applied.add(await applyPatch(package));
+    }
+    return applied;
+  }
+
+  Future<List<String>> _packagesNeedingApply() async {
     final lock = _lockStore.read();
     if (lock.packages.isEmpty) {
       return const [];

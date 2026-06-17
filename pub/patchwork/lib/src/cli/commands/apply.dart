@@ -10,20 +10,19 @@ Future<int> runApplyCommand(
   io.IOSink out,
 ) async {
   final package = singlePackage('apply', arguments, required: false);
-  final packages = package == null
-      ? await patchwork.packagesNeedingApply()
-      : [package];
+  final applied = package == null
+      ? await patchwork.applyPatches()
+      : [await patchwork.applyPatch(package)];
 
-  if (packages.isEmpty) {
+  if (applied.isEmpty) {
     out.writeln('No patches need apply.');
     return 0;
   }
 
-  for (final package in packages) {
-    final applied = await patchwork.applyPatch(package);
+  for (final patch in applied) {
     out.writeln(
-      'Applied ${relativePath(patchwork, applied.patchPath)} to '
-      '${relativePath(patchwork, applied.path)}.',
+      'Applied ${relativePath(patchwork, patch.patchPath)} to '
+      '${relativePath(patchwork, patch.path)}.',
     );
   }
   out.writeln('Run dart pub get.');

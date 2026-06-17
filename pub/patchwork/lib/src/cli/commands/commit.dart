@@ -11,15 +11,17 @@ Future<int> runCommitCommand(
   io.IOSink out,
 ) async {
   final package = singlePackage('commit', arguments, required: false);
-  final packages = package == null ? patchwork.openEditPackages() : [package];
+  final writes = package == null
+      ? await patchwork.writePatches()
+      : [await patchwork.writePatch(package)];
 
-  if (packages.isEmpty) {
+  if (writes.isEmpty) {
     out.writeln('No open edits.');
     return 0;
   }
 
-  for (final package in packages) {
-    _printPatchWrite(patchwork, await patchwork.writePatch(package), out);
+  for (final write in writes) {
+    _printPatchWrite(patchwork, write, out);
   }
   return 0;
 }

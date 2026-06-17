@@ -483,7 +483,7 @@ final class Patchwork {
     final expectedSha256 = record == null
         ? null
         : record.version == version
-        ? record.patch?.sha256
+        ? record.patch?.sha256 ?? record.patchHistory[version]?.sha256
         : record.patchHistory[version]?.sha256;
     if (expectedSha256 == null) {
       throw PatchworkException(

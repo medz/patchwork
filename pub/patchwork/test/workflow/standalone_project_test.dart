@@ -144,6 +144,44 @@ void main() {
   );
 
   test(
+    'can continue a same-version patch after the dependency source changes',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a same-version patch');
+      await project.patchwork(['commit', 'greeter']);
+
+      File(
+        p.join(project.greeterRoot, 'lib', 'upstream.dart'),
+      ).writeAsStringSync("const upstream = 'changed';\n");
+      await project.pubGet();
+
+      await project.patchwork(['patch', 'greeter']);
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.0').path,
+            'lib',
+            'upstream.dart',
+          ),
+        ).existsSync(),
+        isTrue,
+      );
+      project.editDirectoryFor('0.1.0').deleteSync(recursive: true);
+
+      await project.patchwork(['patch', 'greeter', '--continue', '0.1.0']);
+      expect(
+        project.editFileFor('0.1.0').readAsStringSync(),
+        contains('Hello from a same-version patch'),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'commit removes an unchanged edit without leaving a package record',
     () async {
       final project = await ProjectSandbox.standalone();

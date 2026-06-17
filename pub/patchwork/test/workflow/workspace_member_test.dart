@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'project_sandbox.dart';
@@ -123,6 +126,44 @@ void main() {
       expect(
         project.editFileFor('0.1.1').readAsStringSync(),
         contains('Hello from a carried workspace patch'),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'can continue a same-version patch after a workspace dependency source changes',
+    () async {
+      final project = await ProjectSandbox.workspace();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a same-version workspace patch');
+      await project.patchwork(['commit', 'greeter']);
+
+      File(
+        p.join(project.greeterRoot, 'lib', 'workspace_upstream.dart'),
+      ).writeAsStringSync("const upstream = 'changed';\n");
+      await project.pubGet();
+
+      await project.patchwork(['patch', 'greeter']);
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.0').path,
+            'lib',
+            'workspace_upstream.dart',
+          ),
+        ).existsSync(),
+        isTrue,
+      );
+      project.editDirectoryFor('0.1.0').deleteSync(recursive: true);
+
+      await project.patchwork(['patch', 'greeter', '--continue', '0.1.0']);
+      expect(
+        project.editFileFor('0.1.0').readAsStringSync(),
+        contains('Hello from a same-version workspace patch'),
       );
     },
     timeout: const Timeout(Duration(minutes: 3)),

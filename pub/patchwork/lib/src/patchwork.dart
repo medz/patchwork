@@ -675,6 +675,11 @@ final class Patchwork {
           path: p.join(overrideRootPath, 'pubspec_overrides.yaml'),
         );
       }
+      if (_pubspecOverrides.hasDependencyOverrides(
+        workspaceRootPath: overrideRootPath,
+      )) {
+        continue;
+      }
       if (_pubspecDependencyOverrides.hasOverride(
         packageRootPath: overrideRootPath,
         package: package,
@@ -867,28 +872,32 @@ final class Patchwork {
 
   bool _hasForeignOverride(String package, AppliedPatchRecord? applied) {
     for (final overrideRootPath in _overrideRootPaths) {
+      final hasOverrideFileDependencyOverrides = _pubspecOverrides
+          .hasDependencyOverrides(workspaceRootPath: overrideRootPath);
+      if (_pubspecOverrides.hasOverride(
+        workspaceRootPath: overrideRootPath,
+        package: package,
+      )) {
+        if (p.equals(overrideRootPath, _rootPath) &&
+            applied != null &&
+            _pubspecOverrides.pointsToPath(
+              workspaceRootPath: overrideRootPath,
+              package: package,
+              path: applied.path,
+            )) {
+          continue;
+        }
+        return true;
+      }
+      if (hasOverrideFileDependencyOverrides) {
+        continue;
+      }
       if (_pubspecDependencyOverrides.hasOverride(
         packageRootPath: overrideRootPath,
         package: package,
       )) {
         return true;
       }
-      if (!_pubspecOverrides.hasOverride(
-        workspaceRootPath: overrideRootPath,
-        package: package,
-      )) {
-        continue;
-      }
-      if (p.equals(overrideRootPath, _rootPath) &&
-          applied != null &&
-          _pubspecOverrides.pointsToPath(
-            workspaceRootPath: overrideRootPath,
-            package: package,
-            path: applied.path,
-          )) {
-        continue;
-      }
-      return true;
     }
     return false;
   }

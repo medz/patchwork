@@ -13,6 +13,7 @@ final class ProjectSandbox {
     required this.appRoot,
     required this.greeterRoot,
     required this.manualOverrideRoot,
+    required this.otherRoot,
     required this.otherOverrideRoot,
     required this.environment,
   });
@@ -23,6 +24,7 @@ final class ProjectSandbox {
   final String appRoot;
   final String greeterRoot;
   final String manualOverrideRoot;
+  final String? otherRoot;
   final String? otherOverrideRoot;
   final Map<String, String> environment;
 
@@ -90,6 +92,7 @@ final class ProjectSandbox {
       appRoot: appRoot,
       greeterRoot: dependencyRoot,
       manualOverrideRoot: manualRoot,
+      otherRoot: otherRoot,
       otherOverrideRoot: otherOverrideRoot,
       environment: _pubEnvironment(pubCachePath),
     );
@@ -135,6 +138,7 @@ final class ProjectSandbox {
       appRoot: appRoot,
       greeterRoot: dependencyRoot,
       manualOverrideRoot: manualRoot,
+      otherRoot: otherRoot,
       otherOverrideRoot: otherOverrideRoot,
       environment: _pubEnvironment(pubCachePath),
     );
@@ -171,6 +175,7 @@ final class ProjectSandbox {
       appRoot: appRoot,
       greeterRoot: repoRoot,
       manualOverrideRoot: manualRoot,
+      otherRoot: null,
       otherOverrideRoot: null,
       environment: _pubEnvironment(pubCachePath),
     );

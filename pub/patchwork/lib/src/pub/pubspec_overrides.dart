@@ -30,9 +30,10 @@ final class PubspecOverrides {
     Map<String, Object?> pubspecDependencyOverrides = const {},
   }) {
     final overrides = _read(workspaceRootPath);
-    final dependencyOverrides = Map<String, Object?>.of(
-      pubspecDependencyOverrides,
-    )..addAll(_dependencyOverrides(overrides, workspaceRootPath));
+    final dependencyOverrides = _dependencyOverrides(
+      overrides,
+      workspaceRootPath,
+    )..addAll(pubspecDependencyOverrides);
     dependencyOverrides[package] = {'path': path};
     overrides['dependency_overrides'] = dependencyOverrides;
     _write(workspaceRootPath, overrides);
@@ -80,6 +81,16 @@ final class PubspecOverrides {
       workspaceRootPath,
     );
     return dependencyOverrides.containsKey(package);
+  }
+
+  /// Returns whether `pubspec_overrides.yaml` defines `dependency_overrides`.
+  bool hasDependencyOverrides({required String workspaceRootPath}) {
+    final overrides = _read(workspaceRootPath);
+    if (!overrides.containsKey('dependency_overrides')) {
+      return false;
+    }
+    _dependencyOverrides(overrides, workspaceRootPath);
+    return true;
   }
 
   /// Removes the override for [package] only if it still points at [path].

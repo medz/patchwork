@@ -759,6 +759,46 @@ String packageName() {
   );
 
   test(
+    'undo keeps mirrored root pubspec overrides with remaining user overrides',
+    () async {
+      final project = await ProjectSandbox.standalone(
+        includeOtherDependency: true,
+      );
+      addTearDown(project.dispose);
+      final manualRoot = p.join(project.root.path, 'manual_pkg');
+      _writeSimplePackage(manualRoot, 'manual_pkg');
+
+      await project.pubGet();
+      _writePubspecDependencyOverride(
+        project,
+        packageRoot: project.stateRoot,
+        package: 'other_pkg',
+      );
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello while keeping a mirror with user overrides');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      await project.pubGet();
+      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+
+      _appendPubspecOverridesPathOverride(
+        project,
+        package: 'manual_pkg',
+        targetRoot: manualRoot,
+      );
+      await project.patchwork(['undo', 'greeter']);
+      await project.pubGet();
+
+      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+      final overrides = project.overrideFile.readAsStringSync();
+      expect(overrides, contains('manual_pkg:'));
+      expect(overrides, contains('other_pkg:'));
+      expect(overrides, isNot(contains('greeter:')));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'patch and apply ignore shadowed same-package pubspec overrides',
     () async {
       final project = await ProjectSandbox.standalone(

@@ -148,10 +148,7 @@ final class PubspecOverrides {
       mirroredPubspecDependencyOverrides,
       workspaceRootPath,
     );
-    final hasPatchworkPathOverride = _hasPatchworkPathOverride(
-      dependencyOverrides,
-      workspaceRootPath,
-    );
+    final hasActiveDependencyOverrides = dependencyOverrides.isNotEmpty;
     final nextMirroredPubspecDependencyOverrides =
         _restoreMirroredPubspecDependencyOverrides(
           dependencyOverrides: dependencyOverrides,
@@ -163,7 +160,7 @@ final class PubspecOverrides {
             dependencyOverrides,
             workspaceRootPath,
           ),
-          retainPreviousMirrors: hasPatchworkPathOverride,
+          retainPreviousMirrors: hasActiveDependencyOverrides,
         );
     if (dependencyOverrides.isEmpty) {
       overrides.remove('dependency_overrides');
@@ -329,15 +326,6 @@ bool _hasOnlyPatchworkPathOverrides(
       dependencyOverrides.values.every(
         (value) => _isPatchworkPathOverride(value, workspaceRootPath),
       );
-}
-
-bool _hasPatchworkPathOverride(
-  Map<String, Object?> dependencyOverrides,
-  String workspaceRootPath,
-) {
-  return dependencyOverrides.values.any(
-    (value) => _isPatchworkPathOverride(value, workspaceRootPath),
-  );
 }
 
 bool _isPatchworkPathOverride(Object? value, String workspaceRootPath) {

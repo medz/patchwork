@@ -117,7 +117,6 @@ final class PatchStatus {
     required this.appliedPath,
     required this.hasOpenEdit,
     required this.hasPatch,
-    required this.isApplied,
     required this.needsApply,
     this.problems = const [],
   });
@@ -129,7 +128,6 @@ final class PatchStatus {
   final String? appliedPath;
   final bool hasOpenEdit;
   final bool hasPatch;
-  final bool isApplied;
   final bool needsApply;
   final List<PatchProblem> problems;
 }

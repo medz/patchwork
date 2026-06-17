@@ -979,12 +979,6 @@ final class Patchwork {
       appliedPath: appliedAbsolutePath,
       hasOpenEdit: edit.isNotEmpty,
       hasPatch: lockPatch != null && hasPatchFile,
-      isApplied:
-          applied != null &&
-          appliedPathInProject != null &&
-          appliedExists &&
-          overridePointsToApplied &&
-          pubResolutionPointsToApplied,
       needsApply:
           lockPatch != null &&
           hasPatchFile &&

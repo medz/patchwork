@@ -37,7 +37,6 @@ final class PubspecOverrides {
     final dependencyOverrides = _dependencyOverrides(
       overrides,
       workspaceRootPath,
-      create: false,
     );
     final existing = dependencyOverrides[package];
     if (existing == null) {
@@ -64,7 +63,6 @@ final class PubspecOverrides {
     final dependencyOverrides = _dependencyOverrides(
       overrides,
       workspaceRootPath,
-      create: false,
     );
     final existing = dependencyOverrides[package];
     if (existing is! Map<String, Object?> || existing['path'] is! String) {
@@ -94,7 +92,6 @@ final class PubspecOverrides {
     final dependencyOverrides = _dependencyOverrides(
       _read(workspaceRootPath),
       workspaceRootPath,
-      create: false,
     );
     final existing = dependencyOverrides[package];
     return existing is Map<String, Object?> &&
@@ -148,12 +145,11 @@ final class PubspecOverrides {
 
   Map<String, Object?> _dependencyOverrides(
     Map<String, Object?> overrides,
-    String workspaceRootPath, {
-    bool create = true,
-  }) {
+    String workspaceRootPath,
+  ) {
     final existing = overrides['dependency_overrides'];
     if (existing == null) {
-      return create ? <String, Object?>{} : <String, Object?>{};
+      return <String, Object?>{};
     }
     if (existing is! Map<String, Object?>) {
       throw PatchworkException(

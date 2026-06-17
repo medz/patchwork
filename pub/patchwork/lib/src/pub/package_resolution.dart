@@ -40,16 +40,13 @@ final class PubResolutionReader {
     );
     final currentPackageName = packages.currentPackageName(workspace);
     final directDependencies = _readCurrentPubspecDependencyNames(workspace);
-    final graph = _readPackageGraph(
-      workspace,
-      currentPackageName,
-      directDependencies: directDependencies,
-    );
+    final rootNames = _readRootPackageNames(workspace, currentPackageName);
 
     return PubResolution._(
       workspace: workspace,
       packages: packages,
-      graph: graph,
+      rootNames: rootNames,
+      directDependencies: directDependencies,
       packageTree: packageTree,
     );
   }
@@ -180,17 +177,13 @@ final class PubResolutionReader {
     }
   }
 
-  _PackageGraph _readPackageGraph(
+  Set<String> _readRootPackageNames(
     PubWorkspace workspace,
-    String currentPackageName, {
-    required Set<String> directDependencies,
-  }) {
+    String currentPackageName,
+  ) {
     final packageGraph = File(workspace.packageGraphPath);
     if (!packageGraph.existsSync()) {
-      return _PackageGraph(
-        rootNames: {currentPackageName},
-        directDependencies: directDependencies,
-      );
+      return {currentPackageName};
     }
 
     try {
@@ -207,10 +200,7 @@ final class PubResolutionReader {
         currentPackageName,
       };
 
-      return _PackageGraph(
-        rootNames: rootNames,
-        directDependencies: directDependencies,
-      );
+      return rootNames;
     } on FormatException catch (error) {
       throw _malformedPackageGraph(workspace, error.message);
     } on FileSystemException catch (error) {
@@ -376,13 +366,15 @@ final class PubResolution {
   const PubResolution._({
     required this.workspace,
     required this._packages,
-    required this._graph,
+    required this._rootNames,
+    required this._directDependencies,
     required this.packageTree,
   });
 
   final PubWorkspace workspace;
   final _PackageIndex _packages;
-  final _PackageGraph _graph;
+  final Set<String> _rootNames;
+  final Set<String> _directDependencies;
   final PackageTree packageTree;
 
   ResolvedPubPackage resolvePackage(
@@ -398,7 +390,7 @@ final class PubResolution {
       );
     }
 
-    if (_graph.isRoot(packageName) ||
+    if (_rootNames.contains(packageName) ||
         p.equals(packageConfig, workspace.currentPackageRootPath) ||
         p.equals(packageConfig, workspace.rootPath)) {
       throw PatchworkException(
@@ -426,7 +418,7 @@ final class PubResolution {
       );
     }
 
-    if (requireDirectDependency && !_graph.isDirectDependency(packageName)) {
+    if (requireDirectDependency && !_directDependencies.contains(packageName)) {
       throw PatchworkException(
         'Package "$packageName" is not a direct dependency of the current project.',
         code: 'pub.package_not_direct_dependency',
@@ -527,24 +519,6 @@ final class _ResolutionMetadataPackage {
   final String version;
   final PubPackageSourceKind sourceKind;
   final Map<String, String> description;
-}
-
-final class _PackageGraph {
-  const _PackageGraph({
-    required this.rootNames,
-    required this.directDependencies,
-  });
-
-  final Set<String> rootNames;
-  final Set<String> directDependencies;
-
-  bool isRoot(String name) {
-    return rootNames.contains(name);
-  }
-
-  bool isDirectDependency(String name) {
-    return directDependencies.contains(name);
-  }
 }
 
 Map<String, String> _yamlMapToStringMap(Object? value) {

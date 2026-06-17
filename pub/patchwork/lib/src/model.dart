@@ -1,33 +1,46 @@
-/// Selects which committed patch file should seed a new edit directory.
+/// Identifies the committed patch file used to seed a new edit directory.
+///
+/// `patchwork patch --continue` creates a fresh edit tree from the currently
+/// resolved dependency source and then applies a committed patch into that tree.
+/// A [PatchRef] chooses whether that seed patch comes from the current resolved
+/// version or from an explicitly named older version.
 final class PatchRef {
   const PatchRef._(this.version);
 
-  /// Uses the patch file for the currently resolved package version.
+  /// Selects `patches/<pkg>@<current-version>.patch`.
   const PatchRef.current() : this._(null);
 
-  /// Uses the patch file for an explicit package [version].
+  /// Selects `patches/<pkg>@<version>.patch`.
   const PatchRef.version(String version) : this._(version);
 
-  /// The explicit patch version, or `null` for the current resolved version.
+  /// The explicit patch version, or `null` when the current resolution is used.
   final String? version;
 }
 
-/// Describes the resolved source tree that a patch is based on.
+/// The pub source that Patchwork used as the baseline for a package patch.
+///
+/// Patchwork stores this value in `patchwork.lock` so later operations can
+/// verify that a patch is still being generated or applied against the same
+/// dependency source. The [fields] map contains source-specific identity such
+/// as hosted URL, path, Git URL, branch, or commit.
 final class PackageSource {
-  /// Creates source metadata for a resolved pub dependency.
+  /// Creates a resolved source description.
   const PackageSource({
     required this.type,
     required this.sha256,
     this.fields = const {},
   });
 
-  /// The pub source type, such as `hosted`, `path`, or `git`.
+  /// The pub source kind, such as `hosted`, `path`, or `git`.
   final String type;
 
-  /// The Patchwork content hash for the resolved source tree.
+  /// A deterministic hash of the resolved package contents.
+  ///
+  /// Generated files ignored by Patchwork, such as `.dart_tool` and
+  /// `pubspec.lock`, are not included in this hash.
   final String sha256;
 
-  /// Source-specific metadata, such as hosted URL, path, branch, or commit.
+  /// Source-specific identity fields copied from pub resolution metadata.
   final Map<String, String> fields;
 
   @override
@@ -49,9 +62,13 @@ final class PackageSource {
   }
 }
 
-/// Describes an editable package copy created by `patchwork patch`.
+/// The editable package copy prepared by `patchwork patch`.
+///
+/// The edit directory is a disposable workspace. Calling [Patchwork.commit]
+/// consumes it by writing the corresponding `patches/<pkg>@<version>.patch`
+/// file and then removing the directory.
 final class PreparedEdit {
-  /// Creates metadata for a prepared edit directory.
+  /// Creates a prepared edit result.
   const PreparedEdit({
     required this.package,
     required this.version,
@@ -60,37 +77,41 @@ final class PreparedEdit {
     this.continuedFromPatchPath,
   });
 
-  /// The package being edited.
+  /// The dependency package being edited.
   final String package;
 
-  /// The resolved package version being edited.
+  /// The resolved package version copied into [path].
   final String version;
 
-  /// The edit directory path under `.patchwork/`.
+  /// The edit directory under `.patchwork/`.
   final String path;
 
-  /// The source package path copied into the edit directory.
+  /// The resolved pub package root that was copied into [path].
   final String sourcePath;
 
-  /// The patch file used as a continuation seed, if any.
+  /// The patch file that was applied before returning, if this was a continue.
   final String? continuedFromPatchPath;
 }
 
-/// The result category for committing an edit directory.
+/// How `patchwork commit` changed the committed patch artifact.
 enum PatchWriteStatus {
-  /// A patch file was written or replaced.
+  /// A patch file was written or replaced because the edit changed the source.
   written,
 
-  /// The existing patch file already matched the edit directory.
+  /// The edit matched the existing patch artifact and no file changed.
   unchanged,
 
-  /// The edit directory contained no changes, so the patch was removed.
+  /// The edit matched the source, so the committed patch artifact was removed.
   removed,
 }
 
-/// Describes the result of `patchwork commit`.
+/// The result of committing one edit directory.
+///
+/// A value is returned for each edit processed by [Patchwork.commit] or
+/// [Patchwork.commitAll]. The [status] field distinguishes a newly written
+/// patch from an unchanged edit or an edit whose changes disappeared.
 final class PatchWrite {
-  /// Creates metadata for a committed edit directory.
+  /// Creates a commit result.
   const PatchWrite({
     required this.package,
     required this.version,
@@ -99,25 +120,29 @@ final class PatchWrite {
     required this.patchPath,
   });
 
-  /// The package whose edit was committed.
+  /// The dependency package whose edit directory was committed.
   final String package;
 
-  /// The package version associated with the patch file.
+  /// The version encoded by [patchPath].
   final String version;
 
-  /// Whether the commit wrote, reused, or removed a patch file.
+  /// The artifact change made by the commit operation.
   final PatchWriteStatus status;
 
-  /// The edit directory path that was consumed.
+  /// The edit directory that was removed after the commit completed.
   final String editPath;
 
-  /// The committed patch file path.
+  /// The committed patch file path for this package version.
   final String patchPath;
 }
 
-/// Describes a patch that was materialized by `patchwork apply`.
+/// A committed patch materialized into generated pub override output.
+///
+/// `patchwork apply` writes a generated package copy under `.dart_tool` and
+/// points `pubspec_overrides.yaml` at that copy. Callers should run
+/// `dart pub get` after applying so pub refreshes package resolution.
 final class AppliedPatch {
-  /// Creates metadata for an applied patch.
+  /// Creates an apply result.
   const AppliedPatch({
     required this.package,
     required this.version,
@@ -125,56 +150,68 @@ final class AppliedPatch {
     required this.patchPath,
   });
 
-  /// The package that was applied.
+  /// The dependency package that was applied.
   final String package;
 
-  /// The package version that was applied.
+  /// The version encoded by [patchPath] and generated into [path].
   final String version;
 
-  /// The generated package path under `.dart_tool/patchwork/`.
+  /// The generated package copy under `.dart_tool/patchwork/`.
   final String path;
 
-  /// The patch file used to produce the generated package.
+  /// The committed patch file used to produce [path].
   final String patchPath;
 }
 
-/// Describes the result of removing a generated Patchwork override.
+/// The result of `patchwork undo` for one package.
+///
+/// Undo is intentionally conservative: [changed] is false when no Patchwork
+/// applied state exists, and true only after Patchwork removes generated output
+/// and the matching override it owns.
 final class UnappliedPatch {
-  /// Creates metadata for an undo operation.
+  /// Creates an undo result.
   const UnappliedPatch({
     required this.package,
     required this.changed,
     this.path,
   });
 
-  /// The package passed to `patchwork undo`.
+  /// The dependency package requested by the caller.
   final String package;
 
-  /// Whether Patchwork removed generated output or override state.
+  /// Whether generated Patchwork state was removed.
   final bool changed;
 
-  /// The generated package path that was removed, when [changed] is true.
+  /// The generated package path that was removed, or `null` when unchanged.
   final String? path;
 }
 
-/// Describes a status or doctor problem for a patch package.
+/// A machine-readable status or doctor problem.
+///
+/// The [code] is stable enough for tests and tools to match. The [message] and
+/// [hint] are intended for human output and may provide more specific context
+/// about the current filesystem or pub resolution state.
 final class PatchProblem {
-  /// Creates a problem with a stable [code] and human-readable [message].
+  /// Creates a problem entry.
   const PatchProblem({required this.code, required this.message, this.hint});
 
   /// A stable identifier for the problem category.
   final String code;
 
-  /// The human-readable problem summary.
+  /// The primary human-readable problem summary.
   final String message;
 
   /// Optional guidance for resolving the problem.
   final String? hint;
 }
 
-/// Describes Patchwork state for one package.
+/// The inspected Patchwork state for a single dependency package.
+///
+/// Status combines the durable patch artifact, any open edit directory,
+/// generated applied output, and diagnostics. Paths are absolute when returned
+/// from the library; the CLI may render them relative to the project root.
 final class PatchStatus {
-  /// Creates a package status snapshot.
+  /// Creates a package status entry.
   const PatchStatus({
     required this.package,
     required this.version,
@@ -187,48 +224,48 @@ final class PatchStatus {
     this.problems = const [],
   });
 
-  /// The package represented by this status.
+  /// The dependency package represented by this status.
   final String package;
 
-  /// The package version represented by this status.
+  /// The package version currently associated with Patchwork state.
   final String version;
 
-  /// The expected or existing edit directory path.
+  /// The edit directory path for this package version.
   final String editPath;
 
-  /// The expected or existing committed patch file path.
+  /// The committed patch file path for this package version.
   final String patchPath;
 
-  /// The generated applied package path, when currently applied.
+  /// The generated package path currently wired into pub, if any.
   final String? appliedPath;
 
-  /// Whether an edit directory currently exists for the package.
+  /// Whether [editPath] exists and still needs to be committed or deleted.
   final bool hasOpenEdit;
 
-  /// Whether a committed patch file currently exists for the package.
+  /// Whether [patchPath] exists and is tracked by Patchwork state.
   final bool hasPatch;
 
-  /// Whether the committed patch should be applied to generated output.
+  /// Whether the committed patch should be applied or refreshed.
   final bool needsApply;
 
-  /// Problems detected for this package.
+  /// Problems that make this package unsafe, stale, or inconsistent.
   final List<PatchProblem> problems;
 }
 
-/// Describes the full Patchwork state for a project.
+/// The inspected Patchwork state for an entire project.
 final class PatchworkState {
   /// Creates a project state snapshot.
   const PatchworkState({required this.packages});
 
-  /// Package statuses sorted for deterministic output.
+  /// Package statuses sorted by package name for deterministic output.
   final List<PatchStatus> packages;
 
-  /// Packages whose committed patch output is stale or absent.
+  /// Packages whose committed patch output is stale or not yet generated.
   Iterable<PatchStatus> get needsApply {
     return packages.where((package) => package.needsApply);
   }
 
-  /// Problems across all tracked packages.
+  /// Problems across all inspected packages.
   Iterable<PatchProblem> get problems {
     return packages.expand((package) => package.problems);
   }

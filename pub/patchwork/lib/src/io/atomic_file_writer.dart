@@ -3,11 +3,18 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-/// Renames a temporary file into its final destination.
+/// Moves a completed temporary file into its final destination.
+///
+/// Tests inject this callback to simulate write failures without depending on
+/// platform-specific filesystem behavior.
 typedef AtomicFileRename =
     void Function(String sourcePath, String destinationPath);
 
-/// Writes files through a temporary sibling and final rename.
+/// Writes files through a temporary sibling followed by a rename.
+///
+/// The temporary file is created in the destination directory so the final
+/// rename stays on the same filesystem. Failed writes try to delete the
+/// temporary file before rethrowing the original error.
 final class AtomicFileWriter {
   /// Creates an atomic writer with an injectable rename operation.
   const AtomicFileWriter({this.renameFile = _renameFile});

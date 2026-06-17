@@ -2,12 +2,16 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-/// Computes Patchwork-owned paths for a project root.
+/// Computes Patchwork-owned paths relative to a project state root.
+///
+/// The layout centralizes the filenames that make up Patchwork state so command
+/// code does not hand-assemble paths such as `.patchwork/<pkg>@<version>` or
+/// `.dart_tool/patchwork/<pkg>@<version>`.
 final class PathLayout {
   /// Creates a path layout rooted at [rootPath].
   const PathLayout(this.rootPath);
 
-  /// The Patchwork project root path.
+  /// The directory where Patchwork state files are stored.
   final String rootPath;
 
   /// The `patchwork.lock` path.
@@ -22,12 +26,12 @@ final class PathLayout {
   /// The root directory for generated applied package copies.
   String get appliedRootPath => p.join(rootPath, '.dart_tool', 'patchwork');
 
-  /// Returns the edit directory for [package] at [version].
+  /// Returns `.patchwork/<package>@<version>`.
   String editPath(String package, String version) {
     return p.join(editRootPath, packageVersionName(package, version));
   }
 
-  /// Returns the committed patch file path for [package] at [version].
+  /// Returns `patches/<package>@<version>.patch`.
   String patchPath(String package, String version) {
     return p.join(
       patchesRootPath,
@@ -35,12 +39,15 @@ final class PathLayout {
     );
   }
 
-  /// Returns the generated applied output path for [package] at [version].
+  /// Returns `.dart_tool/patchwork/<package>@<version>`.
   String appliedPath(String package, String version) {
     return p.join(appliedRootPath, packageVersionName(package, version));
   }
 
   /// Returns the project-relative applied path stored in override state.
+  ///
+  /// Keeping this path relative makes generated overrides portable across
+  /// checkout locations.
   String relativeAppliedPath(String package, String version) {
     return p.posix.join(
       '.dart_tool',
@@ -50,6 +57,9 @@ final class PathLayout {
   }
 
   /// Lists valid edit directories currently present under `.patchwork/`.
+  ///
+  /// Entries that do not parse as `<package>@<version>` directories are ignored
+  /// so unrelated scratch files do not become package state.
   List<PackageVersionPath> editDirectories() {
     final root = Directory(editRootPath);
     if (!root.existsSync()) {
@@ -85,9 +95,9 @@ final class PathLayout {
   }
 }
 
-/// A parsed Patchwork path that carries package and version identity.
+/// A filesystem path whose basename encodes a package and version.
 final class PackageVersionPath {
-  /// Creates a package-version path record.
+  /// Creates a parsed path record.
   const PackageVersionPath({
     required this.package,
     required this.version,
@@ -110,6 +120,10 @@ String packageVersionName(String package, String version) {
 }
 
 /// Parses a canonical `<package>@<version>` path segment.
+///
+/// The final `@` separates the package from the version, which allows package
+/// names to remain ordinary pub package names while versions may contain other
+/// punctuation.
 PackageVersion? parsePackageVersionName(String name) {
   final separator = name.lastIndexOf('@');
   if (separator <= 0 || separator == name.length - 1) {

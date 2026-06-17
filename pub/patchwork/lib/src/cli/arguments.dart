@@ -1,16 +1,20 @@
 import '../error.dart';
 
-/// Returns whether [argument] requests CLI help.
+/// Whether [argument] is one of Patchwork's accepted help spellings.
 bool isHelp(String argument) {
   return argument == '-h' || argument == '--help' || argument == 'help';
 }
 
-/// Returns whether the full argument list is exactly one help argument.
+/// Whether [arguments] contains only a help request.
 bool isHelpOnly(List<String> arguments) {
   return arguments.length == 1 && isHelp(arguments.single);
 }
 
-/// Parses zero or one package operand for [command].
+/// Parses the optional package operand accepted by a command.
+///
+/// Options are rejected here because these commands do not have command-specific
+/// flags. When [required] is true, omitting the package produces a usage error
+/// instead of returning `null`.
 String? singlePackage(
   String command,
   List<String> arguments, {
@@ -41,7 +45,7 @@ String? singlePackage(
   return arguments.single;
 }
 
-/// Throws when [arguments] contains any command operands.
+/// Verifies that a command received no operands or options.
 void expectNoArguments(String command, List<String> arguments) {
   if (arguments.isEmpty) {
     return;

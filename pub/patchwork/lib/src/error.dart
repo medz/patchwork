@@ -1,6 +1,11 @@
-/// An error raised when Patchwork cannot complete a command or API operation.
+/// A recoverable Patchwork failure with a stable error code.
+///
+/// Patchwork uses this exception for command and library errors that should be
+/// shown to users instead of treated as programming bugs. The [code] is intended
+/// for tests and automation, while [message], [hint], and [location] provide the
+/// human-readable report.
 final class PatchworkException implements Exception {
-  /// Creates a Patchwork exception with a stable machine-readable [code].
+  /// Creates an exception that can be rendered by the CLI or handled by callers.
   const PatchworkException(
     this.message, {
     required this.code,
@@ -9,15 +14,18 @@ final class PatchworkException implements Exception {
   });
 
   /// A stable identifier for the failure category.
+  ///
+  /// Codes use dotted namespaces such as `pub.package_not_found` and should not
+  /// depend on localized wording in [message].
   final String code;
 
-  /// The human-readable error message.
+  /// The primary human-readable error message.
   final String message;
 
-  /// Optional recovery guidance for the user.
+  /// Additional recovery guidance, when Patchwork can suggest a next step.
   final String? hint;
 
-  /// Optional filesystem path or document location related to the error.
+  /// A filesystem path or document location that caused the failure, if known.
   final String? location;
 
   @override

@@ -18,7 +18,21 @@ import 'pub/pub_workspace.dart';
 const _invalidAppliedPathMessage =
     'patchwork.lock applied path must point at the generated Patchwork output for this package.';
 
-/// Coordinates Patchwork operations for one Dart project or workspace.
+/// Performs Patchwork operations for one Dart package or workspace.
+///
+/// A [Patchwork] instance is rooted at the pub resolution discovered by
+/// [open]. Each operation re-reads the relevant project files before changing
+/// state, so callers may keep the instance for a command sequence without using
+/// it as an in-memory cache.
+///
+/// Patchwork keeps three kinds of project-local state:
+///
+///  * edit directories under `.patchwork/`, created by [patch] and consumed by
+///    [commit].
+///  * committed patch files under `patches/`, written by [commit] and applied
+///    by [apply].
+///  * generated package copies under `.dart_tool/patchwork/`, wired into pub by
+///    [apply] and removed by [undo].
 final class Patchwork {
   Patchwork._({
     required this._rootPath,
@@ -36,7 +50,11 @@ final class Patchwork {
   /// Opens the Patchwork project containing [root].
   ///
   /// [root] may be a [Directory] or path string inside a Dart package or
-  /// workspace member.
+  /// workspace member. The nearest package root is used as the current package,
+  /// while the owning pub resolution root becomes the Patchwork state root.
+  ///
+  /// Throws a [PatchworkException] if [root] is not a directory or path string,
+  /// or if no usable pub project can be found.
   static Future<Patchwork> open(Object root) async {
     final rootPath = switch (root) {
       Directory directory => directory.path,
@@ -73,7 +91,10 @@ final class Patchwork {
   final PatchFile _patchFile;
   final PubspecOverrides _pubspecOverrides;
 
-  /// Returns [path] relative to the Patchwork project root when possible.
+  /// Returns [path] relative to the Patchwork state root when possible.
+  ///
+  /// This is a presentation helper for CLI output. Absolute paths outside the
+  /// project are returned unchanged so callers do not lose information.
   String relativePath(String path) {
     final absolute = p.normalize(p.absolute(path));
     final root = p.normalize(p.absolute(_rootPath));
@@ -90,7 +111,12 @@ final class Patchwork {
   ///
   /// When [fromPatch] is provided, the matching committed patch is applied to
   /// the fresh edit directory as a seed. Set [replaceExisting] to discard an
-  /// existing safe edit directory.
+  /// existing edit directory that Patchwork can prove is either unchanged from
+  /// the source or already represented by the committed patch.
+  ///
+  /// The package must be a direct dependency of the current package and must not
+  /// already resolve to Patchwork generated output. This method writes the source
+  /// record to `patchwork.lock` after the edit directory is in place.
   Future<PreparedEdit> patch(
     String package, {
     PatchRef? fromPatch,
@@ -218,6 +244,10 @@ final class Patchwork {
   }
 
   /// Commits the open edit directory for [package] into `patches/`.
+  ///
+  /// The edit is diffed against the current resolved source. Empty diffs remove
+  /// the committed patch record, unchanged edits are discarded, and real changes
+  /// are validated before the patch file is written.
   Future<PatchWrite> commit(String package) async {
     _checkPlainPackageName(package);
     final edit = _singleEditDirectory(package);
@@ -225,6 +255,8 @@ final class Patchwork {
   }
 
   /// Commits every open edit directory in package-name order.
+  ///
+  /// Returns an empty list when there are no open edits.
   Future<List<PatchWrite>> commitAll() async {
     final writes = <PatchWrite>[];
     for (final package in _openEditPackages()) {
@@ -241,6 +273,10 @@ final class Patchwork {
   }
 
   /// Applies every committed patch that needs generated output.
+  ///
+  /// Packages with open edit directories are rejected before any output is
+  /// generated, because applying while edits are uncommitted would make the
+  /// project state ambiguous.
   Future<List<AppliedPatch>> applyAll() async {
     final applied = <AppliedPatch>[];
     for (final package in await _packagesNeedingApply()) {
@@ -320,6 +356,11 @@ final class Patchwork {
   }
 
   /// Applies the committed patch for [package] into generated output.
+  ///
+  /// The patch is applied to a fresh copy of the resolved source and then moved
+  /// into `.dart_tool/patchwork/` atomically with respect to the final
+  /// directory. The method also updates `pubspec_overrides.yaml`; callers should
+  /// run `dart pub get` afterwards so pub resolves the generated package.
   Future<AppliedPatch> apply(String package) async {
     _checkPlainPackageName(package);
     final openEdits = _layout
@@ -427,6 +468,10 @@ final class Patchwork {
   }
 
   /// Removes Patchwork-generated output and override state for [package].
+  ///
+  /// The override is removed only if it still points at the path recorded by
+  /// Patchwork. User-owned overrides and paths outside the generated Patchwork
+  /// output tree are left untouched or rejected.
   Future<UnappliedPatch> undo(String package) async {
     _checkPlainPackageName(package);
     final lock = _lockStore.read();
@@ -461,6 +506,10 @@ final class Patchwork {
   }
 
   /// Inspects edit directories, patch files, applied output, and lock state.
+  ///
+  /// Unlike command methods, inspection is read-only. Pub resolution errors are
+  /// reported as [PatchProblem] entries when possible so `status` and `doctor`
+  /// can still explain existing Patchwork state.
   Future<PatchworkState> inspect() async {
     final lock = _lockStore.read();
     final edits = _layout.editDirectories();

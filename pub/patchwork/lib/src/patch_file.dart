@@ -5,7 +5,10 @@ import 'package:path/path.dart' as p;
 import 'error.dart';
 import 'internal/package_tree.dart';
 
-/// Runs a git subprocess for patch operations.
+/// Runs the `git` subprocess used for patch operations.
+///
+/// The abstraction keeps [PatchFile] testable while preserving the exact
+/// arguments Patchwork sends to `git diff` and `git apply`.
 typedef GitProcessRunner =
     ProcessResult Function(
       List<String> arguments, {
@@ -27,6 +30,11 @@ ProcessResult _defaultGitRunner(
 }
 
 /// Builds, validates, and applies Patchwork patch files.
+///
+/// Patchwork delegates diff and apply semantics to Git so text, mode changes,
+/// renames, and binary files use the same patch format developers already
+/// review. Temporary copies are used when building or validating so the real
+/// source and edit directories are not modified by Git.
 final class PatchFile {
   /// Creates a patch helper with injectable git and tree operations.
   const PatchFile({GitProcessRunner? gitRunner, PackageTree? packageTree})
@@ -37,6 +45,10 @@ final class PatchFile {
   final PackageTree _packageTree;
 
   /// Builds a patch from [sourcePath] to [editPath].
+  ///
+  /// The returned content is a Git binary patch with stable `a/` and `b/`
+  /// prefixes. An empty string means the edit tree has no differences from the
+  /// source tree after Patchwork's package-tree filters are applied.
   String build({required String sourcePath, required String editPath}) {
     final sourceRoot = Directory(sourcePath);
     final editRoot = Directory(editPath);
@@ -95,6 +107,10 @@ final class PatchFile {
   }
 
   /// Verifies that [patchContent] applies cleanly to [sourcePath].
+  ///
+  /// Validation runs against a fresh copy of the source tree and uses
+  /// `git apply --check`, so callers can fail before writing a patch file that
+  /// cannot be applied later.
   void validate({required String sourcePath, required String patchContent}) {
     final tempRoot = Directory.systemTemp.createTempSync('patchwork_validate_');
     try {
@@ -118,6 +134,10 @@ final class PatchFile {
   }
 
   /// Applies [patchContent] to the package copy at [packagePath].
+  ///
+  /// The patch is written to a temporary file because `git apply` expects a
+  /// patch path. The operation is anchored to [packagePath] so an outer Git
+  /// repository cannot affect path resolution.
   void apply({required String packagePath, required String patchContent}) {
     final packageRoot = Directory(packagePath);
     if (!packageRoot.existsSync()) {

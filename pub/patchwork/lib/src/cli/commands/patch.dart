@@ -6,6 +6,10 @@ import '../../patchwork.dart';
 import '../arguments.dart';
 
 /// Runs `patchwork patch`.
+///
+/// This command accepts exactly one package operand plus optional `--force` and
+/// `--continue` flags. `--continue` may either use the currently resolved patch
+/// file or an explicit historical version.
 Future<int> runPatchCommand(
   Patchwork patchwork,
   List<String> arguments,

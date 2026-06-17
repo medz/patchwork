@@ -4,6 +4,10 @@ import '../../patchwork.dart';
 import '../arguments.dart';
 
 /// Runs `patchwork undo`.
+///
+/// Undo removes Patchwork-generated output and matching override state for one
+/// package. When state is removed, the command reminds the user to refresh pub
+/// resolution with `dart pub get`.
 Future<int> runUndoCommand(
   Patchwork patchwork,
   List<String> arguments,

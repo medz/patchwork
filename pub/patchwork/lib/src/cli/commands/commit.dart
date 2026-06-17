@@ -5,6 +5,10 @@ import '../../patchwork.dart';
 import '../arguments.dart';
 
 /// Runs `patchwork commit`.
+///
+/// With no package operand, all open edit directories are committed in the
+/// order returned by [Patchwork.commitAll]. Each result is rendered according
+/// to whether a patch file was written, left unchanged, or removed.
 Future<int> runCommitCommand(
   Patchwork patchwork,
   List<String> arguments,

@@ -179,24 +179,30 @@ workflow, so Patchwork only manages its own patch override entries.
 
 ## Commands
 
-```text
-patchwork patch <pkg> [--continue [version]] [--force] [--json]
-patchwork commit [pkg] [--json]
-patchwork apply [pkg] [--json]
-patchwork undo <pkg> [--json]
-patchwork status [--json]
-patchwork doctor [--json]
-```
+| Command | Description |
+| --- | --- |
+| `patchwork patch <pkg> [--continue [version]] [--force] [--json]` | Create a source-based edit. |
+| `patchwork commit [pkg] [--json]` | Commit open edits into patch files. |
+| `patchwork apply [pkg] [--json]` | Apply committed patches. |
+| `patchwork undo <pkg> [--json]` | Remove one applied patch. |
+| `patchwork status [--json]` | Show patch and override state. |
+| `patchwork doctor [--json]` | Check local readiness. |
 
 Packages are plain pub package names selected by the current pub resolution.
 Patchwork rejects target syntax such as `pub:collection`, `collection@1.19.1`,
 `path:collection`, git URLs, filesystem paths, the current project package, and
 workspace member packages.
 
-Add `--json` to emit one machine-readable JSON document on stdout instead of
-human text. JSON paths use the same project-relative form as human CLI output
-when the path is inside the Patchwork state root; source paths outside the
-project remain absolute.
+Use `--json` when a script, editor, or agent needs stable command output:
+
+```sh
+dart run patchwork status --json
+```
+
+JSON mode prints a single JSON object on stdout and keeps the same exit-code
+rules as the normal command. Path fields use the same values the command would
+show in human output, such as `.patchwork/collection@1.19.1` and
+`patches/collection@1.19.1.patch`.
 
 ## Current Limits
 

@@ -61,6 +61,13 @@ void main() {
         project.editFile.readAsStringSync(),
         contains('Hello from a standalone patch'),
       );
+      await project.patchwork(['patch', 'greeter']);
+      expect(project.editFile.readAsStringSync(), contains('Hello, \$name!'));
+      await project.patchwork(['patch', 'greeter', '--continue']);
+      expect(
+        project.editFile.readAsStringSync(),
+        contains('Hello from a standalone patch'),
+      );
       await project.patchwork(['commit', 'greeter']);
 
       project.writeManualOverride();
@@ -86,8 +93,14 @@ void main() {
       project.overrideFile.deleteSync();
       await project.pubGet();
       await project.patchwork(['patch', 'greeter']);
+      await project.patchwork(['patch', 'greeter']);
+      expect(project.editFile.readAsStringSync(), contains('Hello, \$name!'));
       project.editFile.writeAsStringSync('dirty edit\n');
-      await project.patchwork(['patch', 'greeter'], exitCodes: {1});
+      await project.patchwork(
+        ['patch', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'uncommitted changes',
+      );
       await project.patchwork(
         ['patch', 'greeter', '--force', '--continue', '9.9.9'],
         exitCodes: {1},

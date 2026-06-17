@@ -125,9 +125,15 @@ final class Patchwork {
 
     final editExists = Directory(editPath).existsSync();
     if (editExists) {
-      if (!replaceExisting) {
+      if (!replaceExisting &&
+          !_canReplaceEditDirectory(
+            package: package,
+            editPath: editPath,
+            resolved: resolved,
+            record: existingRecord,
+          )) {
         throw PatchworkException(
-          'Edit directory already exists for "$package".',
+          'Edit directory has uncommitted changes for "$package".',
           code: 'patch.edit_exists',
           hint:
               'Run patchwork commit $package, delete $editPath, or pass --force.',
@@ -172,6 +178,29 @@ final class Patchwork {
       sourcePath: resolved.rootPath,
       continuedFromPatchPath: continuedFromPatchPath,
     );
+  }
+
+  bool _canReplaceEditDirectory({
+    required String package,
+    required String editPath,
+    required ResolvedPubPackage resolved,
+    required LockfilePackage? record,
+  }) {
+    final editSha256 = _packageTree.sha256Of(editPath);
+    if (editSha256 == resolved.source.sha256) {
+      return true;
+    }
+
+    final patch = record?.patch;
+    if (record?.version != resolved.version ||
+        patch == null ||
+        patch.editSha256 != editSha256) {
+      return false;
+    }
+
+    final patchFile = File(_layout.patchPath(package, resolved.version));
+    return patchFile.existsSync() &&
+        _sha256(patchFile.readAsBytesSync()) == patch.commitSha256;
   }
 
   Future<PatchWrite> commit(String package) async {

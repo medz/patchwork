@@ -15,6 +15,9 @@ import 'pub/package_resolution.dart';
 import 'pub/pubspec_overrides.dart';
 import 'pub/pub_workspace.dart';
 
+const _invalidAppliedPathMessage =
+    'patchwork.lock applied path must point at the generated Patchwork output for this package.';
+
 final class Patchwork {
   Patchwork._({
     required this._rootPath,
@@ -43,7 +46,7 @@ final class Patchwork {
     return Patchwork._(
       rootPath: workspace.rootPath,
       currentPackageRootPath: workspace.currentPackageRootPath,
-      overrideRootPaths: {workspace.rootPath, workspace.currentPackageRootPath},
+      overrideRootPaths: workspace.rootPackageRootPaths,
       protectedRootPaths: workspace.rootPackageRootPaths,
       layout: layout,
       pubResolutionReader: const PubResolutionReader(),
@@ -266,7 +269,7 @@ final class Patchwork {
         package,
         requireDirectDependency: false,
       );
-      if (_resolvesToApplied(resolved, record)) {
+      if (_resolvesToApplied(package, resolved, record)) {
         continue;
       }
       _ensureResolutionMatchesLock(package, resolved, record);
@@ -278,9 +281,11 @@ final class Patchwork {
         );
       }
       final applied = record.applied;
-      if (applied != null && _deletableProjectChildPath(applied.path) == null) {
+      if (applied != null &&
+          _patchworkAppliedPath(package, record.version, applied.path) ==
+              null) {
         throw PatchworkException(
-          'patchwork.lock applied path must stay inside the project and must not point to a pub project root.',
+          _invalidAppliedPathMessage,
           code: 'apply.applied_path_not_deletable',
           location: applied.path,
         );
@@ -322,16 +327,18 @@ final class Patchwork {
     final patchSha256 = record.patch!.commitSha256;
 
     final existingApplied = record.applied;
-    final appliedRecordPath =
-        existingApplied?.path ??
-        _layout.relativeAppliedPath(package, record.version);
+    final appliedRecordPath = _layout.relativeAppliedPath(
+      package,
+      record.version,
+    );
     final appliedPath = existingApplied == null
         ? _layout.appliedPath(package, record.version)
-        : _requireDeletableProjectChildPath(
+        : _requirePatchworkAppliedPath(
+            package,
+            record.version,
             existingApplied.path,
             code: 'apply.applied_path_not_deletable',
-            message:
-                'patchwork.lock applied path must stay inside the project and must not point to a pub project root.',
+            message: _invalidAppliedPathMessage,
           );
     _rejectBlockingOverride(
       package: package,
@@ -405,11 +412,12 @@ final class Patchwork {
       return UnappliedPatch(package: package, changed: false);
     }
 
-    final absoluteAppliedPath = _requireDeletableProjectChildPath(
+    final absoluteAppliedPath = _requirePatchworkAppliedPath(
+      package,
+      record.version,
       applied.path,
       code: 'undo.applied_path_not_deletable',
-      message:
-          'patchwork.lock applied path must stay inside the project and must not point to a pub project root.',
+      message: _invalidAppliedPathMessage,
     );
     _pubspecOverrides.removePathOverrideIfMatches(
       workspaceRootPath: _rootPath,
@@ -705,7 +713,7 @@ final class Patchwork {
             'If you upgraded the dependency, run patchwork undo $package, dart pub get, then patchwork patch $package --continue ${record.version}.',
       );
     }
-    if (_resolvesToApplied(resolved, record)) {
+    if (_resolvesToApplied(package, resolved, record)) {
       throw PatchworkException(
         'Package "$package" still resolves to the applied Patchwork output.',
         code: 'applied.pub_get_required',
@@ -724,11 +732,15 @@ final class Patchwork {
     }
   }
 
-  bool _resolvesToApplied(ResolvedPubPackage resolved, LockfilePackage record) {
+  bool _resolvesToApplied(
+    String package,
+    ResolvedPubPackage resolved,
+    LockfilePackage record,
+  ) {
     final appliedPath = record.applied?.path;
     final absoluteAppliedPath = appliedPath == null
         ? null
-        : _projectChildPath(appliedPath);
+        : _patchworkAppliedPath(package, record.version, appliedPath);
     return appliedPath != null &&
         absoluteAppliedPath != null &&
         p.equals(
@@ -763,7 +775,11 @@ final class Patchwork {
     if (applied == null) {
       return true;
     }
-    final appliedPath = _deletableProjectChildPath(applied.path);
+    final appliedPath = _patchworkAppliedPath(
+      package,
+      record.version,
+      applied.path,
+    );
     if (appliedPath == null) {
       return false;
     }
@@ -821,7 +837,11 @@ final class Patchwork {
           package,
           requireDirectDependency: false,
         );
-        pubResolutionPointsToApplied = _resolvesToApplied(resolved, record);
+        pubResolutionPointsToApplied = _resolvesToApplied(
+          package,
+          resolved,
+          record,
+        );
         if (!pubResolutionPointsToApplied) {
           if (resolved.version != record.version ||
               resolved.source != record.source) {
@@ -917,7 +937,7 @@ final class Patchwork {
 
     final appliedPathInProject = applied == null
         ? null
-        : _deletableProjectChildPath(applied.path);
+        : _patchworkAppliedPath(package, version, applied.path);
     final appliedAbsolutePath = applied == null
         ? null
         : _absoluteFromRoot(applied.path);
@@ -1050,12 +1070,26 @@ final class Patchwork {
     return absolute;
   }
 
-  String _requireDeletableProjectChildPath(
+  String? _patchworkAppliedPath(String package, String version, String path) {
+    final absolute = _deletableProjectChildPath(path);
+    if (absolute == null) {
+      return null;
+    }
+    final expected = p.normalize(_layout.appliedPath(package, version));
+    if (!p.equals(absolute, expected)) {
+      return null;
+    }
+    return absolute;
+  }
+
+  String _requirePatchworkAppliedPath(
+    String package,
+    String version,
     String path, {
     required String code,
     required String message,
   }) {
-    final absolute = _deletableProjectChildPath(path);
+    final absolute = _patchworkAppliedPath(package, version, path);
     if (absolute == null) {
       throw PatchworkException(message, code: code, location: path);
     }

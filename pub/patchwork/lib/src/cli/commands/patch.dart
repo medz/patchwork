@@ -25,7 +25,9 @@ Future<int> runPatchCommand(
       final next = index + 1 < arguments.length ? arguments[index + 1] : null;
       if (next != null &&
           !next.startsWith('-') &&
-          (packages.isNotEmpty || _hasLaterOperand(arguments, index + 2))) {
+          (packages.isNotEmpty ||
+              _hasLaterOperand(arguments, index + 2) ||
+              _looksLikeVersion(next))) {
         continueFrom = PatchRef.version(next);
         index += 1;
       } else {
@@ -75,4 +77,8 @@ bool _hasLaterOperand(List<String> arguments, int startIndex) {
     }
   }
   return false;
+}
+
+bool _looksLikeVersion(String argument) {
+  return RegExp(r'^[0-9]+([.+-]|$)').hasMatch(argument);
 }

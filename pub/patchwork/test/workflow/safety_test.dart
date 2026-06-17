@@ -34,7 +34,7 @@ void main() {
       await project.patchwork(
         ['undo', 'greeter'],
         exitCodes: {1},
-        stderrContains: 'must stay inside the project',
+        stderrContains: 'generated Patchwork output',
       );
       expect(sentinel.existsSync(), isTrue);
     },
@@ -63,7 +63,7 @@ void main() {
       await project.patchwork(
         ['apply'],
         exitCodes: {1},
-        stderrContains: 'must stay inside the project',
+        stderrContains: 'generated Patchwork output',
       );
     },
     timeout: const Timeout(Duration(minutes: 3)),
@@ -122,7 +122,7 @@ packages:
       await project.patchwork(
         ['undo', 'greeter'],
         exitCodes: {1},
-        stderrContains: 'must not point to a pub project root',
+        stderrContains: 'generated Patchwork output',
       );
       expect(
         File(p.join(project.appRoot, 'bin', 'app.dart')).existsSync(),
@@ -150,7 +150,7 @@ packages:
       await project.patchwork(
         ['undo', 'greeter'],
         exitCodes: {1},
-        stderrContains: 'must not point to a pub project root',
+        stderrContains: 'generated Patchwork output',
       );
       expect(
         File(
@@ -190,7 +190,7 @@ packages:
       await project.patchwork(
         ['undo', 'greeter'],
         exitCodes: {1},
-        stderrContains: 'must not point to a pub project root',
+        stderrContains: 'generated Patchwork output',
       );
       expect(
         File(
@@ -226,7 +226,7 @@ packages:
       await project.patchwork(
         ['undo', 'greeter'],
         exitCodes: {1},
-        stderrContains: 'must stay inside the project',
+        stderrContains: 'generated Patchwork output',
       );
       expect(victim.existsSync(), isTrue);
     },
@@ -341,6 +341,35 @@ packages:
   );
 
   test(
+    'workspace-root apply refuses same-package overrides from a workspace member',
+    () async {
+      final project = await ProjectSandbox.workspace();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a blocked root apply');
+      await project.patchwork(['commit', 'greeter']);
+      _writeWorkspaceMemberOverride(project);
+
+      await project.patchwork(
+        ['doctor'],
+        workingDirectory: project.stateRoot,
+        exitCodes: {1},
+        stdoutContains: 'already has a dependency override',
+      );
+      await project.patchwork(
+        ['apply'],
+        workingDirectory: project.stateRoot,
+        exitCodes: {1},
+        stderrContains: 'already has a dependency override',
+      );
+      expect(project.appliedDirectory.existsSync(), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'patch allows user-owned path dependencies under dart_tool patchwork',
     () async {
       final project = await ProjectSandbox.standalone();
@@ -384,6 +413,22 @@ packages:
         ['doctor'],
         exitCodes: {1},
         stdoutContains: 'uncommitted edit directory',
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'patch continue version without package reports a missing package',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(
+        ['patch', '--continue', '0.1.0'],
+        exitCodes: {64},
+        stderrContains: 'Expected a package name',
       );
     },
     timeout: const Timeout(Duration(minutes: 3)),
@@ -671,45 +716,45 @@ dependency_overrides:
   );
 
   test(
-    'undo uses the applied path recorded in patchwork.lock for standalone projects',
+    'undo refuses a user project directory recorded as applied path in standalone projects',
     () async {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await _expectUndoUsesRecordedPath(project);
+      await _expectUndoRefusesUserDirectory(project);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
 
   test(
-    'undo uses the applied path recorded in patchwork.lock for workspace members',
+    'undo refuses a user project directory recorded as applied path in workspace members',
     () async {
       final project = await ProjectSandbox.workspace();
       addTearDown(project.dispose);
 
-      await _expectUndoUsesRecordedPath(project);
+      await _expectUndoRefusesUserDirectory(project);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
 
   test(
-    'apply uses the applied path recorded in patchwork.lock for standalone projects',
+    'apply refuses a user project directory recorded as applied path in standalone projects',
     () async {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await _expectApplyUsesRecordedPath(project);
+      await _expectApplyRefusesUserDirectory(project);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
 
   test(
-    'apply uses the applied path recorded in patchwork.lock for workspace members',
+    'apply refuses a user project directory recorded as applied path in workspace members',
     () async {
       final project = await ProjectSandbox.workspace();
       addTearDown(project.dispose);
 
-      await _expectApplyUsesRecordedPath(project);
+      await _expectApplyRefusesUserDirectory(project);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
@@ -730,56 +775,48 @@ void _replaceAppliedPath(ProjectSandbox project, String path) {
   );
 }
 
-Future<void> _expectUndoUsesRecordedPath(ProjectSandbox project) async {
+Future<void> _expectUndoRefusesUserDirectory(ProjectSandbox project) async {
   await project.pubGet();
   await project.patchwork(['patch', 'greeter']);
-  project.writeEdit('Hello from a movable patch');
+  project.writeEdit('Hello from a safe patch');
   await project.patchwork(['commit', 'greeter']);
   await project.patchwork(['apply', 'greeter']);
 
-  const originalPath = '.dart_tool/patchwork/greeter@0.1.0';
-  const movedPath = '.dart_tool/patchwork-moved/greeter@0.1.0';
-  final movedDirectory = Directory(p.join(project.stateRoot, movedPath));
-  movedDirectory.parent.createSync(recursive: true);
-  project.appliedDirectory.renameSync(movedDirectory.path);
-  project.lockfile.writeAsStringSync(
-    project.lockfile.readAsStringSync().replaceAll(originalPath, movedPath),
-  );
-  project.overrideFile.writeAsStringSync(
-    project.overrideFile.readAsStringSync().replaceAll(originalPath, movedPath),
+  const userPath = 'user_owned_output';
+  final sentinel = File(p.join(project.stateRoot, userPath, 'sentinel'));
+  sentinel.parent.createSync(recursive: true);
+  sentinel.writeAsStringSync('do not delete');
+  _replaceAppliedPath(project, userPath);
+
+  await project.patchwork(
+    ['undo', 'greeter'],
+    exitCodes: {1},
+    stderrContains: 'generated Patchwork output',
   );
 
-  await project.patchwork(['undo', 'greeter']);
-
-  expect(movedDirectory.existsSync(), isFalse);
-  expect(project.overrideFile.existsSync(), isFalse);
+  expect(sentinel.existsSync(), isTrue);
+  expect(project.appliedDirectory.existsSync(), isTrue);
 }
 
-Future<void> _expectApplyUsesRecordedPath(ProjectSandbox project) async {
+Future<void> _expectApplyRefusesUserDirectory(ProjectSandbox project) async {
   await project.pubGet();
   await project.patchwork(['patch', 'greeter']);
-  project.writeEdit('Hello from a movable apply');
+  project.writeEdit('Hello from a safe apply');
   await project.patchwork(['commit', 'greeter']);
   await (await Patchwork.open(project.commandRoot)).apply('greeter');
 
-  const originalPath = '.dart_tool/patchwork/greeter@0.1.0';
-  const movedPath = '.dart_tool/patchwork-moved/greeter@0.1.0';
-  final movedDirectory = Directory(p.join(project.stateRoot, movedPath));
-  movedDirectory.parent.createSync(recursive: true);
-  project.appliedDirectory.renameSync(movedDirectory.path);
-  File(p.join(movedDirectory.path, 'sentinel')).writeAsStringSync('stale');
-  project.lockfile.writeAsStringSync(
-    project.lockfile.readAsStringSync().replaceAll(originalPath, movedPath),
-  );
-  project.overrideFile.writeAsStringSync(
-    project.overrideFile.readAsStringSync().replaceAll(originalPath, movedPath),
+  const userPath = 'user_owned_output';
+  final sentinel = File(p.join(project.stateRoot, userPath, 'sentinel'));
+  sentinel.parent.createSync(recursive: true);
+  sentinel.writeAsStringSync('do not replace');
+  _replaceAppliedPath(project, userPath);
+
+  await project.patchwork(
+    ['apply', 'greeter'],
+    exitCodes: {1},
+    stderrContains: 'generated Patchwork output',
   );
 
-  await (await Patchwork.open(project.commandRoot)).apply('greeter');
-
-  expect(project.appliedDirectory.existsSync(), isFalse);
-  expect(movedDirectory.existsSync(), isTrue);
-  expect(File(p.join(movedDirectory.path, 'sentinel')).existsSync(), isFalse);
-  expect(project.overrideFile.readAsStringSync(), contains(movedPath));
-  expect(project.lockfile.readAsStringSync(), contains(movedPath));
+  expect(sentinel.existsSync(), isTrue);
+  expect(project.appliedDirectory.existsSync(), isTrue);
 }

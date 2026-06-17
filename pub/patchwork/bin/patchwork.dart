@@ -1,11 +1,8 @@
 import 'dart:io';
 
-import 'package:patchwork/src/cli/command_runner.dart';
+import 'package:patchwork/src/cli/application.dart';
 
-void main(List<String> arguments) {
-  exitCode = const PatchworkCommandRunner().run(
-    arguments,
-    stdout: stdout,
-    stderr: stderr,
-  );
+Future<void> main(List<String> arguments) async {
+  final app = Application();
+  exitCode = await app.run(arguments);
 }

@@ -1,1 +1,14 @@
-export 'src/target/target.dart' show PubTarget;
+export 'src/error.dart' show PatchworkException;
+export 'src/model.dart'
+    show
+        AppliedPatch,
+        PackageSource,
+        PatchProblem,
+        PatchRef,
+        PatchStatus,
+        PatchworkState,
+        PatchWrite,
+        PatchWriteStatus,
+        PreparedEdit,
+        UnappliedPatch;
+export 'src/patchwork.dart' show Patchwork;

@@ -1,219 +1,215 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
-import '../diagnostics/diagnostic.dart';
+import '../error.dart';
+import '../internal/yaml_writer.dart';
 import '../io/atomic_file_writer.dart';
 
-final class PubspecOverridesStore {
-  const PubspecOverridesStore({this.fileWriter = const AtomicFileWriter()});
+final class PubspecOverrides {
+  const PubspecOverrides({this.fileWriter = const AtomicFileWriter()});
 
   final AtomicFileWriter fileWriter;
 
-  PubspecOverridePathsReadResult readDependencyOverridePaths({
+  void upsertPathOverride({
     required String workspaceRootPath,
-  }) {
-    final overridesPath = p.join(workspaceRootPath, 'pubspec_overrides.yaml');
-    final Map<String, Object?> overrides;
-    try {
-      overrides = _readPubspecOverrides(overridesPath);
-    } on PubspecOverridesException catch (error) {
-      return PubspecOverridePathsReadResult.failure(error.diagnostic);
-    }
-    final existingDependencyOverrides = overrides['dependency_overrides'];
-    if (existingDependencyOverrides == null) {
-      return PubspecOverridePathsReadResult.success(const {});
-    }
-    if (existingDependencyOverrides is! Map<String, Object?>) {
-      return PubspecOverridePathsReadResult.failure(
-        Diagnostic(
-          code: 'pub.overrides_malformed',
-          message: 'pubspec_overrides.yaml dependency_overrides is malformed.',
-          location: overridesPath,
-        ),
-      );
-    }
-
-    final paths = <String, String>{};
-    for (final entry in existingDependencyOverrides.entries) {
-      final value = entry.value;
-      if (value is Map<String, Object?>) {
-        final path = value['path'];
-        if (path is String) {
-          paths[entry.key] = path;
-        }
-      }
-    }
-
-    return PubspecOverridePathsReadResult.success(paths);
-  }
-
-  bool isManagedPatchworkStoreOverride({
-    required String workspaceRootPath,
+    required String package,
     required String path,
   }) {
-    return _isManagedPatchworkStoreOverride({
-      'path': path,
-    }, workspaceRootPath: workspaceRootPath);
-  }
-
-  void updateDependencyOverrides({
-    required String workspaceRootPath,
-    required Map<String, String> dependencyOverridePaths,
-    bool removeStaleManagedOverrides = true,
-  }) {
-    final overridesPath = p.join(workspaceRootPath, 'pubspec_overrides.yaml');
-    final overridesFile = File(overridesPath);
-    if (dependencyOverridePaths.isEmpty && !overridesFile.existsSync()) {
-      return;
-    }
-
-    final overrides = _readPubspecOverrides(overridesPath);
-    final existingDependencyOverrides = overrides['dependency_overrides'];
-    final dependencyOverrides = <String, Object?>{};
-    if (existingDependencyOverrides != null) {
-      if (existingDependencyOverrides is! Map<String, Object?>) {
-        throw PubspecOverridesException(
-          Diagnostic(
-            code: 'pub.overrides_malformed',
-            message:
-                'pubspec_overrides.yaml dependency_overrides is malformed.',
-            location: overridesPath,
-          ),
-        );
-      }
-      for (final entry in existingDependencyOverrides.entries) {
-        if (dependencyOverridePaths.containsKey(entry.key)) {
-          continue;
-        }
-        if (removeStaleManagedOverrides &&
-            _isManagedPatchworkStoreOverride(
-              entry.value,
-              workspaceRootPath: workspaceRootPath,
-            )) {
-          continue;
-        }
-        dependencyOverrides[entry.key] = entry.value;
-      }
-    }
-
-    for (final entry in dependencyOverridePaths.entries) {
-      dependencyOverrides[entry.key] = {'path': entry.value};
-    }
+    final overrides = _read(workspaceRootPath);
+    final dependencyOverrides = _dependencyOverrides(
+      overrides,
+      workspaceRootPath,
+    );
+    dependencyOverrides[package] = {'path': path};
     overrides['dependency_overrides'] = dependencyOverrides;
-
-    fileWriter.writeString(overridesPath, _formatPubspecOverrides(overrides));
-  }
-}
-
-final class PubspecOverridePathsReadResult {
-  const PubspecOverridePathsReadResult._({
-    this.paths = const {},
-    this.diagnostic,
-  });
-
-  factory PubspecOverridePathsReadResult.success(Map<String, String> paths) {
-    return PubspecOverridePathsReadResult._(paths: Map.unmodifiable(paths));
+    _write(workspaceRootPath, overrides);
   }
 
-  factory PubspecOverridePathsReadResult.failure(Diagnostic diagnostic) {
-    return PubspecOverridePathsReadResult._(diagnostic: diagnostic);
-  }
+  bool hasBlockingPathOverride({
+    required String workspaceRootPath,
+    required String package,
+    required String path,
+    required bool replaceExisting,
+  }) {
+    final overrides = _read(workspaceRootPath);
+    final dependencyOverrides = _dependencyOverrides(
+      overrides,
+      workspaceRootPath,
+    );
+    final existing = dependencyOverrides[package];
+    if (existing == null) {
+      return false;
+    }
+    if (replaceExisting &&
+        existing is Map<String, Object?> &&
+        existing['path'] is String) {
+      final existingPath = existing['path'] as String;
+      if (_pathsPointToSameLocation(workspaceRootPath, existingPath, path)) {
+        return false;
+      }
+    }
 
-  final Map<String, String> paths;
-  final Diagnostic? diagnostic;
-}
-
-bool _isManagedPatchworkStoreOverride(
-  Object? value, {
-  required String workspaceRootPath,
-}) {
-  if (value is! Map<String, Object?>) {
-    return false;
-  }
-
-  final path = value['path'];
-  if (path is! String) {
-    return false;
-  }
-
-  final normalizedPath = p.posix.normalize(path.replaceAll('\\', '/'));
-  if (normalizedPath == '.dart_tool/patchwork/store/pub' ||
-      normalizedPath.startsWith('.dart_tool/patchwork/store/pub/')) {
     return true;
   }
 
-  final patchworkStoreRoot = p.normalize(
-    p.absolute(workspaceRootPath, '.dart_tool', 'patchwork', 'store', 'pub'),
-  );
-  final absolutePath = p.isAbsolute(path)
-      ? p.normalize(path)
-      : p.normalize(p.absolute(workspaceRootPath, path));
-  return p.equals(patchworkStoreRoot, absolutePath) ||
-      p.isWithin(patchworkStoreRoot, absolutePath);
-}
-
-final class PubspecOverridesException implements Exception {
-  const PubspecOverridesException(this.diagnostic);
-
-  final Diagnostic diagnostic;
-}
-
-Map<String, Object?> _readPubspecOverrides(String overridesPath) {
-  final file = File(overridesPath);
-  if (!file.existsSync()) {
-    return <String, Object?>{};
+  bool hasOverride({
+    required String workspaceRootPath,
+    required String package,
+  }) {
+    final dependencyOverrides = _dependencyOverrides(
+      _read(workspaceRootPath),
+      workspaceRootPath,
+    );
+    return dependencyOverrides.containsKey(package);
   }
 
-  try {
-    final content = file.readAsStringSync();
-    if (content.trim().isEmpty) {
+  bool removePathOverrideIfMatches({
+    required String workspaceRootPath,
+    required String package,
+    required String path,
+  }) {
+    final overrides = _read(workspaceRootPath);
+    final dependencyOverrides = _dependencyOverrides(
+      overrides,
+      workspaceRootPath,
+    );
+    final existing = dependencyOverrides[package];
+    if (existing is! Map<String, Object?> || existing['path'] is! String) {
+      return false;
+    }
+
+    final existingPath = existing['path'] as String;
+    if (!_pathsPointToSameLocation(workspaceRootPath, existingPath, path)) {
+      return false;
+    }
+
+    dependencyOverrides.remove(package);
+    if (dependencyOverrides.isEmpty) {
+      overrides.remove('dependency_overrides');
+    } else {
+      overrides['dependency_overrides'] = dependencyOverrides;
+    }
+    _write(workspaceRootPath, overrides);
+    return true;
+  }
+
+  bool pointsToPath({
+    required String workspaceRootPath,
+    required String package,
+    required String path,
+  }) {
+    final dependencyOverrides = _dependencyOverrides(
+      _read(workspaceRootPath),
+      workspaceRootPath,
+    );
+    final existing = dependencyOverrides[package];
+    return existing is Map<String, Object?> &&
+        existing['path'] is String &&
+        _pathsPointToSameLocation(
+          workspaceRootPath,
+          existing['path'] as String,
+          path,
+        );
+  }
+
+  Map<String, Object?> _read(String workspaceRootPath) {
+    final file = File(_path(workspaceRootPath));
+    if (!file.existsSync()) {
       return <String, Object?>{};
     }
-    final root = loadYaml(content);
-    if (root == null) {
-      return <String, Object?>{};
-    }
-    if (root is! YamlMap) {
-      throw PubspecOverridesException(
-        Diagnostic(
+
+    try {
+      final content = file.readAsStringSync();
+      if (content.trim().isEmpty) {
+        return <String, Object?>{};
+      }
+      final decoded = loadYaml(content);
+      if (decoded == null) {
+        return <String, Object?>{};
+      }
+      if (decoded is! YamlMap) {
+        throw PatchworkException(
+          'pubspec_overrides.yaml must contain a YAML object.',
           code: 'pub.overrides_malformed',
-          message: 'pubspec_overrides.yaml is malformed.',
-          location: overridesPath,
-        ),
+          location: file.path,
+        );
+      }
+      return _toStringKeyedMap(decoded, file.path);
+    } on YamlException catch (error) {
+      throw PatchworkException(
+        'pubspec_overrides.yaml is malformed.',
+        code: 'pub.overrides_malformed',
+        hint: error.message,
+        location: file.path,
+      );
+    } on FileSystemException catch (error) {
+      throw PatchworkException(
+        'Could not read pubspec_overrides.yaml.',
+        code: 'pub.overrides_unreadable',
+        hint: error.message,
+        location: file.path,
       );
     }
-    return _toStringKeyedMap(root, overridesPath);
-  } on YamlException catch (error) {
-    throw PubspecOverridesException(
-      Diagnostic(
-        code: 'pub.overrides_malformed',
-        message: 'pubspec_overrides.yaml is malformed.',
-        hint: error.message,
-        location: overridesPath,
-      ),
-    );
-  } on FormatException catch (error) {
-    throw PubspecOverridesException(
-      Diagnostic(
-        code: 'pub.overrides_malformed',
-        message: 'pubspec_overrides.yaml is malformed.',
-        hint: error.message,
-        location: overridesPath,
-      ),
-    );
-  } on FileSystemException catch (error) {
-    throw PubspecOverridesException(
-      Diagnostic(
-        code: 'pub.overrides_unreadable',
-        message: 'Could not read pubspec_overrides.yaml.',
-        hint: error.message,
-        location: overridesPath,
-      ),
-    );
   }
+
+  Map<String, Object?> _dependencyOverrides(
+    Map<String, Object?> overrides,
+    String workspaceRootPath,
+  ) {
+    final existing = overrides['dependency_overrides'];
+    if (existing == null) {
+      return <String, Object?>{};
+    }
+    if (existing is! Map<String, Object?>) {
+      throw PatchworkException(
+        'pubspec_overrides.yaml dependency_overrides is malformed.',
+        code: 'pub.overrides_malformed',
+        location: _path(workspaceRootPath),
+      );
+    }
+    return Map<String, Object?>.of(existing);
+  }
+
+  void _write(String workspaceRootPath, Map<String, Object?> overrides) {
+    final path = _path(workspaceRootPath);
+    try {
+      if (overrides.isEmpty) {
+        final file = File(path);
+        if (file.existsSync()) {
+          file.deleteSync();
+        }
+        return;
+      }
+      fileWriter.writeString(path, formatYamlMap(overrides));
+    } on FileSystemException catch (error) {
+      throw PatchworkException(
+        'Could not write pubspec_overrides.yaml.',
+        code: 'pub.overrides_unwritable',
+        hint: error.message,
+        location: path,
+      );
+    }
+  }
+}
+
+String _path(String workspaceRootPath) {
+  return p.join(workspaceRootPath, 'pubspec_overrides.yaml');
+}
+
+bool _pathsPointToSameLocation(
+  String workspaceRootPath,
+  String left,
+  String right,
+) {
+  final leftAbsolute = p.normalize(
+    p.isAbsolute(left) ? left : p.absolute(workspaceRootPath, left),
+  );
+  final rightAbsolute = p.normalize(
+    p.isAbsolute(right) ? right : p.absolute(workspaceRootPath, right),
+  );
+  return p.equals(leftAbsolute, rightAbsolute);
 }
 
 Map<String, Object?> _toStringKeyedMap(YamlMap map, String location) {
@@ -221,12 +217,10 @@ Map<String, Object?> _toStringKeyedMap(YamlMap map, String location) {
   for (final entry in map.entries) {
     final key = entry.key;
     if (key is! String) {
-      throw PubspecOverridesException(
-        Diagnostic(
-          code: 'pub.overrides_malformed',
-          message: 'pubspec_overrides.yaml contains a non-string key.',
-          location: location,
-        ),
+      throw PatchworkException(
+        'pubspec_overrides.yaml contains a non-string key.',
+        code: 'pub.overrides_malformed',
+        location: location,
       );
     }
     result[key] = _convertYamlValue(entry.value, location);
@@ -247,99 +241,4 @@ Object? _convertYamlValue(Object? value, String location) {
     return value;
   }
   return value.toString();
-}
-
-String _formatPubspecOverrides(Map<String, Object?> overrides) {
-  final buffer = StringBuffer();
-  for (final entry in overrides.entries) {
-    _writeYamlEntry(buffer, entry.key, entry.value, indent: 0);
-  }
-  return buffer.toString();
-}
-
-void _writeYamlEntry(
-  StringBuffer buffer,
-  String key,
-  Object? value, {
-  required int indent,
-}) {
-  final prefix = ' ' * indent;
-  if (value is Map<String, Object?>) {
-    if (value.isEmpty) {
-      buffer.writeln('$prefix${_formatYamlKey(key)}: {}');
-      return;
-    }
-    buffer.writeln('$prefix${_formatYamlKey(key)}:');
-    for (final entry in value.entries) {
-      _writeYamlEntry(buffer, entry.key, entry.value, indent: indent + 2);
-    }
-    return;
-  }
-
-  if (value is List<Object?>) {
-    if (value.isEmpty) {
-      buffer.writeln('$prefix${_formatYamlKey(key)}: []');
-      return;
-    }
-    buffer.writeln('$prefix${_formatYamlKey(key)}:');
-    for (final item in value) {
-      _writeYamlListItem(buffer, item, indent: indent + 2);
-    }
-    return;
-  }
-
-  buffer.writeln('$prefix${_formatYamlKey(key)}: ${_formatYamlScalar(value)}');
-}
-
-void _writeYamlListItem(
-  StringBuffer buffer,
-  Object? value, {
-  required int indent,
-}) {
-  final prefix = ' ' * indent;
-  if (value is Map<String, Object?>) {
-    if (value.isEmpty) {
-      buffer.writeln('$prefix- {}');
-      return;
-    }
-    var first = true;
-    for (final entry in value.entries) {
-      if (first) {
-        buffer.writeln('$prefix- ${_formatYamlKey(entry.key)}:');
-        _writeYamlNestedValue(buffer, entry.value, indent + 4);
-        first = false;
-      } else {
-        _writeYamlEntry(buffer, entry.key, entry.value, indent: indent + 2);
-      }
-    }
-    return;
-  }
-
-  buffer.writeln('$prefix- ${_formatYamlScalar(value)}');
-}
-
-void _writeYamlNestedValue(StringBuffer buffer, Object? value, int indent) {
-  if (value is Map<String, Object?>) {
-    for (final entry in value.entries) {
-      _writeYamlEntry(buffer, entry.key, entry.value, indent: indent);
-    }
-    return;
-  }
-  buffer.writeln('${' ' * indent}${_formatYamlScalar(value)}');
-}
-
-String _formatYamlKey(String value) => _formatYamlScalar(value);
-
-String _formatYamlScalar(Object? value) {
-  if (value == null) {
-    return 'null';
-  }
-  if (value is num || value is bool) {
-    return value.toString();
-  }
-  final string = value.toString();
-  if (RegExp(r'^[A-Za-z0-9._/@:%+=-]+$').hasMatch(string)) {
-    return string;
-  }
-  return jsonEncode(string);
 }

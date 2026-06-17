@@ -1,15 +1,15 @@
 # Patchwork
 
-Patchwork is a patch management tool for Dart projects.
-The current MVP focuses on pub packages: create an editable copy of a resolved
-dependency, commit the edit as a patch file, and apply committed patches through
-generated `pubspec_overrides.yaml` path overrides.
+Patchwork is a patch manager for Dart pub dependencies. It creates a fresh
+editable copy of a resolved dependency, commits the edit as a versioned patch
+file, and applies committed patches through generated
+`pubspec_overrides.yaml` path overrides.
 
 ## Repository Layout
 
 ```text
-pub/patchwork/       Dart package implementation
-examples/            Workspace-level runnable examples
+pub/patchwork/       Publishable Dart package
+examples/            Runnable examples
 .github/             CI and repository metadata
 ```
 
@@ -27,14 +27,17 @@ dart pub publish --dry-run
 
 ## Example
 
-The workspace example demonstrates the MVP flow against a small app and a local
-pub dependency:
+The example demonstrates the 0.2 patch flow against a small app and a local pub
+dependency:
 
 ```sh
 cd examples/hello_patch/app
 dart pub get
 dart run patchwork doctor
 dart run patchwork patch greeter
+dart run patchwork commit greeter
+dart run patchwork apply greeter
+dart pub get
 ```
 
 See `examples/README.md` for the complete walkthrough.
@@ -44,10 +47,11 @@ See `examples/README.md` for the complete walkthrough.
 Patchwork commits portable state to:
 
 - `patchwork.lock`
-- `patches/pub/*.patch`
+- `patches/*.patch`
 
 It generates local state in:
 
+- `.patchwork/`
 - `.dart_tool/patchwork/`
 - `pubspec_overrides.yaml`
 

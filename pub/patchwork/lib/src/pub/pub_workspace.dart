@@ -1,13 +1,16 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:yaml/yaml.dart';
 
-import '../diagnostics/diagnostic.dart';
+import '../error.dart';
 
 final class PubWorkspace {
   const PubWorkspace({
     required this.rootPath,
     required this.currentPackageRootPath,
+    required this.rootPackageRootPaths,
     required this.packageConfigPath,
     required this.lockfilePath,
     required this.packageGraphPath,
@@ -15,95 +18,234 @@ final class PubWorkspace {
 
   final String rootPath;
   final String currentPackageRootPath;
+  final Set<String> rootPackageRootPaths;
   final String packageConfigPath;
   final String lockfilePath;
   final String packageGraphPath;
 }
 
-final class PubWorkspaceLocateResult {
-  const PubWorkspaceLocateResult._({this.workspace, this.diagnostic});
-
-  factory PubWorkspaceLocateResult.success(PubWorkspace workspace) {
-    return PubWorkspaceLocateResult._(workspace: workspace);
-  }
-
-  factory PubWorkspaceLocateResult.failure(Diagnostic diagnostic) {
-    return PubWorkspaceLocateResult._(diagnostic: diagnostic);
-  }
-
-  final PubWorkspace? workspace;
-  final Diagnostic? diagnostic;
-
-  bool get isSuccess => workspace != null;
-}
-
 final class PubWorkspaceLocator {
   const PubWorkspaceLocator();
 
-  PubWorkspaceLocateResult locate(String currentDirectory) {
+  PubWorkspace locate(String currentDirectory) {
     final startPath = p.normalize(p.absolute(currentDirectory));
-    final resolutionRoot = _findResolutionRoot(startPath);
-
-    if (resolutionRoot == null) {
-      return PubWorkspaceLocateResult.failure(
-        Diagnostic(
-          code: 'pub.resolution_not_found',
-          message: 'Could not find a pub resolution for "$startPath".',
-          hint: 'Run dart pub get before using patchwork.',
-        ),
+    final currentPackageRoot = _findNearestPackageRoot(startPath);
+    if (currentPackageRoot == null) {
+      throw PatchworkException(
+        'Could not find a pub project for "$startPath".',
+        code: 'pub.project_not_found',
+        hint: 'Run patchwork from inside a Dart package or workspace member.',
       );
     }
 
-    return PubWorkspaceLocateResult.success(
-      PubWorkspace(
-        rootPath: resolutionRoot,
-        currentPackageRootPath: _findCurrentPackageRoot(
-          startPath,
-          resolutionRoot,
-        ),
-        packageConfigPath: p.join(
-          resolutionRoot,
-          '.dart_tool',
-          'package_config.json',
-        ),
-        lockfilePath: p.join(resolutionRoot, 'pubspec.lock'),
-        packageGraphPath: p.join(
-          resolutionRoot,
-          '.dart_tool',
-          'package_graph.json',
-        ),
+    final resolutionRoot = _findResolutionRoot(currentPackageRoot);
+    if (resolutionRoot == null) {
+      throw PatchworkException(
+        'Could not find a pub resolution for "$startPath".',
+        code: 'pub.resolution_not_found',
+        hint: 'Run dart pub get before using patchwork.',
+      );
+    }
+
+    final packageConfigPath = p.join(
+      resolutionRoot,
+      '.dart_tool',
+      'package_config.json',
+    );
+    final packageGraphPath = p.join(
+      resolutionRoot,
+      '.dart_tool',
+      'package_graph.json',
+    );
+
+    return PubWorkspace(
+      rootPath: resolutionRoot,
+      currentPackageRootPath: currentPackageRoot,
+      rootPackageRootPaths: _rootPackageRootPaths(
+        resolutionRoot: resolutionRoot,
+        currentPackageRoot: currentPackageRoot,
+        packageConfigPath: packageConfigPath,
+        packageGraphPath: packageGraphPath,
       ),
+      packageConfigPath: packageConfigPath,
+      lockfilePath: p.join(resolutionRoot, 'pubspec.lock'),
+      packageGraphPath: packageGraphPath,
     );
   }
 
-  String? _findResolutionRoot(String startPath) {
-    for (final candidate in _ancestorDirectories(startPath)) {
+  String? _findResolutionRoot(String currentPackageRoot) {
+    for (final candidate in _ancestorDirectories(currentPackageRoot)) {
       final packageConfigPath = p.join(
         candidate,
         '.dart_tool',
         'package_config.json',
       );
-      if (File(packageConfigPath).existsSync()) {
+      if (!File(packageConfigPath).existsSync()) {
+        continue;
+      }
+      if (p.equals(candidate, currentPackageRoot) ||
+          _packageConfigContainsRoot(packageConfigPath, currentPackageRoot)) {
         return candidate;
       }
     }
-
     return null;
   }
 
-  String _findCurrentPackageRoot(String startPath, String resolutionRoot) {
+  String? _findNearestPackageRoot(String startPath) {
     for (final candidate in _ancestorDirectories(startPath)) {
-      if (!p.isWithin(resolutionRoot, candidate) &&
-          candidate != resolutionRoot) {
-        break;
-      }
-
       if (File(p.join(candidate, 'pubspec.yaml')).existsSync()) {
         return candidate;
       }
     }
+    return null;
+  }
 
-    return resolutionRoot;
+  bool _packageConfigContainsRoot(
+    String packageConfigPath,
+    String packageRoot,
+  ) {
+    final expectedRoot = p.normalize(p.absolute(packageRoot));
+    return _packageConfigRootPaths(
+      packageConfigPath,
+    ).values.any((root) => p.equals(root, expectedRoot));
+  }
+
+  Set<String> _rootPackageRootPaths({
+    required String resolutionRoot,
+    required String currentPackageRoot,
+    required String packageConfigPath,
+    required String packageGraphPath,
+  }) {
+    final paths = <String>{
+      p.normalize(p.absolute(resolutionRoot)),
+      p.normalize(p.absolute(currentPackageRoot)),
+      ..._pubspecWorkspaceRootPaths(resolutionRoot),
+    };
+
+    final packageRoots = _packageConfigRootPaths(packageConfigPath);
+    for (final name in _packageGraphRootNames(packageGraphPath)) {
+      final rootPath = packageRoots[name];
+      if (rootPath != null) {
+        paths.add(rootPath);
+      }
+    }
+    return paths;
+  }
+
+  Set<String> _pubspecWorkspaceRootPaths(String resolutionRoot) {
+    try {
+      final decoded = loadYaml(
+        File(p.join(resolutionRoot, 'pubspec.yaml')).readAsStringSync(),
+      );
+      if (decoded is! YamlMap) {
+        return const {};
+      }
+      final workspace = decoded['workspace'];
+      if (workspace is! YamlList) {
+        return const {};
+      }
+      return {
+        for (final item in workspace.nodes)
+          if (item.value is String)
+            ..._expandWorkspacePath(resolutionRoot, item.value as String),
+      };
+    } on YamlException {
+      return const {};
+    } on FileSystemException {
+      return const {};
+    }
+  }
+
+  Set<String> _expandWorkspacePath(
+    String resolutionRoot,
+    String workspacePath,
+  ) {
+    final segments = p.split(workspacePath);
+    var paths = {p.normalize(p.absolute(resolutionRoot))};
+    for (final segment in segments) {
+      final next = <String>{};
+      for (final base in paths) {
+        if (segment == '*') {
+          final directory = Directory(base);
+          if (!directory.existsSync()) {
+            continue;
+          }
+          for (final entity in directory.listSync(followLinks: false)) {
+            if (FileSystemEntity.typeSync(entity.path, followLinks: false) ==
+                FileSystemEntityType.directory) {
+              next.add(p.normalize(entity.path));
+            }
+          }
+        } else {
+          next.add(p.normalize(p.join(base, segment)));
+        }
+      }
+      paths = next;
+    }
+    return paths;
+  }
+
+  Map<String, String> _packageConfigRootPaths(String packageConfigPath) {
+    try {
+      final decoded = jsonDecode(File(packageConfigPath).readAsStringSync());
+      if (decoded is! Map<String, Object?>) {
+        return const {};
+      }
+
+      final packages = decoded['packages'];
+      if (packages is! List<Object?>) {
+        return const {};
+      }
+
+      final baseUri = Directory(p.dirname(packageConfigPath)).uri;
+      final entries = <String, String>{};
+      for (final package in packages) {
+        if (package is! Map<String, Object?>) {
+          continue;
+        }
+        final name = package['name'];
+        final rootUri = package['rootUri'];
+        if (name is! String || rootUri is! String) {
+          continue;
+        }
+        entries[name] = p.normalize(
+          baseUri.resolveUri(Uri.parse(rootUri)).toFilePath(),
+        );
+      }
+      return entries;
+    } on FormatException {
+      return const {};
+    } on FileSystemException {
+      return const {};
+    } on UnsupportedError {
+      return const {};
+    }
+  }
+
+  Set<String> _packageGraphRootNames(String packageGraphPath) {
+    final packageGraph = File(packageGraphPath);
+    if (!packageGraph.existsSync()) {
+      return const {};
+    }
+
+    try {
+      final decoded = jsonDecode(packageGraph.readAsStringSync());
+      if (decoded is! Map<String, Object?>) {
+        return const {};
+      }
+      final roots = decoded['roots'];
+      if (roots is! List<Object?>) {
+        return const {};
+      }
+      return {
+        for (final root in roots)
+          if (root is String) root,
+      };
+    } on FormatException {
+      return const {};
+    } on FileSystemException {
+      return const {};
+    }
   }
 
   Iterable<String> _ancestorDirectories(String startPath) sync* {
@@ -118,7 +260,6 @@ final class PubWorkspaceLocator {
       if (parent == current) {
         break;
       }
-
       current = parent;
     }
   }

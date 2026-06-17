@@ -46,12 +46,26 @@ void main() {
       _writePackageConfig(workspaceRoot.path, [
         const _PackageConfigEntry(name: 'workspace', rootUri: '..'),
         const _PackageConfigEntry(name: 'app', rootUri: '../app'),
+        const _PackageConfigEntry(
+          name: 'member_greeter',
+          rootUri: '../packages/member_greeter',
+        ),
+      ]);
+      _writePackageGraph(workspaceRoot.path, [
+        'workspace',
+        'app',
+        'member_greeter',
       ]);
 
       final workspace = const PubWorkspaceLocator().locate(appRoot);
 
       expect(workspace.rootPath, workspaceRoot.path);
       expect(workspace.currentPackageRootPath, appRoot);
+      expect(workspace.rootPackageRootPaths, {
+        workspaceRoot.path,
+        appRoot,
+        p.join(workspaceRoot.path, 'packages', 'member_greeter'),
+      });
     });
   });
 }
@@ -84,6 +98,14 @@ void _writePackageConfig(String root, List<_PackageConfigEntry> packages) {
       ],
     }),
   );
+}
+
+void _writePackageGraph(String root, List<String> roots) {
+  final dotDartTool = Directory(p.join(root, '.dart_tool'))
+    ..createSync(recursive: true);
+  File(
+    p.join(dotDartTool.path, 'package_graph.json'),
+  ).writeAsStringSync(jsonEncode({'roots': roots}));
 }
 
 final class _PackageConfigEntry {

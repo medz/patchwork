@@ -42,7 +42,7 @@ final class Patchwork {
     return Patchwork._(
       rootPath: workspace.rootPath,
       currentPackageRootPath: workspace.currentPackageRootPath,
-      protectedRootPaths: _readProtectedRootPaths(workspace),
+      protectedRootPaths: workspace.rootPackageRootPaths,
       layout: layout,
       pubResolutionReader: const PubResolutionReader(),
       lockStore: LockfileStore(path: layout.lockfilePath),
@@ -1019,87 +1019,6 @@ final class Patchwork {
     return leftPath != null &&
         rightPath != null &&
         p.equals(leftPath, rightPath);
-  }
-}
-
-Set<String> _readProtectedRootPaths(PubWorkspace workspace) {
-  final paths = <String>{
-    p.normalize(p.absolute(workspace.rootPath)),
-    p.normalize(p.absolute(workspace.currentPackageRootPath)),
-  };
-
-  final packageConfig = _readPackageConfigRootPaths(workspace);
-  final rootNames = _readPackageGraphRootNames(workspace);
-  for (final name in rootNames) {
-    final rootPath = packageConfig[name];
-    if (rootPath != null) {
-      paths.add(rootPath);
-    }
-  }
-  return paths;
-}
-
-Map<String, String> _readPackageConfigRootPaths(PubWorkspace workspace) {
-  try {
-    final decoded = jsonDecode(
-      File(workspace.packageConfigPath).readAsStringSync(),
-    );
-    if (decoded is! Map<String, Object?>) {
-      return const {};
-    }
-    final packages = decoded['packages'];
-    if (packages is! List<Object?>) {
-      return const {};
-    }
-
-    final baseUri = Directory(p.dirname(workspace.packageConfigPath)).uri;
-    final entries = <String, String>{};
-    for (final package in packages) {
-      if (package is! Map<String, Object?>) {
-        continue;
-      }
-      final name = package['name'];
-      final rootUri = package['rootUri'];
-      if (name is! String || rootUri is! String) {
-        continue;
-      }
-      entries[name] = p.normalize(
-        baseUri.resolveUri(Uri.parse(rootUri)).toFilePath(),
-      );
-    }
-    return entries;
-  } on FormatException {
-    return const {};
-  } on FileSystemException {
-    return const {};
-  } on UnsupportedError {
-    return const {};
-  }
-}
-
-Set<String> _readPackageGraphRootNames(PubWorkspace workspace) {
-  final packageGraph = File(workspace.packageGraphPath);
-  if (!packageGraph.existsSync()) {
-    return const {};
-  }
-
-  try {
-    final decoded = jsonDecode(packageGraph.readAsStringSync());
-    if (decoded is! Map<String, Object?>) {
-      return const {};
-    }
-    final roots = decoded['roots'];
-    if (roots is! List<Object?>) {
-      return const {};
-    }
-    return {
-      for (final root in roots)
-        if (root is String) root,
-    };
-  } on FormatException {
-    return const {};
-  } on FileSystemException {
-    return const {};
   }
 }
 

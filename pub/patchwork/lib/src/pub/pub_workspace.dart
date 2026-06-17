@@ -9,6 +9,7 @@ final class PubWorkspace {
   const PubWorkspace({
     required this.rootPath,
     required this.currentPackageRootPath,
+    required this.rootPackageRootPaths,
     required this.packageConfigPath,
     required this.lockfilePath,
     required this.packageGraphPath,
@@ -16,6 +17,7 @@ final class PubWorkspace {
 
   final String rootPath;
   final String currentPackageRootPath;
+  final Set<String> rootPackageRootPaths;
   final String packageConfigPath;
   final String lockfilePath;
   final String packageGraphPath;
@@ -44,20 +46,29 @@ final class PubWorkspaceLocator {
       );
     }
 
+    final packageConfigPath = p.join(
+      resolutionRoot,
+      '.dart_tool',
+      'package_config.json',
+    );
+    final packageGraphPath = p.join(
+      resolutionRoot,
+      '.dart_tool',
+      'package_graph.json',
+    );
+
     return PubWorkspace(
       rootPath: resolutionRoot,
       currentPackageRootPath: currentPackageRoot,
-      packageConfigPath: p.join(
-        resolutionRoot,
-        '.dart_tool',
-        'package_config.json',
+      rootPackageRootPaths: _rootPackageRootPaths(
+        resolutionRoot: resolutionRoot,
+        currentPackageRoot: currentPackageRoot,
+        packageConfigPath: packageConfigPath,
+        packageGraphPath: packageGraphPath,
       ),
+      packageConfigPath: packageConfigPath,
       lockfilePath: p.join(resolutionRoot, 'pubspec.lock'),
-      packageGraphPath: p.join(
-        resolutionRoot,
-        '.dart_tool',
-        'package_graph.json',
-      ),
+      packageGraphPath: packageGraphPath,
     );
   }
 
@@ -92,41 +103,93 @@ final class PubWorkspaceLocator {
     String packageConfigPath,
     String packageRoot,
   ) {
+    final expectedRoot = p.normalize(p.absolute(packageRoot));
+    return _packageConfigRootPaths(
+      packageConfigPath,
+    ).values.any((root) => p.equals(root, expectedRoot));
+  }
+
+  Set<String> _rootPackageRootPaths({
+    required String resolutionRoot,
+    required String currentPackageRoot,
+    required String packageConfigPath,
+    required String packageGraphPath,
+  }) {
+    final paths = <String>{
+      p.normalize(p.absolute(resolutionRoot)),
+      p.normalize(p.absolute(currentPackageRoot)),
+    };
+
+    final packageRoots = _packageConfigRootPaths(packageConfigPath);
+    for (final name in _packageGraphRootNames(packageGraphPath)) {
+      final rootPath = packageRoots[name];
+      if (rootPath != null) {
+        paths.add(rootPath);
+      }
+    }
+    return paths;
+  }
+
+  Map<String, String> _packageConfigRootPaths(String packageConfigPath) {
     try {
       final decoded = jsonDecode(File(packageConfigPath).readAsStringSync());
       if (decoded is! Map<String, Object?>) {
-        return false;
+        return const {};
       }
 
       final packages = decoded['packages'];
       if (packages is! List<Object?>) {
-        return false;
+        return const {};
       }
 
       final baseUri = Directory(p.dirname(packageConfigPath)).uri;
-      final expectedRoot = p.normalize(p.absolute(packageRoot));
+      final entries = <String, String>{};
       for (final package in packages) {
         if (package is! Map<String, Object?>) {
           continue;
         }
+        final name = package['name'];
         final rootUri = package['rootUri'];
-        if (rootUri is! String) {
+        if (name is! String || rootUri is! String) {
           continue;
         }
-        final resolvedRoot = p.normalize(
+        entries[name] = p.normalize(
           baseUri.resolveUri(Uri.parse(rootUri)).toFilePath(),
         );
-        if (p.equals(resolvedRoot, expectedRoot)) {
-          return true;
-        }
       }
-      return false;
+      return entries;
     } on FormatException {
-      return false;
+      return const {};
     } on FileSystemException {
-      return false;
+      return const {};
     } on UnsupportedError {
-      return false;
+      return const {};
+    }
+  }
+
+  Set<String> _packageGraphRootNames(String packageGraphPath) {
+    final packageGraph = File(packageGraphPath);
+    if (!packageGraph.existsSync()) {
+      return const {};
+    }
+
+    try {
+      final decoded = jsonDecode(packageGraph.readAsStringSync());
+      if (decoded is! Map<String, Object?>) {
+        return const {};
+      }
+      final roots = decoded['roots'];
+      if (roots is! List<Object?>) {
+        return const {};
+      }
+      return {
+        for (final root in roots)
+          if (root is String) root,
+      };
+    } on FormatException {
+      return const {};
+    } on FileSystemException {
+      return const {};
     }
   }
 

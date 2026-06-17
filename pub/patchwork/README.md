@@ -180,18 +180,23 @@ workflow, so Patchwork only manages its own patch override entries.
 ## Commands
 
 ```text
-patchwork patch <pkg> [--continue [version]]  Create a source-based edit.
-patchwork commit [pkg]                        Commit open edits into patches.
-patchwork apply [pkg]                         Apply committed patches.
-patchwork undo <pkg>                          Remove one applied patch.
-patchwork status                              Show patch and override state.
-patchwork doctor                              Check local readiness.
+patchwork patch <pkg> [--continue [version]] [--force] [--json]
+patchwork commit [pkg] [--json]
+patchwork apply [pkg] [--json]
+patchwork undo <pkg> [--json]
+patchwork status [--json]
+patchwork doctor [--json]
 ```
 
 Packages are plain pub package names selected by the current pub resolution.
 Patchwork rejects target syntax such as `pub:collection`, `collection@1.19.1`,
 `path:collection`, git URLs, filesystem paths, the current project package, and
 workspace member packages.
+
+Add `--json` to emit one machine-readable JSON document on stdout instead of
+human text. JSON paths use the same project-relative form as human CLI output
+when the path is inside the Patchwork state root; source paths outside the
+project remain absolute.
 
 ## Current Limits
 

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io' as io;
 
 import '../error.dart';
@@ -49,4 +50,121 @@ void printStatus(Patchwork patchwork, PatchworkState state, io.IOSink out) {
       }
     }
   }
+}
+
+/// Writes inspected state as a single JSON document.
+void printStatusJson(Patchwork patchwork, PatchworkState state, io.IOSink out) {
+  _printJson(out, {
+    'packages': [
+      for (final package in state.packages) _statusJson(patchwork, package),
+    ],
+    'needsApply': [
+      for (final package in state.needsApply)
+        {'package': package.package, 'version': package.version},
+    ],
+    'problems': [
+      for (final package in state.packages)
+        for (final problem in package.problems)
+          {'package': package.package, ..._problemJson(problem)},
+    ],
+  });
+}
+
+/// Writes a `patchwork patch` result as a single JSON document.
+void printPatchJson(Patchwork patchwork, PreparedEdit edit, io.IOSink out) {
+  _printJson(out, {
+    'command': 'patch',
+    'edit': {
+      'package': edit.package,
+      'version': edit.version,
+      'path': patchwork.relativePath(edit.path),
+      'sourcePath': patchwork.relativePath(edit.sourcePath),
+      'continuedFromPatchPath': edit.continuedFromPatchPath == null
+          ? null
+          : patchwork.relativePath(edit.continuedFromPatchPath!),
+    },
+  });
+}
+
+/// Writes a `patchwork commit` result as a single JSON document.
+void printCommitJson(
+  Patchwork patchwork,
+  List<PatchWrite> writes,
+  io.IOSink out,
+) {
+  _printJson(out, {
+    'command': 'commit',
+    'writes': [
+      for (final write in writes)
+        {
+          'package': write.package,
+          'version': write.version,
+          'status': write.status.name,
+          'editPath': patchwork.relativePath(write.editPath),
+          'patchPath': patchwork.relativePath(write.patchPath),
+        },
+    ],
+  });
+}
+
+/// Writes a `patchwork apply` result as a single JSON document.
+void printApplyJson(
+  Patchwork patchwork,
+  List<AppliedPatch> applied,
+  io.IOSink out,
+) {
+  _printJson(out, {
+    'command': 'apply',
+    'applied': [
+      for (final patch in applied)
+        {
+          'package': patch.package,
+          'version': patch.version,
+          'path': patchwork.relativePath(patch.path),
+          'patchPath': patchwork.relativePath(patch.patchPath),
+        },
+    ],
+    'needsPubGet': applied.isNotEmpty,
+  });
+}
+
+/// Writes a `patchwork undo` result as a single JSON document.
+void printUndoJson(Patchwork patchwork, UnappliedPatch result, io.IOSink out) {
+  _printJson(out, {
+    'command': 'undo',
+    'result': {
+      'package': result.package,
+      'changed': result.changed,
+      'path': result.path == null ? null : patchwork.relativePath(result.path!),
+    },
+    'needsPubGet': result.changed,
+  });
+}
+
+Map<String, Object?> _statusJson(Patchwork patchwork, PatchStatus package) {
+  return {
+    'package': package.package,
+    'version': package.version,
+    'editPath': patchwork.relativePath(package.editPath),
+    'patchPath': patchwork.relativePath(package.patchPath),
+    'appliedPath': package.appliedPath == null
+        ? null
+        : patchwork.relativePath(package.appliedPath!),
+    'hasOpenEdit': package.hasOpenEdit,
+    'hasPatch': package.hasPatch,
+    'needsApply': package.needsApply,
+    'problems': [for (final problem in package.problems) _problemJson(problem)],
+  };
+}
+
+Map<String, Object?> _problemJson(PatchProblem problem) {
+  return {
+    'code': problem.code,
+    'message': problem.message,
+    'hint': problem.hint,
+  };
+}
+
+void _printJson(io.IOSink out, Map<String, Object?> object) {
+  out.writeln(jsonEncode(object));
 }

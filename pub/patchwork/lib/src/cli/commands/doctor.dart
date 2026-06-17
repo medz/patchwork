@@ -14,8 +14,13 @@ Future<int> runDoctorCommand(
   List<String> arguments,
   io.IOSink out,
 ) async {
-  expectNoArguments('doctor', arguments);
+  final parsed = parseCommandArguments('doctor', arguments);
+  expectNoArguments('doctor', parsed.rest);
   final state = await patchwork.inspect();
-  printStatus(patchwork, state, out);
+  if (parsed.json) {
+    printStatusJson(patchwork, state, out);
+  } else {
+    printStatus(patchwork, state, out);
+  }
   return state.problems.isEmpty && state.needsApply.isEmpty ? 0 : 1;
 }

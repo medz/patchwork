@@ -3,6 +3,7 @@ import 'dart:io' as io;
 import '../../model.dart';
 import '../../patchwork.dart';
 import '../arguments.dart';
+import '../output.dart';
 
 /// Runs `patchwork commit`.
 ///
@@ -14,10 +15,16 @@ Future<int> runCommitCommand(
   List<String> arguments,
   io.IOSink out,
 ) async {
-  final package = singlePackage('commit', arguments, required: false);
+  final parsed = parseCommandArguments('commit', arguments);
+  final package = singlePackage('commit', parsed.rest, required: false);
   final writes = package == null
       ? await patchwork.commitAll()
       : [await patchwork.commit(package)];
+
+  if (parsed.json) {
+    printCommitJson(patchwork, writes, out);
+    return 0;
+  }
 
   if (writes.isEmpty) {
     out.writeln('No open edits.');

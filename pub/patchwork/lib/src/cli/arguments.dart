@@ -1,5 +1,17 @@
 import '../error.dart';
 
+/// Command arguments after common CLI options have been parsed.
+final class CommandArguments {
+  /// Creates parsed command arguments.
+  const CommandArguments({required this.json, required this.rest});
+
+  /// Whether the command should render machine-readable JSON.
+  final bool json;
+
+  /// Remaining command operands and command-specific options.
+  final List<String> rest;
+}
+
 /// Whether [argument] is one of Patchwork's accepted help spellings.
 bool isHelp(String argument) {
   return argument == '-h' || argument == '--help' || argument == 'help';
@@ -8,6 +20,28 @@ bool isHelp(String argument) {
 /// Whether [arguments] contains only a help request.
 bool isHelpOnly(List<String> arguments) {
   return arguments.length == 1 && isHelp(arguments.single);
+}
+
+/// Parses common command options and returns the remaining arguments.
+CommandArguments parseCommandArguments(String command, List<String> arguments) {
+  var json = false;
+  final rest = <String>[];
+
+  for (final argument in arguments) {
+    if (argument == '--json') {
+      if (json) {
+        throw duplicateOption('--json');
+      }
+      json = true;
+      continue;
+    }
+    if (argument.startsWith('--json=')) {
+      throw unknownOption(argument, command);
+    }
+    rest.add(argument);
+  }
+
+  return CommandArguments(json: json, rest: List.unmodifiable(rest));
 }
 
 /// Parses the optional package operand accepted by a command.

@@ -13,7 +13,13 @@ Future<int> runStatusCommand(
   List<String> arguments,
   io.IOSink out,
 ) async {
-  expectNoArguments('status', arguments);
-  printStatus(patchwork, await patchwork.inspect(), out);
+  final parsed = parseCommandArguments('status', arguments);
+  expectNoArguments('status', parsed.rest);
+  final state = await patchwork.inspect();
+  if (parsed.json) {
+    printStatusJson(patchwork, state, out);
+  } else {
+    printStatus(patchwork, state, out);
+  }
   return 0;
 }

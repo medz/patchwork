@@ -2,6 +2,7 @@ import 'dart:io' as io;
 
 import '../../patchwork.dart';
 import '../arguments.dart';
+import '../output.dart';
 
 /// Runs `patchwork apply`.
 ///
@@ -13,10 +14,16 @@ Future<int> runApplyCommand(
   List<String> arguments,
   io.IOSink out,
 ) async {
-  final package = singlePackage('apply', arguments, required: false);
+  final parsed = parseCommandArguments('apply', arguments);
+  final package = singlePackage('apply', parsed.rest, required: false);
   final applied = package == null
       ? await patchwork.applyAll()
       : [await patchwork.apply(package)];
+
+  if (parsed.json) {
+    printApplyJson(patchwork, applied, out);
+    return 0;
+  }
 
   if (applied.isEmpty) {
     out.writeln('No patches need apply.');

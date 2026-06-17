@@ -4,6 +4,7 @@ import '../../error.dart';
 import '../../model.dart';
 import '../../patchwork.dart';
 import '../arguments.dart';
+import '../output.dart';
 
 /// Runs `patchwork patch`.
 ///
@@ -15,23 +16,26 @@ Future<int> runPatchCommand(
   List<String> arguments,
   io.IOSink out,
 ) async {
+  final parsed = parseCommandArguments('patch', arguments);
   var force = false;
   PatchRef? continueFrom;
   final packages = <String>[];
 
-  for (var index = 0; index < arguments.length; index += 1) {
-    final argument = arguments[index];
+  for (var index = 0; index < parsed.rest.length; index += 1) {
+    final argument = parsed.rest[index];
     if (argument == '--force') {
       force = true;
     } else if (argument == '--continue') {
       if (continueFrom != null) {
         throw duplicateOption('--continue');
       }
-      final next = index + 1 < arguments.length ? arguments[index + 1] : null;
+      final next = index + 1 < parsed.rest.length
+          ? parsed.rest[index + 1]
+          : null;
       if (next != null &&
           !next.startsWith('-') &&
           (packages.isNotEmpty ||
-              _hasLaterOperand(arguments, index + 2) ||
+              _hasLaterOperand(parsed.rest, index + 2) ||
               _looksLikeVersion(next))) {
         continueFrom = PatchRef.version(next);
         index += 1;
@@ -63,6 +67,10 @@ Future<int> runPatchCommand(
     fromPatch: continueFrom,
     replaceExisting: force,
   );
+  if (parsed.json) {
+    printPatchJson(patchwork, edit, out);
+    return 0;
+  }
   out.writeln(
     'Created edit ${patchwork.relativePath(edit.path)} from '
     '${patchwork.relativePath(edit.sourcePath)}.',

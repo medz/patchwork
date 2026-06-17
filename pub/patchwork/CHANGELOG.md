@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Added `--json` output for `patch`, `commit`, `apply`, `undo`, `status`, and
+  `doctor`.
+
 ## 0.2.0 - 2026-06-17
 
 - Rebuilt Patchwork around a library-first programmable model with CLI commands

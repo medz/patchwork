@@ -87,12 +87,12 @@ void printGeneralHelp(io.IOSink out) {
   out.writeln('Usage: patchwork <command> [arguments]');
   out.writeln('');
   out.writeln('Commands:');
-  out.writeln('  patch <pkg> [--continue [version]] [--force]');
-  out.writeln('  commit [pkg]');
-  out.writeln('  apply [pkg]');
-  out.writeln('  undo <pkg>');
-  out.writeln('  status');
-  out.writeln('  doctor');
+  out.writeln('  patch <pkg> [--continue [version]] [--force] [--json]');
+  out.writeln('  commit [pkg] [--json]');
+  out.writeln('  apply [pkg] [--json]');
+  out.writeln('  undo <pkg> [--json]');
+  out.writeln('  status [--json]');
+  out.writeln('  doctor [--json]');
 }
 
 /// Writes usage help for a single [command].
@@ -100,18 +100,18 @@ void printCommandHelp(String command, io.IOSink out) {
   switch (command) {
     case 'patch':
       out.writeln(
-        'Usage: patchwork patch <pkg> [--continue [version]] [--force]',
+        'Usage: patchwork patch <pkg> [--continue [version]] [--force] [--json]',
       );
     case 'commit':
-      out.writeln('Usage: patchwork commit [pkg]');
+      out.writeln('Usage: patchwork commit [pkg] [--json]');
     case 'apply':
-      out.writeln('Usage: patchwork apply [pkg]');
+      out.writeln('Usage: patchwork apply [pkg] [--json]');
     case 'undo':
-      out.writeln('Usage: patchwork undo <pkg>');
+      out.writeln('Usage: patchwork undo <pkg> [--json]');
     case 'status':
-      out.writeln('Usage: patchwork status');
+      out.writeln('Usage: patchwork status [--json]');
     case 'doctor':
-      out.writeln('Usage: patchwork doctor');
+      out.writeln('Usage: patchwork doctor [--json]');
     default:
       throw PatchworkException(
         'Unknown command "$command".',

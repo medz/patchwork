@@ -1274,6 +1274,45 @@ String otherName() {
   );
 
   test(
+    'apply-all skips patch files for packages no longer selected',
+    () async {
+      final project = await ProjectSandbox.standalone(
+        includeOtherDependency: true,
+      );
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from selected apply');
+      await project.patchwork(['commit', 'greeter']);
+      await _commitOtherPackagePatch(project);
+
+      project.replaceAppPubspecText(
+        '  other_pkg:\n    path: ../packages/other_pkg\n',
+        '',
+      );
+      await project.pubGet();
+
+      await project.patchwork([
+        'apply',
+      ], stdoutContains: 'Applied patches/greeter@0.1.0.patch');
+      expect(project.appliedDirectory.existsSync(), isTrue);
+      expect(
+        Directory(
+          p.join(
+            project.stateRoot,
+            '.dart_tool',
+            'patchwork',
+            'other_pkg@0.1.0',
+          ),
+        ).existsSync(),
+        isFalse,
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'doctor reports stale applied patches while apply-all waits for source resolution',
     () async {
       final project = await ProjectSandbox.standalone();
@@ -1302,6 +1341,24 @@ String otherName() {
       await project.patchwork([
         'apply',
       ], stdoutContains: 'No patches need apply.');
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'patch continue rejects unsafe version segments',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+
+      await project.patchwork(
+        ['patch', 'greeter', '--continue=../greeter@0.1.0'],
+        exitCodes: {1},
+        stderrContains: 'not a safe path segment',
+      );
+      expect(project.editDirectoryFor('0.1.0').existsSync(), isFalse);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

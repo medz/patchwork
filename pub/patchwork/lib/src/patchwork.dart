@@ -149,6 +149,9 @@ final class Patchwork {
     String? continuedFromPatchContent;
     if (fromPatch != null) {
       final patchVersion = fromPatch.version ?? resolved.version;
+      if (fromPatch.version != null) {
+        _checkSafePatchVersionSegment(patchVersion);
+      }
       final patchPath = _layout.patchPath(package, patchVersion);
       final patch = File(patchPath);
       if (!patch.existsSync()) {
@@ -297,10 +300,18 @@ final class Patchwork {
     final packages = <String>[];
     for (final patch in patches) {
       final package = patch.package;
-      final resolved = resolution.resolvePackage(
-        package,
-        requireDirectDependency: false,
-      );
+      late final ResolvedPubPackage resolved;
+      try {
+        resolved = resolution.resolvePackage(
+          package,
+          requireDirectDependency: false,
+        );
+      } on PatchworkException catch (error) {
+        if (error.code == 'pub.package_not_found') {
+          continue;
+        }
+        rethrow;
+      }
       if (resolved.version != patch.version) {
         continue;
       }
@@ -1433,6 +1444,19 @@ void _checkPlainPackageName(String package) {
       code: 'usage.invalid_package',
       hint:
           'Use patchwork patch foo, not pub:foo, foo@1.2.3, path:foo, or a filesystem path.',
+    );
+  }
+}
+
+void _checkSafePatchVersionSegment(String version) {
+  if (version.isEmpty ||
+      version == '.' ||
+      version == '..' ||
+      version.contains('/') ||
+      version.contains(r'\')) {
+    throw PatchworkException(
+      'Patch version "$version" is not a safe path segment.',
+      code: 'patch.continue_version_invalid',
     );
   }
 }

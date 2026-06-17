@@ -891,6 +891,80 @@ String packageName() {
   );
 
   test(
+    'apply does not mirror through user-owned dart tool overrides',
+    () async {
+      final project = await ProjectSandbox.standalone(
+        includeOtherDependency: true,
+      );
+      addTearDown(project.dispose);
+      final userPackageRoot = p.join(
+        project.stateRoot,
+        '.dart_tool',
+        'patchwork',
+        'manual_pkg@0.1.0',
+      );
+      _writeSimplePackage(userPackageRoot, 'manual_pkg');
+
+      _writePubspecDependencyOverride(
+        project,
+        packageRoot: project.stateRoot,
+        package: 'other_pkg',
+      );
+      project.overrideFile.writeAsStringSync('''
+dependency_overrides:
+  manual_pkg:
+    path: .dart_tool/patchwork/manual_pkg@0.1.0
+''');
+      await project.pubGet();
+      project.expectPackageResolvedTo('other_pkg', project.otherRoot!);
+
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello with a user-owned dart tool override');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      await project.pubGet();
+
+      project.expectPackageResolvedTo('other_pkg', project.otherRoot!);
+      final overrides = project.overrideFile.readAsStringSync();
+      expect(overrides, contains('manual_pkg:'));
+      expect(overrides, contains('greeter:'));
+      expect(overrides, isNot(contains('other_pkg:')));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'undo preserves empty pubspec_overrides shadowing state',
+    () async {
+      final project = await ProjectSandbox.standalone(
+        includeOtherDependency: true,
+      );
+      addTearDown(project.dispose);
+
+      _writePubspecDependencyOverride(
+        project,
+        packageRoot: project.stateRoot,
+        package: 'other_pkg',
+      );
+      project.overrideFile.writeAsStringSync('dependency_overrides: {}\n');
+      await project.pubGet();
+      project.expectPackageResolvedTo('other_pkg', project.otherRoot!);
+
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello with an empty shadow before undo');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      project.overrideFile.writeAsStringSync('dependency_overrides: {}\n');
+      await project.patchwork(['undo', 'greeter']);
+      await project.pubGet();
+
+      expect(project.overrideFile.readAsStringSync(), contains('{}'));
+      project.expectPackageResolvedTo('other_pkg', project.otherRoot!);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'undo preserves active pubspec_overrides entries matching pubspec',
     () async {
       final project = await ProjectSandbox.standalone(

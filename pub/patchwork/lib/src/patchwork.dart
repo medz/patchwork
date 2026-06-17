@@ -457,6 +457,7 @@ final class Patchwork {
           workspaceRootPath: _rootPath,
           package: package,
           path: appliedRecordPath,
+          ownedDependencyOverrides: _ownedPubspecDependencyOverrides(lock),
           pubspecDependencyOverrides: _rootPubspecDependencyOverrides(package),
           mirroredPubspecDependencyOverrides:
               previousMirroredPubspecDependencyOverrides,
@@ -510,6 +511,7 @@ final class Patchwork {
           workspaceRootPath: _rootPath,
           package: package,
           path: applied.path,
+          ownedDependencyOverrides: _ownedPubspecDependencyOverrides(lock),
           pubspecDependencyOverrides: _rootPubspecDependencyOverrides(),
           mirroredPubspecDependencyOverrides:
               mirroredPubspecDependencyOverrides,
@@ -950,6 +952,19 @@ final class Patchwork {
       // Applied records are synchronized after each apply. If older records
       // disagree, later lockfile entries win before the aggregate is written back.
       dependencyOverrides.addAll(applied.mirroredPubspecDependencyOverrides);
+    }
+    return dependencyOverrides;
+  }
+
+  Map<String, Object?> _ownedPubspecDependencyOverrides(Lockfile lock) {
+    final dependencyOverrides = <String, Object?>{};
+    for (final entry in lock.packages.entries) {
+      final applied = entry.value.applied;
+      if (applied == null) {
+        continue;
+      }
+      dependencyOverrides.addAll(applied.mirroredPubspecDependencyOverrides);
+      dependencyOverrides[entry.key] = {'path': applied.path};
     }
     return dependencyOverrides;
   }

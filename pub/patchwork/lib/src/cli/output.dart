@@ -32,7 +32,7 @@ void printStatus(Patchwork patchwork, PatchworkState state, io.IOSink out) {
     if (package.hasPatch) {
       out.writeln('  patch: ${relativePath(patchwork, package.patchPath)}');
     }
-    if (package.isApplied && package.appliedPath != null) {
+    if (package.appliedPath != null) {
       out.writeln(
         '  applied: ${relativePath(patchwork, package.appliedPath!)}',
       );

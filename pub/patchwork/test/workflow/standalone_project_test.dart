@@ -29,6 +29,11 @@ void main() {
         exitCodes: {1},
         stdoutContains: 'pub resolution has not activated',
       );
+      await project.patchwork(
+        ['doctor'],
+        exitCodes: {1},
+        stdoutContains: 'applied: .dart_tool/patchwork/greeter@0.1.0',
+      );
 
       await project.pubGet();
       await project.patchwork([

@@ -197,12 +197,10 @@ final class ProjectSandbox {
     String? stdoutContains,
     String? stderrContains,
   }) async {
-    final result = await _run(
-      'dart',
-      ['run', 'patchwork', ...arguments],
-      cwd: workingDirectory ?? commandRoot,
+    final result = await patchworkResult(
+      arguments,
+      workingDirectory: workingDirectory,
       exitCodes: exitCodes,
-      environment: environment,
     );
     if (stdoutContains != null) {
       expect(
@@ -218,6 +216,20 @@ final class ProjectSandbox {
         reason: 'stdout:\n${result.stdout}',
       );
     }
+  }
+
+  Future<CommandResult> patchworkResult(
+    List<String> arguments, {
+    String? workingDirectory,
+    Set<int> exitCodes = const {0},
+  }) async {
+    return _run(
+      'dart',
+      ['run', 'patchwork', ...arguments],
+      cwd: workingDirectory ?? commandRoot,
+      exitCodes: exitCodes,
+      environment: environment,
+    );
   }
 
   Future<void> runApp(String expectedOutput) async {
@@ -582,7 +594,7 @@ String memberGreeting(String name) {
 ''');
 }
 
-Future<_RunResult> _run(
+Future<CommandResult> _run(
   String executable,
   List<String> arguments, {
   required String cwd,
@@ -606,7 +618,8 @@ Future<_RunResult> _run(
       ].join('\n'),
     );
   }
-  return _RunResult(
+  return CommandResult(
+    exitCode: result.exitCode,
     stdout: result.stdout.toString(),
     stderr: result.stderr.toString(),
   );
@@ -619,9 +632,14 @@ const _gitEnvironment = {
   'GIT_COMMITTER_EMAIL': 'patchwork@example.invalid',
 };
 
-final class _RunResult {
-  const _RunResult({required this.stdout, required this.stderr});
+final class CommandResult {
+  const CommandResult({
+    required this.exitCode,
+    required this.stdout,
+    required this.stderr,
+  });
 
+  final int exitCode;
   final String stdout;
   final String stderr;
 }

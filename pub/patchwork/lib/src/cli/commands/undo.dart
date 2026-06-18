@@ -2,6 +2,7 @@ import 'dart:io' as io;
 
 import '../../patchwork.dart';
 import '../arguments.dart';
+import '../output.dart';
 
 /// Runs `patchwork undo`.
 ///
@@ -13,8 +14,14 @@ Future<int> runUndoCommand(
   List<String> arguments,
   io.IOSink out,
 ) async {
-  final package = singlePackage('undo', arguments, required: true)!;
+  final parsed = parseCommandArguments('undo', arguments);
+  final package = singlePackage('undo', parsed.rest, required: true)!;
   final result = await patchwork.undo(package);
+  if (parsed.json) {
+    printUndoJson(patchwork, result, out);
+    return 0;
+  }
+
   if (!result.changed) {
     out.writeln('No applied patch for $package.');
     return 0;

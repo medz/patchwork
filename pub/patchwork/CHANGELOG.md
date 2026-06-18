@@ -1,9 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 - 2026-06-18
 
 - Added `--json` output for `patch`, `commit`, `apply`, `undo`, `status`, and
   `doctor`.
+- Rejected same-package `dependency_overrides` from project `pubspec.yaml`
+  files before `patch` or `apply` mutates Patchwork state.
+- Derived historical patch inventory from durable `patches/*.patch` files while
+  keeping current patch ownership in `patchwork.lock`.
 
 ## 0.2.0 - 2026-06-17
 

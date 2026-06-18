@@ -204,17 +204,6 @@ rules. Patchwork and usage failures use an `error` object with a stable `code`.
 Path fields use the same values the command would show in human output, such as
 `.patchwork/collection@1.19.1` and `patches/collection@1.19.1.patch`.
 
-## Current Limits
-
-Patchwork 0.2 focuses on pub packages selected by the current pub resolution.
-It supports hosted, custom hosted, path, and git dependencies as patch sources.
-It does not support:
-
-- `sdk:` targets such as `sdk:flutter`
-- target syntax other than a plain package name
-- hooks or automatic `dart pub get`
-- `patchwork run`
-
 ## Migrating From Cache Patches
 
 If you currently use a cache patch tool or manual `.pub-cache` edits, restore a

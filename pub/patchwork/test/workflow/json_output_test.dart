@@ -132,6 +132,20 @@ void main() {
       );
       expect(_objects(statusJson['problems']).single['package'], 'greeter');
 
+      final applyResult = await project.patchworkResult(
+        ['apply', 'greeter', '--json'],
+        exitCodes: {1},
+      );
+      expect(applyResult.stderr, isEmpty);
+      expect(applyResult.stdout, isNot(contains('error:')));
+      final errorJson = _object(_decodeObject(applyResult.stdout)['error']);
+      expect(errorJson['code'], 'pub.override_conflict');
+      expect(
+        errorJson['message'],
+        contains('already has a dependency override'),
+      );
+      expect(errorJson['hint'], contains('patchwork apply greeter'));
+
       final doctorResult = await project.patchworkResult(
         ['doctor', '--json'],
         exitCodes: {1},

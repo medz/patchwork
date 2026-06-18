@@ -19,6 +19,18 @@ void printError(io.IOSink err, PatchworkException error) {
   }
 }
 
+/// Writes a [PatchworkException] as a single JSON document.
+void printErrorJson(io.IOSink out, PatchworkException error) {
+  _printJson(out, {
+    'error': {
+      'code': error.code,
+      'message': error.message,
+      'hint': error.hint,
+      'location': error.location,
+    },
+  });
+}
+
 /// Writes project patch state in the human-readable CLI format.
 ///
 /// Paths are rendered relative to the Patchwork state root when possible so the

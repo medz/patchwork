@@ -199,10 +199,10 @@ Use `--json` when a script, editor, or agent needs stable command output:
 dart run patchwork status --json
 ```
 
-JSON mode prints a single JSON object on stdout and keeps the same exit-code
-rules as the normal command. Path fields use the same values the command would
-show in human output, such as `.patchwork/collection@1.19.1` and
-`patches/collection@1.19.1.patch`.
+JSON mode prints one JSON object on stdout and keeps the normal exit-code
+rules. Patchwork and usage failures use an `error` object with a stable `code`.
+Path fields use the same values the command would show in human output, such as
+`.patchwork/collection@1.19.1` and `patches/collection@1.19.1.patch`.
 
 ## Current Limits
 

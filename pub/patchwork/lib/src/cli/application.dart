@@ -35,6 +35,7 @@ final class Application {
   Future<int> run(List<String> arguments) async {
     final out = stdout ?? io.stdout;
     final err = stderr ?? io.stderr;
+    var renderJsonError = false;
 
     try {
       if (arguments.isEmpty || isHelp(arguments.first)) {
@@ -44,6 +45,7 @@ final class Application {
 
       final command = arguments.first;
       final rest = arguments.skip(1).toList(growable: false);
+      renderJsonError = rest.contains('--json');
       if (isHelpOnly(rest)) {
         printCommandHelp(command, out);
         return 0;
@@ -68,7 +70,11 @@ final class Application {
         _ => throw StateError('unreachable command: $command'),
       };
     } on PatchworkException catch (error) {
-      printError(err, error);
+      if (renderJsonError) {
+        printErrorJson(out, error);
+      } else {
+        printError(err, error);
+      }
       return error.code.startsWith('usage.') ? 64 : 1;
     }
   }

@@ -38,6 +38,7 @@ void main() {
     expect(generalHelp.stdout, contains('status [--json]'));
     expect(generalHelp.stdout, contains('doctor [--json]'));
     expect(generalHelp.stdout, contains('patch <pkg>'));
+    expect(generalHelp.stdout, contains('overlay <pkg>'));
     expect(generalHelp.stdout, contains('[--json]'));
 
     final statusHelp = await _runApplication(root, ['status', '--help']);

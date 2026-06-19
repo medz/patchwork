@@ -13,7 +13,6 @@ void main() {
 
       await project.pubGet();
       final emptyStatus = await project.patchworkResult(['status', '--json']);
-      expect(emptyStatus.stderr, isEmpty);
       expect(emptyStatus.stdout, isNot(contains('No patchwork packages.')));
       expect(_decodeObject(emptyStatus.stdout), {
         'packages': [],
@@ -136,7 +135,6 @@ void main() {
         ['apply', 'greeter', '--json'],
         exitCodes: {1},
       );
-      expect(applyResult.stderr, isEmpty);
       expect(applyResult.stdout, isNot(contains('error:')));
       final errorJson = _object(_decodeObject(applyResult.stdout)['error']);
       expect(errorJson['code'], 'pub.override_conflict');

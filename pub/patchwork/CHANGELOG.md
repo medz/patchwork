@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added package-provided overlays through `patchwork.yaml`, the
+  `patchwork overlay <pkg>` command, and Patchwork's built-in `hook/build.dart`
+  for composing matching dependency patch contributions in downstream apps.
 - Added opt-in Dart build hook helpers through `package:patchwork/hooks.dart`
   for automatically applying committed patches from user-owned `hook/build.dart`
   files.

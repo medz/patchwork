@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0 - 2026-06-20
 
 - Added package-provided overlays through `patchwork.yaml`, the
   `patchwork overlay <pkg>` command, and Patchwork's built-in `hook/build.dart`

@@ -283,10 +283,7 @@ final class Patchwork {
     final resolved = resolution.resolvePackage(package);
     final lock = _lockStore.read();
     final record = lock.packages[package];
-    final lockPatch = record?.version == resolved.version
-        ? record?.patch
-        : null;
-    if (record == null || lockPatch == null) {
+    if (record == null) {
       throw PatchworkException(
         'No committed patch exists for "$package".',
         code: 'overlay.patch_missing',
@@ -295,6 +292,15 @@ final class Patchwork {
       );
     }
     _ensureResolutionMatchesLock(package, resolved, record);
+    final lockPatch = record.patch;
+    if (lockPatch == null) {
+      throw PatchworkException(
+        'No committed patch exists for "$package".',
+        code: 'overlay.patch_missing',
+        hint: 'Run patchwork commit $package first.',
+        location: _layout.patchPath(package, resolved.version),
+      );
+    }
 
     final patchPath = _layout.patchPath(package, resolved.version);
     final patchFile = File(patchPath);
@@ -306,7 +312,8 @@ final class Patchwork {
         location: patchPath,
       );
     }
-    if (_sha256(patchFile.readAsBytesSync()) != lockPatch.commitSha256) {
+    final patchBytes = patchFile.readAsBytesSync();
+    if (_sha256(patchBytes) != lockPatch.commitSha256) {
       throw PatchworkException(
         'Patch file sha256 does not match patchwork.lock.',
         code: 'overlay.patch_sha_mismatch',
@@ -315,13 +322,17 @@ final class Patchwork {
     }
 
     final manifestPath = p.join(_currentPackageRootPath, 'patchwork.yaml');
+    final overlayPatchPath = _publishableOverlayPatchPath(
+      package: package,
+      version: resolved.version,
+      patchPath: patchPath,
+      patchBytes: patchBytes,
+    );
     final patchManifestPath = _currentPackageRelativePath(
-      patchPath,
+      overlayPatchPath,
       code: 'overlay.patch_outside_package',
       message:
           'Overlay patch files must live inside the current package before they can be published.',
-      hint:
-          'Run patchwork overlay from the package that owns patches/$package@${resolved.version}.patch.',
     );
     final store = OverlayManifestStore(path: manifestPath);
     final nextManifest = store.read().upsert(
@@ -752,6 +763,26 @@ final class Patchwork {
     return p.posix.joinAll(
       p.split(p.relative(absolutePath, from: currentRoot)),
     );
+  }
+
+  String _publishableOverlayPatchPath({
+    required String package,
+    required String version,
+    required String patchPath,
+    required List<int> patchBytes,
+  }) {
+    final absolutePath = p.normalize(p.absolute(patchPath));
+    final currentRoot = p.normalize(p.absolute(_currentPackageRootPath));
+    if (p.equals(absolutePath, currentRoot) ||
+        p.isWithin(currentRoot, absolutePath)) {
+      return patchPath;
+    }
+
+    final packagePatchPath = PathLayout(
+      _currentPackageRootPath,
+    ).patchPath(package, version);
+    writeBytesFileAtomically(packagePatchPath, patchBytes);
+    return packagePatchPath;
   }
 
   List<int> _readCommittedPatchBytes(

@@ -8,6 +8,7 @@ import 'package:test/test.dart';
 final class OverlayProjectSandbox {
   OverlayProjectSandbox._({
     required this.root,
+    required this.stateRoot,
     required this.appRoot,
     required this.greeterRoot,
     required this.providerBRoot,
@@ -16,6 +17,7 @@ final class OverlayProjectSandbox {
   });
 
   final Directory root;
+  final String stateRoot;
   final String appRoot;
   final String greeterRoot;
   final String providerBRoot;
@@ -24,7 +26,7 @@ final class OverlayProjectSandbox {
 
   Directory get appliedGreeterDirectory {
     return Directory(
-      p.join(appRoot, '.dart_tool', 'patchwork', 'greeter@0.1.0'),
+      p.join(stateRoot, '.dart_tool', 'patchwork', 'greeter@0.1.0'),
     );
   }
 
@@ -32,6 +34,7 @@ final class OverlayProjectSandbox {
     bool appDependsOnProviderC = false,
     bool appDependsOnGreeter = false,
     bool appDependsOnPatchwork = false,
+    bool appIsWorkspaceMember = false,
   }) async {
     final root = Directory.systemTemp.createTempSync('patchwork_overlay_');
     final patchworkRoot = await _patchworkPackageRoot();
@@ -39,7 +42,10 @@ final class OverlayProjectSandbox {
     final greeterRoot = p.join(root.path, 'packages', 'greeter');
     final providerBRoot = p.join(root.path, 'packages', 'provider_b');
     final providerCRoot = p.join(root.path, 'packages', 'provider_c');
-    final appRoot = p.join(root.path, 'app');
+    final stateRoot = appIsWorkspaceMember
+        ? p.join(root.path, 'workspace')
+        : p.join(root.path, 'app');
+    final appRoot = appIsWorkspaceMember ? p.join(stateRoot, 'app') : stateRoot;
 
     _writeGreeterPackage(greeterRoot);
     _writeProviderPackage(
@@ -54,16 +60,77 @@ final class OverlayProjectSandbox {
       greeterPath: '../greeter',
       patchworkPath: patchworkRoot,
     );
+    if (appIsWorkspaceMember) {
+      _writeWorkspaceRoot(stateRoot);
+    }
     _writeApp(
       appRoot,
-      providerBPath: '../packages/provider_b',
-      providerCPath: appDependsOnProviderC ? '../packages/provider_c' : null,
-      greeterPath: appDependsOnGreeter ? '../packages/greeter' : null,
+      providerBPath: appIsWorkspaceMember
+          ? '../../packages/provider_b'
+          : '../packages/provider_b',
+      providerCPath: appDependsOnProviderC
+          ? appIsWorkspaceMember
+                ? '../../packages/provider_c'
+                : '../packages/provider_c'
+          : null,
+      greeterPath: appDependsOnGreeter
+          ? appIsWorkspaceMember
+                ? '../../packages/greeter'
+                : '../packages/greeter'
+          : null,
       patchworkPath: appDependsOnPatchwork ? patchworkRoot : null,
+      workspaceMember: appIsWorkspaceMember,
     );
 
     return OverlayProjectSandbox._(
       root: root,
+      stateRoot: stateRoot,
+      appRoot: appRoot,
+      greeterRoot: greeterRoot,
+      providerBRoot: providerBRoot,
+      providerCRoot: providerCRoot,
+      environment: _pubEnvironment(pubCachePath),
+    );
+  }
+
+  static Future<OverlayProjectSandbox> providerWorkspace() async {
+    final root = Directory.systemTemp.createTempSync(
+      'patchwork_overlay_workspace_provider_',
+    );
+    final patchworkRoot = await _patchworkPackageRoot();
+    final pubCachePath = _resolvedPubCachePath(patchworkRoot);
+    final stateRoot = p.join(root.path, 'workspace');
+    final appRoot = p.join(root.path, 'app');
+    final greeterRoot = p.join(root.path, 'packages', 'greeter');
+    final providerBRoot = p.join(stateRoot, 'packages', 'provider_b');
+    final providerCRoot = p.join(root.path, 'packages', 'provider_c');
+
+    _writeGreeterPackage(greeterRoot);
+    _writeProviderWorkspaceRoot(stateRoot);
+    _writeProviderPackage(
+      providerBRoot,
+      name: 'provider_b',
+      greeterPath: '../../../packages/greeter',
+      patchworkPath: patchworkRoot,
+      workspaceMember: true,
+    );
+    _writeProviderPackage(
+      providerCRoot,
+      name: 'provider_c',
+      greeterPath: '../greeter',
+      patchworkPath: patchworkRoot,
+    );
+    _writeApp(
+      appRoot,
+      providerBPath: '../workspace/packages/provider_b',
+      providerCPath: null,
+      greeterPath: null,
+      patchworkPath: null,
+    );
+
+    return OverlayProjectSandbox._(
+      root: root,
+      stateRoot: stateRoot,
       appRoot: appRoot,
       greeterRoot: greeterRoot,
       providerBRoot: providerBRoot,
@@ -131,7 +198,12 @@ final class OverlayProjectSandbox {
 
   void writePrefixEdit(String providerRoot, String prefix) {
     _writeGreeterLibrary(
-      p.join(providerRoot, '.patchwork', 'greeter@0.1.0', 'lib'),
+      p.join(
+        _editStateRoot(providerRoot),
+        '.patchwork',
+        'greeter@0.1.0',
+        'lib',
+      ),
       prefix: prefix,
       punctuation: '!',
     );
@@ -139,10 +211,31 @@ final class OverlayProjectSandbox {
 
   void writePunctuationEdit(String providerRoot, String punctuation) {
     _writeGreeterLibrary(
-      p.join(providerRoot, '.patchwork', 'greeter@0.1.0', 'lib'),
+      p.join(
+        _editStateRoot(providerRoot),
+        '.patchwork',
+        'greeter@0.1.0',
+        'lib',
+      ),
       prefix: 'Hello',
       punctuation: punctuation,
     );
+  }
+
+  String _editStateRoot(String providerRoot) {
+    final providerEdit = Directory(
+      p.join(providerRoot, '.patchwork', 'greeter@0.1.0'),
+    );
+    if (providerEdit.existsSync()) {
+      return providerRoot;
+    }
+    final workspaceEdit = Directory(
+      p.join(stateRoot, '.patchwork', 'greeter@0.1.0'),
+    );
+    if (workspaceEdit.existsSync()) {
+      return stateRoot;
+    }
+    return providerRoot;
   }
 
   Future<void> registerPrefixOverlay(
@@ -171,7 +264,7 @@ final class OverlayProjectSandbox {
 
   void expectGreeterResolvedToAppliedOutput() {
     final packageConfig = File(
-      p.join(appRoot, '.dart_tool', 'package_config.json'),
+      p.join(stateRoot, '.dart_tool', 'package_config.json'),
     );
     final decoded = jsonDecode(packageConfig.readAsStringSync());
     if (decoded is! Map<String, Object?>) {
@@ -184,6 +277,38 @@ final class OverlayProjectSandbox {
 
     final baseUri = Directory(p.dirname(packageConfig.path)).uri;
     final expected = p.normalize(p.absolute(appliedGreeterDirectory.path));
+    for (final entry in packages) {
+      if (entry is! Map<String, Object?> || entry['name'] != 'greeter') {
+        continue;
+      }
+      final rootUri = entry['rootUri'];
+      if (rootUri is! String) {
+        fail('greeter rootUri is missing.');
+      }
+      final resolved = p.normalize(
+        baseUri.resolveUri(Uri.parse(rootUri)).toFilePath(),
+      );
+      expect(resolved, expected);
+      return;
+    }
+    fail('package_config.json does not contain greeter.');
+  }
+
+  void expectGreeterResolvedToSource() {
+    final packageConfig = File(
+      p.join(stateRoot, '.dart_tool', 'package_config.json'),
+    );
+    final decoded = jsonDecode(packageConfig.readAsStringSync());
+    if (decoded is! Map<String, Object?>) {
+      fail('package_config.json is malformed.');
+    }
+    final packages = decoded['packages'];
+    if (packages is! List<Object?>) {
+      fail('package_config.json does not contain packages.');
+    }
+
+    final baseUri = Directory(p.dirname(packageConfig.path)).uri;
+    final expected = p.normalize(p.absolute(greeterRoot));
     for (final entry in packages) {
       if (entry is! Map<String, Object?> || entry['name'] != 'greeter') {
         continue;
@@ -237,11 +362,11 @@ String greeting(String name) {
 }
 
 String prefix() {
-  return '$prefix';
+  return ${jsonEncode(prefix)};
 }
 
 String punctuation() {
-  return '$punctuation';
+  return ${jsonEncode(punctuation)};
 }
 ''');
 }
@@ -251,6 +376,7 @@ void _writeProviderPackage(
   required String name,
   required String greeterPath,
   required String patchworkPath,
+  bool workspaceMember = false,
 }) {
   Directory(p.join(root, 'lib')).createSync(recursive: true);
   File(p.join(root, 'pubspec.yaml')).writeAsStringSync('''
@@ -261,7 +387,7 @@ publish_to: none
 environment:
   sdk: ^3.12.0
 
-dependencies:
+${workspaceMember ? 'resolution: workspace\n' : ''}dependencies:
   greeter:
     path: $greeterPath
   patchwork:
@@ -282,6 +408,7 @@ void _writeApp(
   required String? providerCPath,
   required String? greeterPath,
   required String? patchworkPath,
+  bool workspaceMember = false,
 }) {
   Directory(p.join(root, 'bin')).createSync(recursive: true);
   File(p.join(root, 'pubspec.yaml')).writeAsStringSync('''
@@ -291,7 +418,7 @@ publish_to: none
 environment:
   sdk: ^3.12.0
 
-dependencies:
+${workspaceMember ? 'resolution: workspace\n' : ''}dependencies:
   provider_b:
     path: $providerBPath
 ${providerCPath == null ? '' : '  provider_c:\n    path: $providerCPath\n'}${greeterPath == null ? '' : '  greeter:\n    path: $greeterPath\n'}${patchworkPath == null ? '' : 'dev_dependencies:\n  patchwork:\n    path: $patchworkPath\n'}
@@ -302,6 +429,34 @@ import 'package:provider_b/provider_b.dart';
 void main() {
   print(providerGreeting('Patchwork'));
 }
+''');
+}
+
+void _writeWorkspaceRoot(String root) {
+  Directory(root).createSync(recursive: true);
+  File(p.join(root, 'pubspec.yaml')).writeAsStringSync('''
+name: patchwork_overlay_workspace
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+workspace:
+  - app
+''');
+}
+
+void _writeProviderWorkspaceRoot(String root) {
+  Directory(root).createSync(recursive: true);
+  File(p.join(root, 'pubspec.yaml')).writeAsStringSync('''
+name: patchwork_overlay_provider_workspace
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+workspace:
+  - packages/provider_b
 ''');
 }
 

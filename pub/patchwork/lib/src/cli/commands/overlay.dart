@@ -59,7 +59,15 @@ _OverlayArguments _parseOverlayArguments(List<String> arguments) {
       if (reason != null) {
         throw duplicateOption('--reason');
       }
-      reason = argument.substring('--reason='.length);
+      final value = argument.substring('--reason='.length);
+      if (value.isEmpty) {
+        throw PatchworkException(
+          'Option "--reason" expects a value.',
+          code: 'usage.missing_option_value',
+          hint: 'Run patchwork overlay --help.',
+        );
+      }
+      reason = value;
       index++;
       continue;
     }

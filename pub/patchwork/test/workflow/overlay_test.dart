@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 import 'overlay_project_sandbox.dart';
@@ -15,6 +18,11 @@ void main() {
       project.writeEdit('Hello from an app-local patch');
       await project.patchwork(['commit', 'greeter']);
 
+      await project.patchwork(
+        ['overlay', 'greeter', '--reason='],
+        exitCodes: {64},
+        stderrContains: 'expects a value',
+      );
       await project.patchwork(
         ['overlay', 'greeter'],
         exitCodes: {1},
@@ -54,6 +62,32 @@ void main() {
   );
 
   test(
+    'workspace provider overlays copy committed patches into the member package',
+    () async {
+      final project = await OverlayProjectSandbox.providerWorkspace();
+      addTearDown(project.dispose);
+
+      await project.pubGet(project.providerBRoot);
+      await project.patchwork(project.providerBRoot, ['patch', 'greeter']);
+      project.writePrefixEdit(project.providerBRoot, 'Hello from workspace');
+      await project.patchwork(project.providerBRoot, ['commit', 'greeter']);
+      await project.patchwork(project.providerBRoot, ['overlay', 'greeter']);
+
+      expect(
+        File(
+          p.join(project.providerBRoot, 'patches', 'greeter@0.1.0.patch'),
+        ).existsSync(),
+        isTrue,
+      );
+      expect(
+        project.manifestFor(project.providerBRoot).readAsStringSync(),
+        contains('patch: "patches/greeter@0.1.0.patch"'),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 4)),
+  );
+
+  test(
     'transitive provider overlay is applied for an app that only depends on the provider',
     () async {
       final project = await OverlayProjectSandbox.create();
@@ -76,10 +110,59 @@ void main() {
   );
 
   test(
+    'removing provider overlays restores the base package config',
+    () async {
+      final project = await OverlayProjectSandbox.create();
+      addTearDown(project.dispose);
+
+      await project.registerPrefixOverlay(
+        project.providerBRoot,
+        'Hello from provider B overlay',
+      );
+      await project.pubGet(project.appRoot);
+
+      final patched = await project.runApp();
+      expect(
+        patched.stdout,
+        contains('Hello from provider B overlay, Patchwork!'),
+      );
+      project.expectGreeterResolvedToAppliedOutput();
+
+      project
+          .manifestFor(project.providerBRoot)
+          .writeAsStringSync('overlays: []\n');
+      final restored = await project.runApp();
+      expect(restored.stdout, contains('Hello, Patchwork!'));
+      project.expectGreeterResolvedToSource();
+    },
+    timeout: const Timeout(Duration(minutes: 4)),
+  );
+
+  test(
     'multiple provider overlays compose into one generated package output',
     () async {
       final project = await OverlayProjectSandbox.create(
         appDependsOnProviderC: true,
+      );
+      addTearDown(project.dispose);
+
+      await project.registerPrefixOverlay(project.providerBRoot, 'Hi');
+      await project.registerPunctuationOverlay(project.providerCRoot, '?');
+      await project.pubGet(project.appRoot);
+
+      final result = await project.runApp();
+      expect(result.stdout, contains('Hi, Patchwork?'));
+      project.expectGreeterResolvedToAppliedOutput();
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
+
+  test(
+    'workspace member apps compose provider overlays into one generated output',
+    () async {
+      final project = await OverlayProjectSandbox.create(
+        appDependsOnProviderC: true,
+        appIsWorkspaceMember: true,
       );
       addTearDown(project.dispose);
 

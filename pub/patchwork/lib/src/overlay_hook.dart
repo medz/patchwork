@@ -45,6 +45,16 @@ Future<void> _applyPackageOverlays(BuildOutputBuilder output) async {
     output: output,
   );
   if (!manifests.any((manifest) => manifest.manifest.overlays.isNotEmpty)) {
+    if (currentPackageConfig.hasGeneratedPatchworkRoots(
+          layout.appliedRootPath,
+        ) &&
+        _hasBasePackageConfig(layout)) {
+      _restoreBasePackageConfig(
+        currentPackageConfig,
+        packageConfigPath: packageConfigPath,
+        layout: layout,
+      );
+    }
     return;
   }
 
@@ -350,19 +360,11 @@ _PackageConfigFile _restoreBasePackageConfig(
   required String packageConfigPath,
   required PathLayout layout,
 }) {
-  final sidecarPath = p.join(
-    layout.appliedRootPath,
-    'package_config.base.json',
-  );
+  final sidecarPath = _basePackageConfigPath(layout);
   final sidecar = File(sidecarPath);
   if (currentPackageConfig.hasGeneratedPatchworkRoots(layout.appliedRootPath)) {
     if (!sidecar.existsSync()) {
-      throw PatchworkException(
-        'Patchwork overlay base package_config.json is missing.',
-        code: 'overlay.base_package_config_missing',
-        hint: 'Run dart pub get to refresh pub resolution, then run again.',
-        location: packageConfigPath,
-      );
+      return currentPackageConfig;
     }
     final content = sidecar.readAsStringSync();
     final base = _PackageConfigFile.fromContent(
@@ -378,6 +380,14 @@ _PackageConfigFile _restoreBasePackageConfig(
   return currentPackageConfig;
 }
 
+bool _hasBasePackageConfig(PathLayout layout) {
+  return File(_basePackageConfigPath(layout)).existsSync();
+}
+
+String _basePackageConfigPath(PathLayout layout) {
+  return p.join(layout.appliedRootPath, 'package_config.base.json');
+}
+
 void _declareBaseDependencies(
   BuildOutputBuilder output, {
   required String packageConfigPath,
@@ -390,7 +400,7 @@ void _declareBaseDependencies(
     p.join(rootPath, 'pubspec.lock'),
     p.join(rootPath, 'pubspec.yaml'),
     layout.lockfilePath,
-    p.join(layout.appliedRootPath, 'package_config.base.json'),
+    _basePackageConfigPath(layout),
   };
   output.dependencies.addAll(files.map((path) => File(path).absolute.uri));
 }

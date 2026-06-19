@@ -173,18 +173,18 @@ final class OverlayManifest {
       entries[existingIndex] = entry;
     } else {
       entries.add(entry);
-      entries.sort((left, right) {
-        final packageCompare = left.package.compareTo(right.package);
-        if (packageCompare != 0) {
-          return packageCompare;
-        }
-        final versionCompare = left.version.compareTo(right.version);
-        if (versionCompare != 0) {
-          return versionCompare;
-        }
-        return left.sha256.compareTo(right.sha256);
-      });
     }
+    entries.sort((left, right) {
+      final packageCompare = left.package.compareTo(right.package);
+      if (packageCompare != 0) {
+        return packageCompare;
+      }
+      final versionCompare = left.version.compareTo(right.version);
+      if (versionCompare != 0) {
+        return versionCompare;
+      }
+      return left.sha256.compareTo(right.sha256);
+    });
     return OverlayManifest(overlays: entries);
   }
 

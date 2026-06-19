@@ -35,24 +35,37 @@ final class OverlayProjectSandbox {
     bool appDependsOnGreeter = false,
     bool appDependsOnPatchwork = false,
     bool appIsWorkspaceMember = false,
+    bool providerBIsWorkspaceMember = false,
   }) async {
+    if (providerBIsWorkspaceMember && !appIsWorkspaceMember) {
+      throw ArgumentError.value(
+        providerBIsWorkspaceMember,
+        'providerBIsWorkspaceMember',
+        'Provider B can only be a workspace member when the app is one.',
+      );
+    }
     final root = Directory.systemTemp.createTempSync('patchwork_overlay_');
     final patchworkRoot = await _patchworkPackageRoot();
     final pubCachePath = _resolvedPubCachePath(patchworkRoot);
     final greeterRoot = p.join(root.path, 'packages', 'greeter');
-    final providerBRoot = p.join(root.path, 'packages', 'provider_b');
-    final providerCRoot = p.join(root.path, 'packages', 'provider_c');
     final stateRoot = appIsWorkspaceMember
         ? p.join(root.path, 'workspace')
         : p.join(root.path, 'app');
     final appRoot = appIsWorkspaceMember ? p.join(stateRoot, 'app') : stateRoot;
+    final providerBRoot = providerBIsWorkspaceMember
+        ? p.join(stateRoot, 'packages', 'provider_b')
+        : p.join(root.path, 'packages', 'provider_b');
+    final providerCRoot = p.join(root.path, 'packages', 'provider_c');
 
     _writeGreeterPackage(greeterRoot);
     _writeProviderPackage(
       providerBRoot,
       name: 'provider_b',
-      greeterPath: '../greeter',
+      greeterPath: providerBIsWorkspaceMember
+          ? '../../../packages/greeter'
+          : '../greeter',
       patchworkPath: patchworkRoot,
+      workspaceMember: providerBIsWorkspaceMember,
     );
     _writeProviderPackage(
       providerCRoot,
@@ -61,12 +74,17 @@ final class OverlayProjectSandbox {
       patchworkPath: patchworkRoot,
     );
     if (appIsWorkspaceMember) {
-      _writeWorkspaceRoot(stateRoot);
+      _writeWorkspaceRoot(
+        stateRoot,
+        includeProviderB: providerBIsWorkspaceMember,
+      );
     }
     _writeApp(
       appRoot,
       providerBPath: appIsWorkspaceMember
-          ? '../../packages/provider_b'
+          ? providerBIsWorkspaceMember
+                ? '../packages/provider_b'
+                : '../../packages/provider_b'
           : '../packages/provider_b',
       providerCPath: appDependsOnProviderC
           ? appIsWorkspaceMember
@@ -432,7 +450,7 @@ void main() {
 ''');
 }
 
-void _writeWorkspaceRoot(String root) {
+void _writeWorkspaceRoot(String root, {bool includeProviderB = false}) {
   Directory(root).createSync(recursive: true);
   File(p.join(root, 'pubspec.yaml')).writeAsStringSync('''
 name: patchwork_overlay_workspace
@@ -443,6 +461,7 @@ environment:
 
 workspace:
   - app
+${includeProviderB ? '  - packages/provider_b\n' : ''}
 ''');
 }
 

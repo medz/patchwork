@@ -99,15 +99,16 @@ List<_PackageManifest> _readOverlayManifests(
 }) {
   final manifests = <_PackageManifest>[];
   for (final package in packageConfig.packages) {
-    if (package.name == 'patchwork' || graph.roots.contains(package.name)) {
+    if (package.name == 'patchwork' ||
+        !graph.hasIncomingDependency(package.name)) {
       continue;
     }
     final manifestPath = p.join(package.rootPath, 'patchwork.yaml');
     final manifestFile = File(manifestPath);
+    output.dependencies.add(manifestFile.absolute.uri);
     if (!manifestFile.existsSync()) {
       continue;
     }
-    output.dependencies.add(manifestFile.absolute.uri);
     manifests.add(
       _PackageManifest(
         packageName: package.name,
@@ -264,10 +265,23 @@ void _appendRootPatches(
       );
     }
     output.dependencies.add(patchFile.absolute.uri);
+    if (_hasContributionPatchSha(group, patchSha256)) {
+      continue;
+    }
     group.contributions.add(
       _OverlayContribution(provider: '<root>', patchPath: patchPath),
     );
   }
+}
+
+bool _hasContributionPatchSha(_OverlayGroup group, String sha256) {
+  for (final contribution in group.contributions) {
+    final file = File(contribution.patchPath);
+    if (file.existsSync() && _sha256(file.readAsBytesSync()) == sha256) {
+      return true;
+    }
+  }
+  return false;
 }
 
 void _rejectOpenEdits(Iterable<_OverlayGroup> groups, PathLayout layout) {
@@ -594,6 +608,12 @@ final class _PackageGraph {
 
   final Set<String> roots;
   final Map<String, _GraphPackage> packages;
+
+  bool hasIncomingDependency(String packageName) {
+    return packages.values.any((package) {
+      return package.dependencies.contains(packageName);
+    });
+  }
 }
 
 final class _GraphPackage {

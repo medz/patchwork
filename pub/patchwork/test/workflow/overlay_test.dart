@@ -110,6 +110,32 @@ void main() {
   );
 
   test(
+    'new provider manifests are picked up without another app pub get',
+    () async {
+      final project = await OverlayProjectSandbox.create();
+      addTearDown(project.dispose);
+
+      await project.pubGet(project.appRoot);
+      final plain = await project.runApp();
+      expect(plain.stdout, contains('Hello, Patchwork!'));
+      project.expectGreeterResolvedToSource();
+
+      await project.registerPrefixOverlay(
+        project.providerBRoot,
+        'Hello after manifest creation',
+      );
+
+      final patched = await project.runApp();
+      expect(
+        patched.stdout,
+        contains('Hello after manifest creation, Patchwork!'),
+      );
+      project.expectGreeterResolvedToAppliedOutput();
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
+
+  test(
     'removing provider overlays restores the base package config',
     () async {
       final project = await OverlayProjectSandbox.create();
@@ -152,6 +178,31 @@ void main() {
 
       final result = await project.runApp();
       expect(result.stdout, contains('Hi, Patchwork?'));
+      project.expectGreeterResolvedToAppliedOutput();
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
+
+  test(
+    'workspace provider manifests are applied when the app depends on them',
+    () async {
+      final project = await OverlayProjectSandbox.create(
+        appIsWorkspaceMember: true,
+        providerBIsWorkspaceMember: true,
+      );
+      addTearDown(project.dispose);
+
+      await project.registerPrefixOverlay(
+        project.providerBRoot,
+        'Hello from workspace provider',
+      );
+      await project.pubGet(project.appRoot);
+
+      final result = await project.runApp();
+      expect(
+        result.stdout,
+        contains('Hello from workspace provider, Patchwork!'),
+      );
       project.expectGreeterResolvedToAppliedOutput();
     },
     timeout: const Timeout(Duration(minutes: 5)),

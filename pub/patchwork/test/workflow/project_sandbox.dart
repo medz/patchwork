@@ -242,6 +242,14 @@ final class ProjectSandbox {
     expect(result.stdout, contains(expectedOutput));
   }
 
+  Future<void> writeAutoApplyAllHook() async {
+    await _writeHookFixture('apply_all_build.dart');
+  }
+
+  Future<void> writeAutoApplyGreeterHook() async {
+    await _writeHookFixture('apply_greeter_build.dart');
+  }
+
   void expectPackageResolvedTo(String package, String rootPath) {
     final packageConfig = File(
       p.join(stateRoot, '.dart_tool', 'package_config.json'),
@@ -342,6 +350,16 @@ dependency_overrides:
     if (root.existsSync()) {
       root.deleteSync(recursive: true);
     }
+  }
+
+  Future<void> _writeHookFixture(String fixtureName) async {
+    final patchworkRoot = await _patchworkPackageRoot();
+    final source = File(
+      p.join(patchworkRoot, 'test', 'fixtures', 'hooks', fixtureName),
+    );
+    final hookDirectory = Directory(p.join(appRoot, 'hook'))
+      ..createSync(recursive: true);
+    source.copySync(p.join(hookDirectory.path, 'build.dart'));
   }
 }
 

@@ -74,6 +74,44 @@ dart run patchwork status
 After a successful apply, Patchwork prints the `dart pub get` next step so pub
 refreshes dependency resolution through the generated overrides.
 
+## Automatic Apply Hooks
+
+User projects can opt in to automatic apply with Dart build hooks. Add both
+Patchwork and the hooks API as dev dependencies:
+
+```sh
+dart pub add dev:patchwork dev:hooks
+```
+
+Then create `hook/build.dart` in the application or workspace member that owns
+the patch workflow:
+
+```dart
+import 'package:hooks/hooks.dart';
+import 'package:patchwork/hooks.dart' as patchwork;
+
+Future<void> main(List<String> args) async {
+  await build(args, (input, output) async {
+    await patchwork.applyAll(input, output);
+  });
+}
+```
+
+The first `dart run`, `dart test`, or build after a patch is committed applies
+the generated output and runs `dart pub get` when pub resolution needs to be
+refreshed. No-op hook runs do not call `dart pub get`.
+
+To apply only one package:
+
+```dart
+await patchwork.apply(input, output, package: 'collection');
+```
+
+Patchwork does not install a default hook and does not support dependency
+packages shipping patches that modify a downstream application automatically.
+Keep the hook in the user-owned project that commits `patchwork.lock` and
+`patches/*.patch`.
+
 ## Library API
 
 The CLI uses the same API that hooks or other Dart tooling can call:

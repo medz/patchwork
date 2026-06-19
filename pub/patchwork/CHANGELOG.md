@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added opt-in Dart build hook helpers through `package:patchwork/hooks.dart`
+  for automatically applying committed patches from user-owned `hook/build.dart`
+  files.
+
 ## 0.3.0 - 2026-06-18
 
 - Added `--json` output for `patch`, `commit`, `apply`, `undo`, `status`, and

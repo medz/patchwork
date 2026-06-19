@@ -6,6 +6,7 @@ import 'arguments.dart';
 import 'commands/apply.dart';
 import 'commands/commit.dart';
 import 'commands/doctor.dart';
+import 'commands/overlay.dart';
 import 'commands/patch.dart';
 import 'commands/status.dart';
 import 'commands/undo.dart';
@@ -63,6 +64,7 @@ final class Application {
       return switch (command) {
         'patch' => await runPatchCommand(patchwork, rest, out),
         'commit' => await runCommitCommand(patchwork, rest, out),
+        'overlay' => await runOverlayCommand(patchwork, rest, out),
         'apply' => await runApplyCommand(patchwork, rest, out),
         'undo' => await runUndoCommand(patchwork, rest, out),
         'status' => await runStatusCommand(patchwork, rest, out),
@@ -83,7 +85,13 @@ final class Application {
 /// Whether [command] is a command name handled by [Application].
 bool isKnownCommand(String command) {
   return switch (command) {
-    'patch' || 'commit' || 'apply' || 'undo' || 'status' || 'doctor' => true,
+    'patch' ||
+    'commit' ||
+    'overlay' ||
+    'apply' ||
+    'undo' ||
+    'status' ||
+    'doctor' => true,
     _ => false,
   };
 }
@@ -95,6 +103,7 @@ void printGeneralHelp(io.IOSink out) {
   out.writeln('Commands:');
   out.writeln('  patch <pkg> [--continue [version]] [--force] [--json]');
   out.writeln('  commit [pkg] [--json]');
+  out.writeln('  overlay <pkg> [--reason <text>] [--json]');
   out.writeln('  apply [pkg] [--json]');
   out.writeln('  undo <pkg> [--json]');
   out.writeln('  status [--json]');
@@ -110,6 +119,8 @@ void printCommandHelp(String command, io.IOSink out) {
       );
     case 'commit':
       out.writeln('Usage: patchwork commit [pkg] [--json]');
+    case 'overlay':
+      out.writeln('Usage: patchwork overlay <pkg> [--reason <text>] [--json]');
     case 'apply':
       out.writeln('Usage: patchwork apply [pkg] [--json]');
     case 'undo':

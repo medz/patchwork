@@ -107,10 +107,64 @@ To apply only one package:
 await patchwork.apply(input, output, package: 'collection');
 ```
 
-Patchwork does not install a default hook and does not support dependency
-packages shipping patches that modify a downstream application automatically.
-Keep the hook in the user-owned project that commits `patchwork.lock` and
-`patches/*.patch`.
+These helpers are for user-owned patches committed by the application or
+workspace. Dependency packages that publish their own patch contributions should
+use package-provided overlays instead.
+
+## Package-Provided Overlays
+
+Packages can also publish narrowly scoped patch contributions for their own
+dependencies. This is for package authors who know that their package needs a
+temporary fix in a dependency, while downstream applications should only depend
+on the package and run normally.
+
+The provider package must depend on Patchwork as a regular dependency, not a
+dev dependency, so Patchwork's build hook is present in downstream dependency
+graphs:
+
+```sh
+dart pub add patchwork
+```
+
+Create and commit the dependency patch from the provider package:
+
+```sh
+dart run patchwork patch collection
+# edit .patchwork/collection@<version>/
+dart run patchwork commit collection
+dart run patchwork overlay collection --reason "Fix parser crash used here."
+```
+
+`patchwork overlay` creates or updates `patchwork.yaml`:
+
+```yaml
+overlays:
+  -
+    package: "collection"
+    version: "1.19.1"
+    sha256: "<source-tree-sha>"
+    patch: "patches/collection@1.19.1.patch"
+    reason: "Fix parser crash used here."
+```
+
+Commit these provider-owned files:
+
+- `patchwork.yaml`
+- `patches/<pkg>@<version>.patch`
+- `patchwork.lock`
+
+When an application depends on the provider package, Patchwork's package hook
+scans dependency packages for `patchwork.yaml`, selects overlays matching the
+currently resolved package version and source `sha256`, and composes all
+matching patch contributions into one generated output at
+`.dart_tool/patchwork/<pkg>@<version>/`.
+
+If multiple dependency packages provide overlays for the same target package,
+Patchwork applies provider overlays in deterministic order by provider package
+name and patch path. If the root application also owns a committed patch for
+that same target, the root patch is applied last. Conflicting patches fail the
+build with a deterministic diagnostic; Patchwork reports the conflict instead
+of trying to merge it.
 
 ## Library API
 
@@ -221,6 +275,7 @@ workflow, so Patchwork only manages its own patch override entries.
 | --- | --- |
 | `patchwork patch <pkg> [--continue [version]] [--force] [--json]` | Create a source-based edit. |
 | `patchwork commit [pkg] [--json]` | Commit open edits into patch files. |
+| `patchwork overlay <pkg> [--reason <text>] [--json]` | Register a committed patch in `patchwork.yaml`. |
 | `patchwork apply [pkg] [--json]` | Apply committed patches. |
 | `patchwork undo <pkg> [--json]` | Remove one applied patch. |
 | `patchwork status [--json]` | Show patch and override state. |

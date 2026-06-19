@@ -153,6 +153,25 @@ void printUndoJson(Patchwork patchwork, UnappliedPatch result, io.IOSink out) {
   });
 }
 
+/// Writes a `patchwork overlay` result as a single JSON document.
+void printOverlayJson(
+  Patchwork patchwork,
+  RegisteredOverlay overlay,
+  io.IOSink out,
+) {
+  _printJson(out, {
+    'command': 'overlay',
+    'overlay': {
+      'package': overlay.package,
+      'version': overlay.version,
+      'sha256': overlay.sha256,
+      'patchPath': overlay.patchPath,
+      'manifestPath': patchwork.relativePath(overlay.manifestPath),
+      'reason': overlay.reason,
+    },
+  });
+}
+
 Map<String, Object?> _statusJson(Patchwork patchwork, PatchStatus package) {
   return {
     'package': package.package,

@@ -186,6 +186,41 @@ final class UnappliedPatch {
   final String? path;
 }
 
+/// A package-provided overlay registered in `patchwork.yaml`.
+///
+/// Overlay declarations let a package author publish a committed patch for one
+/// of their dependencies. Downstream Patchwork hooks can compose these
+/// declarations with other patch contributions for the same resolved package.
+final class RegisteredOverlay {
+  /// Creates an overlay registration result.
+  const RegisteredOverlay({
+    required this.package,
+    required this.version,
+    required this.sha256,
+    required this.patchPath,
+    required this.manifestPath,
+    this.reason,
+  });
+
+  /// The dependency package targeted by the overlay.
+  final String package;
+
+  /// The resolved dependency version this overlay matches.
+  final String version;
+
+  /// The resolved source tree hash this overlay matches.
+  final String sha256;
+
+  /// The patch file path recorded in `patchwork.yaml`.
+  final String patchPath;
+
+  /// The manifest path that was created or updated.
+  final String manifestPath;
+
+  /// Optional human-readable reason for the overlay.
+  final String? reason;
+}
+
 /// A machine-readable status or doctor problem.
 ///
 /// The [code] is stable enough for tests and tools to match. The [message] and

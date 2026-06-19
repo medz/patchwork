@@ -10,5 +10,6 @@ export 'src/model.dart'
         PatchWrite,
         PatchWriteStatus,
         PreparedEdit,
+        RegisteredOverlay,
         UnappliedPatch;
 export 'src/patchwork.dart' show Patchwork;

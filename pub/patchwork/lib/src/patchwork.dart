@@ -658,16 +658,11 @@ final class Patchwork {
           location: _layout.appliedPath(package, selectedVersion),
         );
       }
-      final userOverride = _userOwnedOverrideForAppliedOutput(marker);
-      if (userOverride != null) {
-        throw PatchworkException(
-          'Package "$package@$selectedVersion" is still referenced by ${userOverride.fileName}.',
-          code: 'remove.active_override',
-          hint:
-              'Remove the dependency override that points at ${marker.path} before running patchwork remove --force.',
-          location: userOverride.path,
-        );
-      }
+      _rejectUserOwnedOverrideForAppliedCleanup(
+        marker,
+        command: 'remove',
+        code: 'remove.active_override',
+      );
       _addAppliedCleanupChanges(changes, marker);
       appliedMarkers.add(marker);
     }
@@ -754,6 +749,13 @@ final class Patchwork {
             version: edit.version,
             path: edit.path,
           ),
+        );
+      }
+      if (marker != null && force) {
+        _rejectUserOwnedOverrideForAppliedCleanup(
+          marker,
+          command: 'prune',
+          code: 'prune.active_override',
         );
       }
       if (marker != null && (force || !activeAppliedReference)) {
@@ -1022,6 +1024,24 @@ final class Patchwork {
     }
 
     return null;
+  }
+
+  void _rejectUserOwnedOverrideForAppliedCleanup(
+    AppliedMarker marker, {
+    required String command,
+    required String code,
+  }) {
+    final userOverride = _userOwnedOverrideForAppliedOutput(marker);
+    if (userOverride == null) {
+      return;
+    }
+    throw PatchworkException(
+      'Package "${marker.package}@${marker.version}" is still referenced by ${userOverride.fileName}.',
+      code: code,
+      hint:
+          'Remove the dependency override that points at ${marker.path} before running patchwork $command --force.',
+      location: userOverride.path,
+    );
   }
 
   bool _overrideValuePointsToPath({

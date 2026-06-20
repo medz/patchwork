@@ -322,6 +322,55 @@ dependency_overrides:
   );
 
   test(
+    'prune force refuses stale applied output referenced by pubspec dependency override',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a forced prune guard');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      final patchFile = File(
+        p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
+      );
+      expect(patchFile.existsSync(), isTrue);
+      expect(project.appliedDirectory.existsSync(), isTrue);
+
+      project.overrideFile.deleteSync();
+      final pubspec = File(p.join(project.appRoot, 'pubspec.yaml'));
+      pubspec.writeAsStringSync('''
+${pubspec.readAsStringSync()}
+dependency_overrides:
+  greeter:
+    path: .dart_tool/patchwork/greeter@0.1.0
+''');
+      final appliedPubspec = File(
+        p.join(project.appliedDirectory.path, 'pubspec.yaml'),
+      );
+      appliedPubspec.writeAsStringSync(
+        appliedPubspec.readAsStringSync().replaceFirst(
+          'version: 0.1.0',
+          'version: 0.1.1',
+        ),
+      );
+      await project.pubGet();
+      project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
+
+      await project.patchwork(
+        ['prune', '--force'],
+        exitCodes: {1},
+        stderrContains: 'still referenced by pubspec.yaml',
+      );
+      expect(patchFile.existsSync(), isTrue);
+      expect(project.appliedDirectory.existsSync(), isTrue);
+      project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'prune removes stale patch files for packages that became workspace roots',
     () async {
       final project = await ProjectSandbox.workspace();

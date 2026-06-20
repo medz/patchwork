@@ -14,9 +14,6 @@ final class PathLayout {
   /// The directory where Patchwork state files are stored.
   final String rootPath;
 
-  /// The `patchwork.lock` path.
-  String get lockfilePath => p.join(rootPath, 'patchwork.lock');
-
   /// The root directory for editable package copies.
   String get editRootPath => p.join(rootPath, '.patchwork');
 
@@ -31,6 +28,21 @@ final class PathLayout {
     return p.join(editRootPath, packageVersionName(package, version));
   }
 
+  /// Returns `.patchwork/<package>@<version>/.patchwork`.
+  String editMetadataPath(String package, String version) {
+    return p.join(editPath(package, version), '.patchwork');
+  }
+
+  /// Returns `.patchwork/<package>@<version>/.patchwork/source`.
+  String editBaselinePath(String package, String version) {
+    return p.join(editMetadataPath(package, version), 'source');
+  }
+
+  /// Returns `.patchwork/<package>@<version>/.patchwork/edit.json`.
+  String editManifestPath(String package, String version) {
+    return p.join(editMetadataPath(package, version), 'edit.json');
+  }
+
   /// Returns `patches/<package>@<version>.patch`.
   String patchPath(String package, String version) {
     return p.join(
@@ -42,6 +54,11 @@ final class PathLayout {
   /// Returns `.dart_tool/patchwork/<package>@<version>`.
   String appliedPath(String package, String version) {
     return p.join(appliedRootPath, packageVersionName(package, version));
+  }
+
+  /// Returns `.dart_tool/patchwork/<package>@<version>/.patchwork/applied.json`.
+  String appliedMarkerPath(String package, String version) {
+    return p.join(appliedPath(package, version), '.patchwork', 'applied.json');
   }
 
   /// Returns the project-relative applied path stored in override state.
@@ -118,6 +135,43 @@ final class PathLayout {
       final parsed = parsePackageVersionName(
         basename.substring(0, basename.length - '.patch'.length),
       );
+      if (parsed == null ||
+          !_isPlainPackageName(parsed.package) ||
+          !_isSafePathSegment(parsed.version)) {
+        continue;
+      }
+      entries.add(
+        PackageVersionPath(
+          package: parsed.package,
+          version: parsed.version,
+          path: entity.path,
+        ),
+      );
+    }
+    entries.sort((left, right) {
+      final packageCompare = left.package.compareTo(right.package);
+      if (packageCompare != 0) {
+        return packageCompare;
+      }
+      return left.version.compareTo(right.version);
+    });
+    return entries;
+  }
+
+  /// Lists valid generated package directories under `.dart_tool/patchwork/`.
+  List<PackageVersionPath> appliedDirectories() {
+    final root = Directory(appliedRootPath);
+    if (!root.existsSync()) {
+      return const [];
+    }
+
+    final entries = <PackageVersionPath>[];
+    for (final entity in root.listSync(followLinks: false)) {
+      if (FileSystemEntity.typeSync(entity.path, followLinks: false) !=
+          FileSystemEntityType.directory) {
+        continue;
+      }
+      final parsed = parsePackageVersionName(p.basename(entity.path));
       if (parsed == null ||
           !_isPlainPackageName(parsed.package) ||
           !_isSafePathSegment(parsed.version)) {

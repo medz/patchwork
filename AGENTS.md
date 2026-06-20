@@ -38,4 +38,4 @@ Recent history follows conventional commits such as `feat:`, `fix:`, `docs:`, an
 
 ## Patchwork State & Configuration
 
-Patchwork commits durable patch state in consumer projects as `patchwork.lock` plus `patches/<pkg>@<version>.patch`. Editable work lives in `.patchwork/<pkg>@<version>/`. Generated apply output lives in `.dart_tool/patchwork/<pkg>@<version>/`, and `pubspec_overrides.yaml` should stay uncommitted. In this repository, example patch artifacts are ignored so the walkthrough can be rerun cleanly. The local design scratch file `docs/v0.2-programmable-model.zh.md` must remain ignored and untracked.
+Patchwork commits durable patch state in consumer projects as `patches/<pkg>@<version>.patch`. Editable work lives in `.patchwork/<pkg>@<version>/` with hidden session metadata under `.patchwork/<pkg>@<version>/.patchwork/`. Generated apply output lives in `.dart_tool/patchwork/<pkg>@<version>/`, and `pubspec_overrides.yaml` should stay uncommitted. In this repository, example patch artifacts are ignored so the walkthrough can be rerun cleanly. The local design scratch file `docs/v0.2-programmable-model.zh.md` must remain ignored and untracked.

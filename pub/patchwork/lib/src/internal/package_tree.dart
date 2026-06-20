@@ -174,7 +174,10 @@ bool _shouldInclude(String relativePath, FileSystemEntityType type) {
     return true;
   }
   final first = parts.first;
-  if (first == '.dart_tool' || first == 'build' || first == '.git') {
+  if (first == '.dart_tool' ||
+      first == '.patchwork' ||
+      first == 'build' ||
+      first == '.git') {
     return false;
   }
   return relativePath != '.packages' && relativePath != 'pubspec.lock';

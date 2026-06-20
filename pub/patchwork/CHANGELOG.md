@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Removed `patchwork.lock` from root patch workflows. Patch files are now the
+  committed patch truth; edit sessions keep hidden baselines under `.patchwork/`
+  and applied output keeps generated ownership markers under `.dart_tool/`.
+
 ## 0.4.0 - 2026-06-20
 
 - Added package-provided overlays through `patchwork.yaml`, the

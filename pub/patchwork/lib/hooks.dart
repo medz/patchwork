@@ -91,7 +91,6 @@ void _declareDependencies(
     _join(workspace.rootPath, 'pubspec.yaml'),
     _join(workspace.currentPackageRootPath, 'pubspec.yaml'),
     _join(workspace.rootPath, 'pubspec_overrides.yaml'),
-    layout.lockfilePath,
     ...layout.patchFiles().map((patch) => patch.path),
   };
   output.dependencies.addAll(files.map((path) => File(path).absolute.uri));

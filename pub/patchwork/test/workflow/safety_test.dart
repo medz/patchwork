@@ -1,9 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:patchwork/patchwork.dart';
 import 'package:test/test.dart';
-import 'package:yaml/yaml.dart';
 
 import 'project_sandbox.dart';
 
@@ -21,12 +21,7 @@ void main() {
       await project.patchwork(['apply', 'greeter']);
 
       const unsafePath = '../victim';
-      project.lockfile.writeAsStringSync(
-        project.lockfile.readAsStringSync().replaceAll(
-          '.dart_tool/patchwork/greeter@0.1.0',
-          unsafePath,
-        ),
-      );
+      _replaceAppliedPath(project, unsafePath);
       final sentinel = File(p.join(project.root.path, 'victim', 'sentinel'));
       sentinel.parent.createSync(recursive: true);
       sentinel.writeAsStringSync('do not delete');
@@ -53,54 +48,13 @@ void main() {
       await project.patchwork(['commit', 'greeter']);
       await project.patchwork(['apply', 'greeter']);
 
-      project.lockfile.writeAsStringSync(
-        project.lockfile.readAsStringSync().replaceAll(
-          '.dart_tool/patchwork/greeter@0.1.0',
-          '../victim',
-        ),
-      );
+      _replaceAppliedPath(project, '../victim');
 
       await project.patchwork(
         ['apply'],
         exitCodes: {1},
         stderrContains: 'generated Patchwork output',
       );
-    },
-    timeout: const Timeout(Duration(minutes: 3)),
-  );
-
-  test(
-    'undo refuses unsafe lockfile package versions before deleting',
-    () async {
-      final project = await ProjectSandbox.standalone();
-      addTearDown(project.dispose);
-
-      await project.pubGet();
-      final victim = File(p.join(project.stateRoot, 'victim', 'sentinel'));
-      victim.parent.createSync(recursive: true);
-      victim.writeAsStringSync('do not delete');
-      project.lockfile.writeAsStringSync('''
-version: 2
-packages:
-  greeter:
-    version: "0.1.0/../../../victim"
-    source:
-      type: "path"
-      sha256: "source"
-    patch:
-      edit-sha256: "edit"
-      commit-sha256: "patch"
-    applied:
-      patch-sha256: "patch"
-      path: ".dart_tool/patchwork/greeter@0.1.0/../../../victim"
-''');
-
-      await project.patchwork(
-        ['undo', 'greeter'],
-        exitCodes: {1},
-        stderrContains: 'safe package names and versions',
-      );
-      expect(victim.existsSync(), isTrue);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
@@ -251,12 +205,7 @@ packages:
         p.join(project.stateRoot, 'link_to_outside'),
       ).createSync(outside.path);
       const unsafePath = 'link_to_outside/greeter@0.1.0';
-      project.lockfile.writeAsStringSync(
-        project.lockfile.readAsStringSync().replaceAll(
-          '.dart_tool/patchwork/greeter@0.1.0',
-          unsafePath,
-        ),
-      );
+      _replaceAppliedPath(project, unsafePath);
 
       await expectLater(
         () async =>
@@ -620,12 +569,6 @@ packages:
         contains(p.relative(thirdRoot, from: project.stateRoot)),
       );
       expect(overrides, isNot(contains('manual_third_pkg')));
-      final lockfile = project.lockfile.readAsStringSync();
-      expect(
-        lockfile,
-        contains(p.relative(thirdRoot, from: project.stateRoot)),
-      );
-      expect(lockfile, isNot(contains('manual_third_pkg')));
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
@@ -1082,10 +1025,13 @@ dependency_overrides:
         project.editFile.readAsStringSync(),
         contains('Hello from a user-owned path'),
       );
-      final lock = loadYaml(project.lockfile.readAsStringSync()) as YamlMap;
-      final greeter = (lock['packages'] as YamlMap)['greeter'] as YamlMap;
-      expect((greeter['source'] as YamlMap)['path'], dependencyPath);
-      expect(greeter.containsKey('applied'), isFalse);
+      final manifest =
+          jsonDecode(project.editManifestFor('0.1.0').readAsStringSync())
+              as Map<String, Object?>;
+      final createdFrom = manifest['createdFrom'] as Map<String, Object?>;
+      final fields = createdFrom['fields'] as Map<String, Object?>;
+      expect(fields['path'], dependencyPath);
+      expect(project.appliedMarkerFor('0.1.0').existsSync(), isFalse);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
@@ -1255,7 +1201,7 @@ String otherName() {
       await project.patchwork(
         ['apply'],
         exitCodes: {1},
-        stderrContains: 'sha256 does not match',
+        stderrContains: 'Generated patch does not apply',
       );
       expect(project.appliedDirectory.existsSync(), isFalse);
       expect(
@@ -1325,12 +1271,11 @@ String otherName() {
       await project.patchwork(['apply', 'greeter']);
       await project.pubGet();
 
-      project.lockfile.writeAsStringSync(
-        project.lockfile.readAsStringSync().replaceFirst(
-          RegExp(r'patch-sha256: "[0-9a-f]+"'),
-          'patch-sha256: "stale"',
-        ),
-      );
+      final marker = project.appliedMarkerFor('0.1.0');
+      final decoded =
+          jsonDecode(marker.readAsStringSync()) as Map<String, Object?>;
+      decoded['patchSha256'] = 'stale';
+      marker.writeAsStringSync('${jsonEncode(decoded)}\n');
 
       await project.patchwork(
         ['doctor'],
@@ -1625,10 +1570,10 @@ String _overrideTargetRoot(ProjectSandbox project, String package) {
 }
 
 void _replaceAppliedPath(ProjectSandbox project, String path) {
-  const originalPath = '.dart_tool/patchwork/greeter@0.1.0';
-  project.lockfile.writeAsStringSync(
-    project.lockfile.readAsStringSync().replaceAll(originalPath, path),
-  );
+  final marker = project.appliedMarkerFor('0.1.0');
+  final decoded = jsonDecode(marker.readAsStringSync()) as Map<String, Object?>;
+  decoded['path'] = path;
+  marker.writeAsStringSync('${jsonEncode(decoded)}\n');
 }
 
 Future<void> _expectUndoRefusesUserDirectory(ProjectSandbox project) async {

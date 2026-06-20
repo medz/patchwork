@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:test/test.dart';
 
 import 'project_sandbox.dart';
@@ -11,14 +13,17 @@ void main() {
 
       await project.pubGet();
       await project.patchwork(['patch', 'greeter']);
+      final manifest =
+          jsonDecode(project.editManifestFor('0.1.0').readAsStringSync())
+              as Map<String, Object?>;
+      final createdFrom = manifest['createdFrom'] as Map<String, Object?>;
+      final fields = createdFrom['fields'] as Map<String, Object?>;
+      expect(createdFrom['sourceType'], 'git');
+      expect(fields['branch'], 'main');
+      expect(fields, contains('commit'));
+
       project.writeEdit('Hello from a git patch');
       await project.patchwork(['commit', 'greeter']);
-
-      final lockfile = project.lockfile.readAsStringSync();
-      expect(lockfile, contains('type: "git"'));
-      expect(lockfile, contains('branch: "main"'));
-      expect(lockfile, contains('commit:'));
-      expect(lockfile, contains('patch:'));
 
       await project.patchwork(['apply', 'greeter']);
 

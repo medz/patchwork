@@ -41,7 +41,6 @@ Apply committed patches and refresh pub resolution:
 
 ```sh
 dart run patchwork apply
-dart pub get
 dart run bin/app.dart
 dart run patchwork status
 ```

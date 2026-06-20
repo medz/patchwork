@@ -67,12 +67,11 @@ Apply committed patches:
 
 ```sh
 dart run patchwork apply
-dart pub get
 dart run patchwork status
 ```
 
-After a successful apply, Patchwork prints the `dart pub get` next step so pub
-refreshes dependency resolution through the generated overrides.
+After a successful apply, Patchwork refreshes pub resolution through the
+generated overrides before the command exits.
 
 ## Automatic Apply Hooks
 
@@ -237,8 +236,8 @@ workflow, so Patchwork only manages its own patch override entries.
 | `patchwork patch <pkg> [--continue [version]] [--force] [--json]` | Create a source-based edit. |
 | `patchwork commit [pkg] [--json]` | Commit open edits into patch files. |
 | `patchwork overlay <pkg> [--reason <text>] [--json]` | Register a committed patch in `patchwork.yaml`. |
-| `patchwork apply [pkg] [--json]` | Apply committed patches. |
-| `patchwork undo <pkg> [--json]` | Remove one applied patch. |
+| `patchwork apply [pkg] [--no-pub-get] [--json]` | Apply committed patches and refresh pub resolution. |
+| `patchwork undo <pkg> [--no-pub-get] [--json]` | Remove one applied patch and refresh pub resolution. |
 | `patchwork status [--json]` | Show patch and override state. |
 | `patchwork doctor [--json]` | Check local readiness. |
 
@@ -258,6 +257,10 @@ rules. Patchwork and usage failures use an `error` object with a stable `code`.
 Path fields use the same values the command would show in human output, such as
 `.patchwork/collection@1.19.1` and `patches/collection@1.19.1.patch`.
 
+Use `--no-pub-get` with `apply` or `undo` only when a script needs to separate
+Patchwork's filesystem changes from pub resolution refresh. Normal interactive
+usage should let Patchwork run `dart pub get`.
+
 ## Migrating From Cache Patches
 
 If you currently use a cache patch tool or manual `.pub-cache` edits, restore a
@@ -276,7 +279,6 @@ before upgrading so pub resolves the real dependency source:
 
 ```sh
 dart run patchwork undo collection
-dart pub get
 dart pub upgrade collection
 dart pub get
 ```
@@ -297,7 +299,6 @@ older patch file:
 dart run patchwork patch collection --continue 1.19.0
 dart run patchwork commit collection
 dart run patchwork apply collection
-dart pub get
 ```
 
 ## CI Check
@@ -306,7 +307,6 @@ Run Patchwork in CI after dependencies are installed:
 
 ```sh
 dart run patchwork apply
-dart pub get
 dart run patchwork status
 dart test
 ```

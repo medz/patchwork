@@ -5,6 +5,8 @@
 - Removed `patchwork.lock` from root patch workflows. Patch files are now the
   committed patch truth; edit sessions keep hidden baselines under `.patchwork/`
   and applied output keeps generated ownership markers under `.dart_tool/`.
+- Made CLI `apply` and `undo` refresh pub resolution by default, with
+  `--no-pub-get` for scripts that need the lower-level filesystem step.
 
 ## 0.4.0 - 2026-06-20
 

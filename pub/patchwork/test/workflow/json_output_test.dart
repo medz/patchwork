@@ -70,13 +70,13 @@ void main() {
       expect(applyResult.stdout, isNot(contains('Run dart pub get.')));
       final applyJson = _decodeObject(applyResult.stdout);
       expect(applyJson['command'], 'apply');
-      expect(applyJson['needsPubGet'], isTrue);
+      expect(applyJson['pubGetRan'], isTrue);
+      expect(applyJson['needsPubGet'], isFalse);
       final appliedJson = _objects(applyJson['applied']).single;
       expect(appliedJson['package'], 'greeter');
       expect(appliedJson['path'], '.dart_tool/patchwork/greeter@0.1.0');
       expect(appliedJson['patchPath'], 'patches/greeter@0.1.0.patch');
 
-      await project.pubGet();
       final readyDoctor = await project.patchworkResult(['doctor', '--json']);
       expect(readyDoctor.exitCode, 0);
       final readyPackage = _objects(
@@ -89,6 +89,7 @@ void main() {
       expect(noOpApply.stdout, isNot(contains('No patches need apply.')));
       final noOpApplyJson = _decodeObject(noOpApply.stdout);
       expect(noOpApplyJson['applied'], isEmpty);
+      expect(noOpApplyJson['pubGetRan'], isFalse);
       expect(noOpApplyJson['needsPubGet'], isFalse);
 
       final undoResult = await project.patchworkResult([
@@ -99,11 +100,56 @@ void main() {
       expect(undoResult.stdout, isNot(contains('Unapplied greeter.')));
       final undoJson = _decodeObject(undoResult.stdout);
       expect(undoJson['command'], 'undo');
-      expect(undoJson['needsPubGet'], isTrue);
+      expect(undoJson['pubGetRan'], isTrue);
+      expect(undoJson['needsPubGet'], isFalse);
       final resultJson = _object(undoJson['result']);
       expect(resultJson['package'], 'greeter');
       expect(resultJson['changed'], isTrue);
       expect(resultJson['path'], '.dart_tool/patchwork/greeter@0.1.0');
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'reports explicit pub get work in low-level JSON mode',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from low-level JSON output');
+      await project.patchwork(['commit', 'greeter']);
+
+      final applyResult = await project.patchworkResult([
+        'apply',
+        '--no-pub-get',
+        '--json',
+      ]);
+      final applyJson = _decodeObject(applyResult.stdout);
+      expect(applyJson['pubGetRan'], isFalse);
+      expect(applyJson['needsPubGet'], isTrue);
+
+      final finishApply = await project.patchworkResult(['apply', '--json']);
+      final finishApplyJson = _decodeObject(finishApply.stdout);
+      expect(finishApplyJson['applied'], isEmpty);
+      expect(finishApplyJson['pubGetRan'], isTrue);
+      expect(finishApplyJson['needsPubGet'], isFalse);
+      await project.runApp('Hello from low-level JSON output, Patchwork!');
+
+      final undoResult = await project.patchworkResult([
+        'undo',
+        'greeter',
+        '--no-pub-get',
+        '--json',
+      ]);
+      final undoJson = _decodeObject(undoResult.stdout);
+      expect(undoJson['pubGetRan'], isFalse);
+      expect(undoJson['needsPubGet'], isTrue);
+      expect(_object(undoJson['result'])['changed'], isTrue);
+
+      await project.pubGet();
+      await project.runApp('Hello, Patchwork!');
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

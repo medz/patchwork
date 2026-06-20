@@ -1316,6 +1316,19 @@ final class Patchwork {
       );
     }
     if (applied != null &&
+        overridePointsToApplied &&
+        resolved != null &&
+        !pubResolutionPointsToApplied) {
+      problems.add(
+        const PatchProblem(
+          code: 'applied.pub_get_required',
+          message:
+              'pub resolution has not been refreshed for the applied patch.',
+          hint: 'Run dart pub get.',
+        ),
+      );
+    }
+    if (applied != null &&
         patchSha256 != null &&
         applied.patchSha256 != patchSha256) {
       problems.add(

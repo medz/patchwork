@@ -44,6 +44,13 @@ void main() {
     final statusHelp = await _runApplication(root, ['status', '--help']);
     expect(statusHelp.exitCode, 0);
     expect(statusHelp.stdout, contains('Usage: patchwork status [--json]'));
+
+    final applyHelp = await _runApplication(root, ['apply', '--help']);
+    expect(applyHelp.exitCode, 0);
+    expect(
+      applyHelp.stdout,
+      contains('Usage: patchwork apply [pkg] [--no-pub-get] [--json]'),
+    );
   });
 }
 

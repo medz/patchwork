@@ -34,7 +34,6 @@ void main() {
       project.writeEdit('Hello from a workspace patch');
       await project.patchwork(['commit']);
       await project.patchwork(['apply', 'greeter']);
-      await project.pubGet();
       await project.patchwork([
         'doctor',
       ], stdoutContains: 'applied: .dart_tool/patchwork/greeter@0.1.0');
@@ -44,7 +43,6 @@ void main() {
       await project.runApp('Hello from a workspace patch, Patchwork!');
 
       await project.patchwork(['undo', 'greeter']);
-      await project.pubGet();
       await project.patchwork(
         ['doctor'],
         exitCodes: {1},
@@ -53,10 +51,8 @@ void main() {
       await project.runApp('Hello, Patchwork!');
 
       await project.patchwork(['apply']);
-      await project.pubGet();
       await project.runApp('Hello from a workspace patch, Patchwork!');
       await project.patchwork(['undo', 'greeter']);
-      await project.pubGet();
       await project.runApp('Hello, Patchwork!');
 
       await project.patchwork(['patch', 'greeter', '--continue']);
@@ -228,7 +224,6 @@ void main() {
         stdoutContains: 'action: patchwork apply greeter',
       );
       await project.patchwork(['apply'], workingDirectory: project.stateRoot);
-      await project.pubGet();
       await project.patchwork(
         ['status'],
         workingDirectory: project.stateRoot,
@@ -254,13 +249,11 @@ void main() {
 
       project.writeOtherOverride();
       await project.patchwork(['apply', 'greeter']);
-      await project.pubGet();
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
       expect(project.overrideFile.readAsStringSync(), contains('other_pkg:'));
       expect(project.overrideFile.readAsStringSync(), contains('greeter:'));
 
       await project.patchwork(['undo', 'greeter']);
-      await project.pubGet();
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
       final afterUndo = project.overrideFile.readAsStringSync();
       expect(afterUndo, contains('other_pkg:'));

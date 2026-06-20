@@ -446,6 +446,47 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
+
+  test(
+    'explains missing package remediation with applied state first',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a missing package JSON patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      project.overrideFile.deleteSync();
+      project.replaceAppPubspecText('''
+  greeter:
+    path: ../packages/greeter
+''', '');
+      await project.pubGet();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(
+        _decodeObject(result.stdout)['problems'],
+      ).where((problem) => problem['code'] == 'pub.package_not_found').single;
+
+      final commands = _objects(
+        problem['suggestedActions'],
+      ).map((action) => action['command']);
+      expect(
+        commands,
+        orderedEquals([
+          'dart pub get',
+          'patchwork undo greeter',
+          'patchwork remove greeter 0.1.0',
+        ]),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
 }
 
 Map<String, Object?> _decodeObject(String source) {

@@ -203,21 +203,8 @@ List<SuggestedAction> _appliedRepairActions(
 }
 
 List<SuggestedAction> _pubActions(PatchStatus status, PatchProblem problem) {
-  final package = status.package;
-  final version = status.version;
-
   return switch (problem.code) {
-    'pub.package_not_found' => [
-      const SuggestedAction(
-        command: 'dart pub get',
-        description: 'Refresh pub resolution after dependency changes.',
-      ),
-      SuggestedAction(
-        command: 'patchwork remove $package $version',
-        description:
-            'Remove the patch file if "$package" is no longer part of this project.',
-      ),
-    ],
+    'pub.package_not_found' => _missingPackageActions(status),
     'pub.package_version_not_found' ||
     'pub.package_root_missing' ||
     'pub.lockfile_not_found' ||
@@ -247,6 +234,36 @@ List<SuggestedAction> _pubActions(PatchStatus status, PatchProblem problem) {
       ),
     ],
   };
+}
+
+List<SuggestedAction> _missingPackageActions(PatchStatus status) {
+  final package = status.package;
+  final version = status.version;
+  return [
+    const SuggestedAction(
+      command: 'dart pub get',
+      description: 'Refresh pub resolution after dependency changes.',
+    ),
+    if (status.appliedPath != null)
+      SuggestedAction(
+        command: 'patchwork undo $package',
+        description:
+            'Remove applied Patchwork output before deleting patch artifacts.',
+      ),
+    if (status.hasOpenEdit)
+      SuggestedAction(
+        description:
+            'Back up any useful edits from ${_PatchworkPath.edit(package, version)} before removing local Patchwork state.',
+      ),
+    SuggestedAction(
+      command: status.hasOpenEdit
+          ? 'patchwork remove $package $version --force'
+          : 'patchwork remove $package $version',
+      description: status.hasOpenEdit
+          ? 'Remove the patch file and open edit if "$package" is no longer part of this project.'
+          : 'Remove the patch file if "$package" is no longer part of this project.',
+    ),
+  ];
 }
 
 List<SuggestedAction> _fallbackActions(PatchProblem problem) {

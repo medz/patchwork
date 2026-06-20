@@ -247,7 +247,7 @@ workflow, so Patchwork only manages its own patch override entries.
 | `patchwork remove <pkg> [version] [--dry-run] [--force] [--no-pub-get] [--json]` | Remove selected Patchwork artifacts safely. |
 | `patchwork prune [--dry-run] [--force] [--no-pub-get] [--json]` | Remove stale patch files and unreferenced generated output. |
 | `patchwork status [--json]` | Show patch and override state. |
-| `patchwork doctor [--json]` | Check local readiness. |
+| `patchwork doctor [--explain] [--json]` | Check local readiness and optionally explain remediation actions. |
 
 Packages are plain pub package names selected by the current pub resolution.
 Patchwork rejects target syntax such as `pub:collection`, `collection@1.19.1`,
@@ -271,6 +271,11 @@ entries also expose codes and hints so tools can decide the next action without
 parsing prose. Path fields use the same values the command would show in human
 output, such as `.patchwork/collection@1.19.1` and
 `patches/collection@1.19.1.patch`.
+
+Use `patchwork doctor --explain` when you want remediation guidance attached to
+each diagnostic. In JSON mode, `doctor --explain --json` includes diagnostic
+`suggestedActions`; those actions are current CLI guidance, not a fixed
+compatibility schema.
 
 State JSON is derived from committed patch files, open edit-session metadata,
 generated applied markers, pub resolution, and `pubspec_overrides.yaml`. It
@@ -340,7 +345,8 @@ dart test
 ```
 
 Use `patchwork doctor` when CI should fail on missing, stale, or unapplied
-patch state.
+patch state. Use `patchwork doctor --explain` when CI logs should include the
+next repair action for each diagnostic.
 
 ## Example
 

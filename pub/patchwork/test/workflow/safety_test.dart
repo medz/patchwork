@@ -1055,6 +1055,37 @@ dependency_overrides:
   );
 
   test(
+    'doctor explain reports remediation actions without changing default output',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+
+      final defaultDoctor = await project.patchworkResult(
+        ['doctor'],
+        exitCodes: {1},
+      );
+      expect(defaultDoctor.stdout, contains('uncommitted edit directory'));
+      expect(defaultDoctor.stdout, isNot(contains('remediation:')));
+
+      final explainDoctor = await project.patchworkResult(
+        ['doctor', '--explain'],
+        exitCodes: {1},
+      );
+      expect(explainDoctor.stdout, contains('uncommitted edit directory'));
+      expect(explainDoctor.stdout, contains('remediation:'));
+      expect(explainDoctor.stdout, contains('patchwork commit greeter'));
+      expect(
+        explainDoctor.stdout,
+        contains('patchwork remove greeter 0.1.0 --force'),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'patch continue version without package reports a missing package',
     () async {
       final project = await ProjectSandbox.standalone();

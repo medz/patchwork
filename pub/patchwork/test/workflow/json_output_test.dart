@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:test/test.dart';
 
@@ -195,7 +196,412 @@ void main() {
         exitCodes: {1},
       );
       expect(doctorResult.exitCode, 1);
-      expect(_decodeObject(doctorResult.stdout)['problems'], isNotEmpty);
+      final doctorJson = _decodeObject(doctorResult.stdout);
+      expect(doctorJson['problems'], isNotEmpty);
+      final plainProblem = _objects(doctorJson['problems']).single;
+      expect(plainProblem, isNot(contains('suggestedActions')));
+
+      final explainResult = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final explainJson = _decodeObject(explainResult.stdout);
+      final explainProblem = _objects(explainJson['problems']).single;
+      expect(explainProblem['code'], 'pub.override_conflict');
+      final actions = _objects(explainProblem['suggestedActions']);
+      expect(
+        actions.map((action) => action['command']),
+        contains('patchwork apply greeter'),
+      );
+      expect(actions.map((action) => action['description']), isNotEmpty);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'explains stale patch remediation with the stale patch version',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a stale JSON patch');
+      await project.patchwork(['commit', 'greeter']);
+
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      await project.pubGet();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(_decodeObject(result.stdout)['problems']).single;
+      expect(problem['code'], 'patch.stale');
+      expect(problem['remediationVersion'], '0.1.0');
+
+      final commands = _objects(
+        problem['suggestedActions'],
+      ).map((action) => action['command']);
+      expect(commands, contains('patchwork patch greeter --continue 0.1.0'));
+      expect(commands, contains('patchwork remove greeter 0.1.0'));
+      expect(
+        commands,
+        isNot(contains('patchwork patch greeter --continue 0.1.1')),
+      );
+      expect(commands, isNot(contains('patchwork remove greeter 0.1.1')));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'explains open edit remediation with the edit directory version',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      await project.pubGet();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(
+        _decodeObject(result.stdout)['problems'],
+      ).where((problem) => problem['code'] == 'commit.open_edit').single;
+      expect(problem['remediationVersion'], '0.1.0');
+
+      final commands = _objects(
+        problem['suggestedActions'],
+      ).map((action) => action['command']);
+      expect(commands, contains('patchwork commit greeter'));
+      expect(commands, contains('patchwork remove greeter 0.1.0 --force'));
+      expect(
+        commands,
+        isNot(contains('patchwork remove greeter 0.1.1 --force')),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'explains stale patch remediation after resolving open edits first',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a stale patch with an open edit');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['patch', 'greeter', '--continue']);
+
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      await project.pubGet();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(
+        _decodeObject(result.stdout)['problems'],
+      ).where((problem) => problem['code'] == 'patch.stale').single;
+
+      final commands = _objects(
+        problem['suggestedActions'],
+      ).map((action) => action['command']);
+      expect(commands, contains('patchwork commit greeter'));
+      expect(
+        commands,
+        isNot(contains('patchwork patch greeter --continue 0.1.0')),
+      );
+      expect(commands, isNot(contains('patchwork remove greeter 0.1.0')));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'explains stale applied remediation with undo first when pub resolves output',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a stale applied JSON patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+
+      final marker = project.appliedMarkerFor('0.1.0');
+      final decoded =
+          jsonDecode(marker.readAsStringSync()) as Map<String, Object?>;
+      decoded['patchSha256'] = 'stale';
+      marker.writeAsStringSync('${jsonEncode(decoded)}\n');
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(
+        _decodeObject(result.stdout)['problems'],
+      ).where((problem) => problem['code'] == 'applied.patch_stale').single;
+      expect(problem['remediationRequiresUndoFirst'], isTrue);
+
+      final commands = _objects(
+        problem['suggestedActions'],
+      ).map((action) => action['command']);
+      expect(
+        commands,
+        orderedEquals([
+          'patchwork undo greeter',
+          'dart pub get',
+          'patchwork apply greeter',
+        ]),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'explains broken edit remediation without removing committed patches',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a committed JSON patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['patch', 'greeter', '--continue']);
+      project.editManifestFor('0.1.0').deleteSync();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(_decodeObject(result.stdout)['problems'])
+          .where((problem) => problem['code'] == 'commit.edit_manifest_missing')
+          .single;
+
+      final actions = _objects(problem['suggestedActions']);
+      final commands = actions.map((action) => action['command']);
+      expect(commands, contains('patchwork patch greeter --continue 0.1.0'));
+      expect(
+        commands,
+        isNot(contains('patchwork remove greeter 0.1.0 --force')),
+      );
+      expect(
+        actions.map((action) => action['description']),
+        contains(
+          'Delete only the broken edit directory at .patchwork/greeter@0.1.0; do not remove the committed patch file.',
+        ),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'explains marker-missing remediation with generated override cleanup',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a marker-missing JSON patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      project.appliedMarkerFor('0.1.0').deleteSync();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(
+        _decodeObject(result.stdout)['problems'],
+      ).where((problem) => problem['code'] == 'applied.marker_missing').single;
+      expect(problem['remediationRequiresOverrideCleanup'], isTrue);
+
+      final actions = _objects(problem['suggestedActions']);
+      expect(
+        actions.map((action) => action['command']),
+        orderedEquals([null, null, 'dart pub get', 'patchwork apply greeter']),
+      );
+      expect(
+        actions.map((action) => action['description']),
+        contains(
+          'Remove the "greeter" entry from pubspec_overrides.yaml if it points at .dart_tool/patchwork/greeter@0.1.0.',
+        ),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'explains marker-missing remediation without apply when patch is missing',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a missing marker and patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      project.appliedMarkerFor('0.1.0').deleteSync();
+      File('${project.stateRoot}/patches/greeter@0.1.0.patch').deleteSync();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(
+        _decodeObject(result.stdout)['problems'],
+      ).where((problem) => problem['code'] == 'applied.marker_missing').single;
+
+      final actions = _objects(problem['suggestedActions']);
+      expect(
+        actions.map((action) => action['command']),
+        isNot(contains('patchwork apply greeter')),
+      );
+      expect(
+        actions.map((action) => action['description']),
+        contains(
+          'No committed patch file exists, so cleanup must finish before applying again.',
+        ),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'explains unowned stale applied output with manual cleanup',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from unowned stale applied output');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      project.overrideFile.deleteSync();
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      await project.pubGet();
+      project.appliedMarkerFor('0.1.0').deleteSync();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(
+        _decodeObject(result.stdout)['problems'],
+      ).where((problem) => problem['code'] == 'applied.stale').single;
+      expect(problem['remediationVersion'], '0.1.0');
+      expect(problem['remediationRequiresManualCleanup'], isTrue);
+
+      final actions = _objects(problem['suggestedActions']);
+      expect(actions.map((action) => action['command']), orderedEquals([null]));
+      expect(
+        actions.map((action) => action['description']),
+        contains(
+          'Review and remove .dart_tool/patchwork/greeter@0.1.0 manually because Patchwork cannot verify its ownership marker.',
+        ),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'explains stale broken edit remediation by continuing the stale patch',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a stale broken edit JSON patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['patch', 'greeter', '--continue']);
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      await project.pubGet();
+      project.editManifestFor('0.1.0').deleteSync();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(_decodeObject(result.stdout)['problems'])
+          .where((problem) => problem['code'] == 'commit.edit_manifest_missing')
+          .single;
+      expect(problem['remediationVersion'], '0.1.0');
+      expect(problem['remediationCanContinuePatch'], isTrue);
+
+      final commands = _objects(
+        problem['suggestedActions'],
+      ).map((action) => action['command']);
+      expect(commands, contains('patchwork patch greeter --continue 0.1.0'));
+      expect(commands, isNot(contains('patchwork patch greeter')));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'explains missing package remediation with applied state first',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a missing package JSON patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      project.overrideFile.deleteSync();
+      project.replaceAppPubspecText('''
+  greeter:
+    path: ../packages/greeter
+''', '');
+      await project.pubGet();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(
+        _decodeObject(result.stdout)['problems'],
+      ).where((problem) => problem['code'] == 'pub.package_not_found').single;
+
+      final commands = _objects(
+        problem['suggestedActions'],
+      ).map((action) => action['command']);
+      expect(
+        commands,
+        orderedEquals([
+          'dart pub get',
+          'patchwork undo greeter',
+          'patchwork remove greeter 0.1.0',
+        ]),
+      );
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

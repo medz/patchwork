@@ -1646,6 +1646,9 @@ final class Patchwork {
         : null;
 
     if (edit.length == 1) {
+      final editHasPatchFile = patchFiles.any(
+        (patch) => patch.version == edit.single.version,
+      );
       try {
         _editSessionStore.read(edit.single);
       } on PatchworkException catch (error) {
@@ -1654,6 +1657,8 @@ final class Patchwork {
             code: error.code,
             message: error.message,
             hint: error.hint,
+            remediationVersion: edit.single.version,
+            remediationCanContinuePatch: editHasPatchFile,
           ),
         );
       }
@@ -1663,6 +1668,13 @@ final class Patchwork {
     final appliedForVersion = appliedDirectories
         .where((candidate) => candidate.version == version)
         .toList();
+    final markerlessOverridePointsToApplied =
+        appliedForVersion.isNotEmpty &&
+        _pubspecOverrides.pointsToPath(
+          workspaceRootPath: _rootPath,
+          package: package,
+          path: _layout.relativeAppliedPath(package, version),
+        );
     if (appliedForVersion.isNotEmpty) {
       try {
         applied = _appliedMarkerStore.read(package, version);
@@ -1672,6 +1684,8 @@ final class Patchwork {
             code: error.code,
             message: error.message,
             hint: error.hint,
+            remediationRequiresOverrideCleanup:
+                markerlessOverridePointsToApplied,
           ),
         );
       }
@@ -1683,6 +1697,8 @@ final class Patchwork {
                 'Generated Patchwork output exists without an ownership marker.',
             hint:
                 'Remove ${relativePath(_layout.appliedPath(package, version))} before applying again if it is safe.',
+            remediationRequiresOverrideCleanup:
+                markerlessOverridePointsToApplied,
           ),
         );
       }
@@ -1691,23 +1707,37 @@ final class Patchwork {
       if (appliedDirectory.version == version) {
         continue;
       }
+      final staleAppliedMarker = _tryReadAppliedMarker(appliedDirectory);
+      final staleAppliedCanPrune =
+          staleAppliedMarker != null &&
+          _patchworkAppliedPath(
+                package,
+                appliedDirectory.version,
+                staleAppliedMarker.path,
+              ) !=
+              null;
       problems.add(
         PatchProblem(
           code: 'applied.stale',
           message:
               'Generated output ${relativePath(appliedDirectory.path)} targets "$package@${appliedDirectory.version}", but current state is "$package@$version".',
           hint: 'Run patchwork prune to remove unreferenced generated output.',
+          remediationVersion: appliedDirectory.version,
+          remediationRequiresManualCleanup: !staleAppliedCanPrune,
         ),
       );
     }
 
+    final editVersion = edit.length == 1 ? edit.single.version : null;
     if (!hasPatchFile && edit.isNotEmpty) {
       problems.add(
         PatchProblem(
           code: 'commit.open_edit',
           message: 'Package "$package" has an uncommitted edit directory.',
-          hint:
-              'Run patchwork commit $package, or patchwork remove $package $version --force to discard it.',
+          hint: editVersion == null
+              ? 'Run patchwork commit $package after removing any extra edit directories.'
+              : 'Run patchwork commit $package, or patchwork remove $package $editVersion --force to discard it.',
+          remediationVersion: editVersion,
         ),
       );
     } else if (edit.isNotEmpty) {
@@ -1716,6 +1746,7 @@ final class Patchwork {
           code: 'apply.open_edit',
           message: 'Package "$package" has an open edit directory.',
           hint: 'Run patchwork commit $package before applying this patch.',
+          remediationVersion: editVersion,
         ),
       );
     }
@@ -1731,6 +1762,7 @@ final class Patchwork {
                 'Patch file ${relativePath(patch.path)} targets "$package@${patch.version}", but current pub resolution is "$package@${resolved.version}".',
             hint:
                 'Use patchwork patch $package --continue ${patch.version} to carry it forward, or patchwork remove $package ${patch.version} to remove it.',
+            remediationVersion: patch.version,
           ),
         );
       }
@@ -1769,6 +1801,7 @@ final class Patchwork {
     final repairHint = pubResolutionMatchesSource
         ? 'Run patchwork apply $package.'
         : 'Run patchwork undo $package, dart pub get, then patchwork apply $package.';
+    final repairRequiresUndoFirst = !pubResolutionMatchesSource;
     if (hasBlockingOverride) {
       problems.add(
         PatchProblem(
@@ -1787,6 +1820,7 @@ final class Patchwork {
           message:
               'Applied marker exists, but the generated directory is missing.',
           hint: repairHint,
+          remediationRequiresUndoFirst: repairRequiresUndoFirst,
         ),
       );
     }
@@ -1821,6 +1855,7 @@ final class Patchwork {
           code: 'applied.patch_stale',
           message: 'Applied patch sha256 differs from the committed patch.',
           hint: repairHint,
+          remediationRequiresUndoFirst: repairRequiresUndoFirst,
         ),
       );
     }
@@ -1834,6 +1869,7 @@ final class Patchwork {
           code: 'applied.source_stale',
           message: 'Applied output was generated from a different source tree.',
           hint: repairHint,
+          remediationRequiresUndoFirst: repairRequiresUndoFirst,
         ),
       );
     }
@@ -1853,6 +1889,7 @@ final class Patchwork {
           message:
               'pubspec_overrides.yaml no longer points at the applied patch.',
           hint: repairHint,
+          remediationRequiresUndoFirst: repairRequiresUndoFirst,
         ),
       );
     }

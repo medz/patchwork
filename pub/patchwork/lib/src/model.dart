@@ -296,7 +296,16 @@ final class RegisteredOverlay {
 /// about the current filesystem or pub resolution state.
 final class PatchProblem {
   /// Creates a problem entry.
-  const PatchProblem({required this.code, required this.message, this.hint});
+  const PatchProblem({
+    required this.code,
+    required this.message,
+    this.hint,
+    this.remediationVersion,
+    this.remediationCanContinuePatch = false,
+    this.remediationRequiresUndoFirst = false,
+    this.remediationRequiresOverrideCleanup = false,
+    this.remediationRequiresManualCleanup = false,
+  });
 
   /// A stable identifier for the problem category.
   final String code;
@@ -306,6 +315,34 @@ final class PatchProblem {
 
   /// Optional guidance for resolving the problem.
   final String? hint;
+
+  /// Optional version a remediation command should target instead of the
+  /// package status version.
+  ///
+  /// This is used when a diagnostic describes an older artifact, such as a
+  /// stale patch file, while the package status itself points at the current
+  /// pub resolution.
+  final String? remediationVersion;
+
+  /// Whether edit remediation can recreate the edit directory from a committed
+  /// patch file for [remediationVersion].
+  final bool remediationCanContinuePatch;
+
+  /// Whether remediation must remove applied output and refresh pub resolution
+  /// before applying again.
+  ///
+  /// Applied output can be stale while pub still resolves the package through
+  /// `.dart_tool/patchwork`. In that state `patchwork apply` cannot regenerate
+  /// the output until the generated override has been unwound.
+  final bool remediationRequiresUndoFirst;
+
+  /// Whether remediation must remove a generated override and refresh pub
+  /// resolution before applying again.
+  final bool remediationRequiresOverrideCleanup;
+
+  /// Whether remediation requires manual cleanup because Patchwork cannot prove
+  /// ownership well enough to remove the artifact automatically.
+  final bool remediationRequiresManualCleanup;
 }
 
 /// The inspected Patchwork state for a single dependency package.

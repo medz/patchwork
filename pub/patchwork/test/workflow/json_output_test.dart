@@ -216,6 +216,45 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
+
+  test(
+    'explains stale patch remediation with the stale patch version',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a stale JSON patch');
+      await project.patchwork(['commit', 'greeter']);
+
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      await project.pubGet();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(_decodeObject(result.stdout)['problems']).single;
+      expect(problem['code'], 'patch.stale');
+      expect(problem['remediationVersion'], '0.1.0');
+
+      final commands = _objects(
+        problem['suggestedActions'],
+      ).map((action) => action['command']);
+      expect(commands, contains('patchwork patch greeter --continue 0.1.0'));
+      expect(commands, contains('patchwork remove greeter 0.1.0'));
+      expect(
+        commands,
+        isNot(contains('patchwork patch greeter --continue 0.1.1')),
+      );
+      expect(commands, isNot(contains('patchwork remove greeter 0.1.1')));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
 }
 
 Map<String, Object?> _decodeObject(String source) {

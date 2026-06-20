@@ -30,7 +30,7 @@ List<SuggestedAction> remediationActions(
   PatchProblem problem,
 ) {
   final package = status.package;
-  final version = status.version;
+  final version = problem.remediationVersion ?? status.version;
 
   return switch (problem.code) {
     'commit.ambiguous_edit' => [

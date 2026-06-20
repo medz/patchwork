@@ -1731,6 +1731,7 @@ final class Patchwork {
                 'Patch file ${relativePath(patch.path)} targets "$package@${patch.version}", but current pub resolution is "$package@${resolved.version}".',
             hint:
                 'Use patchwork patch $package --continue ${patch.version} to carry it forward, or patchwork remove $package ${patch.version} to remove it.',
+            remediationVersion: patch.version,
           ),
         );
       }

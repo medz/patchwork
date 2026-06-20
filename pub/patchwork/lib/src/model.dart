@@ -296,7 +296,12 @@ final class RegisteredOverlay {
 /// about the current filesystem or pub resolution state.
 final class PatchProblem {
   /// Creates a problem entry.
-  const PatchProblem({required this.code, required this.message, this.hint});
+  const PatchProblem({
+    required this.code,
+    required this.message,
+    this.hint,
+    this.remediationVersion,
+  });
 
   /// A stable identifier for the problem category.
   final String code;
@@ -306,6 +311,14 @@ final class PatchProblem {
 
   /// Optional guidance for resolving the problem.
   final String? hint;
+
+  /// Optional version a remediation command should target instead of the
+  /// package status version.
+  ///
+  /// This is used when a diagnostic describes an older artifact, such as a
+  /// stale patch file, while the package status itself points at the current
+  /// pub resolution.
+  final String? remediationVersion;
 }
 
 /// The inspected Patchwork state for a single dependency package.

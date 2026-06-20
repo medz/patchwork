@@ -300,6 +300,8 @@ Map<String, Object?> _problemJson(PatchProblem problem) {
     'code': problem.code,
     'message': problem.message,
     'hint': problem.hint,
+    if (problem.remediationVersion != null)
+      'remediationVersion': problem.remediationVersion,
   };
 }
 

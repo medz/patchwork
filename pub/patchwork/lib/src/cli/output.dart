@@ -315,6 +315,7 @@ void printOverlayInspection(
         final status = switch (entry.status) {
           OverlayEntryStatus.matched => 'matched',
           OverlayEntryStatus.skipped => 'skipped: ${entry.skipReason}',
+          OverlayEntryStatus.failed => 'failed: ${entry.skipReason}',
         };
         out.writeln('    ${entry.package}@${entry.version} $status');
         out.writeln('      patch: ${_displayPath(patchwork, entry.patchPath)}');

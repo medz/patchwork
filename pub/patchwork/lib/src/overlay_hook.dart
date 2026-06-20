@@ -179,8 +179,17 @@ SplayTreeMap<String, _OverlayGroup> _collectOverlayGroups(
       }
       return left.patchPath.compareTo(right.patchPath);
     });
+    _deduplicateOverlayGroupContributions(group);
   }
   return groups;
+}
+
+void _deduplicateOverlayGroupContributions(_OverlayGroup group) {
+  final seen = <String>{};
+  group.contributions.removeWhere((contribution) {
+    final file = File(contribution.patchPath);
+    return !seen.add(_sha256(file.readAsBytesSync()));
+  });
 }
 
 ResolvedPubPackage? _resolveOverlayTarget(

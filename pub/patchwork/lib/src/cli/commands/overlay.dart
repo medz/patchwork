@@ -1,6 +1,7 @@
 import 'dart:io' as io;
 
 import '../../error.dart';
+import '../../model.dart';
 import '../../patchwork.dart';
 import '../arguments.dart';
 import '../output.dart';
@@ -24,7 +25,7 @@ Future<int> runOverlayCommand(
     } else {
       printOverlayInspection(patchwork, inspection, out);
     }
-    return inspection.targets.any((target) => target.conflict != null) ? 1 : 0;
+    return _hasOverlayInspectionFailures(inspection) ? 1 : 0;
   }
 
   final overlay = await patchwork.overlay(
@@ -42,6 +43,15 @@ Future<int> runOverlayCommand(
     '${patchwork.relativePath(overlay.manifestPath)}.',
   );
   return 0;
+}
+
+bool _hasOverlayInspectionFailures(OverlayInspection inspection) {
+  return inspection.targets.any((target) => target.conflict != null) ||
+      inspection.providers.any((provider) {
+        return provider.entries.any((entry) {
+          return entry.status == OverlayEntryStatus.failed;
+        });
+      });
 }
 
 _OverlayCommand _parseOverlayCommand(List<String> arguments) {

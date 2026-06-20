@@ -296,6 +296,9 @@ enum OverlayEntryStatus {
 
   /// The entry was discovered but does not apply to the current resolution.
   skipped,
+
+  /// The entry matches the current resolution but cannot be used safely.
+  failed,
 }
 
 /// Whether a patch contribution participates in overlay composition.
@@ -343,7 +346,7 @@ final class OverlayEntryInspection {
   /// Whether this entry contributes to the current overlay plan.
   final OverlayEntryStatus status;
 
-  /// Stable reason code when [status] is [OverlayEntryStatus.skipped].
+  /// Stable reason code when [status] is skipped or failed.
   final String? skipReason;
 
   /// The currently resolved target version, when the package is selected.

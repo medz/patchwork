@@ -253,6 +253,74 @@ void main() {
   );
 
   test(
+    'duplicate provider overlays compose once',
+    () async {
+      final project = await OverlayProjectSandbox.create(
+        appDependsOnProviderC: true,
+      );
+      addTearDown(project.dispose);
+
+      await project.registerPrefixOverlay(project.providerBRoot, 'Hi');
+      await project.registerPrefixOverlay(project.providerCRoot, 'Hi');
+      await project.pubGet(project.appRoot);
+
+      final result = await project.runApp();
+      expect(result.stdout, contains('Hi, Patchwork!'));
+      project.expectGreeterResolvedToAppliedOutput();
+
+      final inspect = await _runApplication(project.appRoot, [
+        'overlay',
+        'inspect',
+        '--json',
+      ]);
+      expect(inspect.exitCode, 0);
+      final decoded = jsonDecode(inspect.stdout) as Map<String, Object?>;
+      final targets = decoded['targets'] as List<Object?>;
+      final target = targets.single as Map<String, Object?>;
+      final contributions = target['contributions'] as List<Object?>;
+      expect(
+        contributions.map((entry) {
+          return (entry as Map<String, Object?>)['status'];
+        }),
+        ['active', 'deduplicated'],
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
+
+  test(
+    'overlay inspect fails when a matching provider patch file is missing',
+    () async {
+      final project = await OverlayProjectSandbox.create();
+      addTearDown(project.dispose);
+
+      await project.registerPrefixOverlay(project.providerBRoot, 'Hi');
+      File(
+        p.join(project.providerBRoot, 'patches', 'greeter@0.1.0.patch'),
+      ).deleteSync();
+      await project.pubGet(project.appRoot);
+
+      final result = await _runApplication(project.appRoot, [
+        'overlay',
+        'inspect',
+        '--json',
+      ]);
+
+      expect(result.exitCode, 1);
+      final decoded = jsonDecode(result.stdout) as Map<String, Object?>;
+      final providers = decoded['providers'] as List<Object?>;
+      final provider = providers.single as Map<String, Object?>;
+      final entries = provider['entries'] as List<Object?>;
+      final entry = entries.single as Map<String, Object?>;
+      expect(entry['status'], 'failed');
+      expect(entry['skipReason'], 'overlay.patch_file_missing');
+      expect(decoded['targets'], isEmpty);
+      project.expectGreeterResolvedToSource();
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
+
+  test(
     'workspace provider manifests are applied when the app depends on them',
     () async {
       final project = await OverlayProjectSandbox.create(

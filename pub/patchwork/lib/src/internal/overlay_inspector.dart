@@ -88,12 +88,13 @@ final class OverlayInspector {
           package: package.name,
           rootPath: package.rootPath,
           manifestPath: manifestPath,
-          entries: entries,
+          entries: List.unmodifiable(entries),
         ),
       );
     }
 
     _sortProviderContributions(groups.values);
+    _deduplicateContributions(groups.values);
     _appendRootPatchContributions(groups.values);
 
     return OverlayInspection(
@@ -159,6 +160,7 @@ final class OverlayInspector {
         patchPath: patchPath,
         skipReason: 'overlay.patch_file_missing',
         resolved: resolved,
+        status: OverlayEntryStatus.failed,
       );
     }
     if (resolved.version != entry.version) {
@@ -225,6 +227,7 @@ final class OverlayInspector {
     required String patchPath,
     required String skipReason,
     ResolvedPubPackage? resolved,
+    OverlayEntryStatus status = OverlayEntryStatus.skipped,
   }) {
     return OverlayEntryInspection(
       package: entry.package,
@@ -232,7 +235,7 @@ final class OverlayInspector {
       sha256: entry.sha256,
       patchPath: patchPath,
       reason: entry.reason,
-      status: OverlayEntryStatus.skipped,
+      status: status,
       skipReason: skipReason,
       resolvedVersion: resolved?.version,
       resolvedSha256: resolved?.source.sha256,
@@ -272,6 +275,22 @@ final class OverlayInspector {
         }
         return left.patchPath.compareTo(right.patchPath);
       });
+    }
+  }
+
+  void _deduplicateContributions(Iterable<_OverlayTargetPlan> groups) {
+    for (final group in groups) {
+      final seen = <String>{};
+      for (var index = 0; index < group.contributions.length; index++) {
+        final contribution = group.contributions[index];
+        if (seen.add(contribution.patchSha256)) {
+          continue;
+        }
+        group.contributions[index] = _OverlayContributionPlan.deduplicated(
+          provider: contribution.provider,
+          patchPath: contribution.patchPath,
+        );
+      }
     }
   }
 

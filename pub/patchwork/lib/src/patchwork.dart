@@ -10,6 +10,7 @@ import 'edit_session.dart';
 import 'error.dart';
 import 'internal/package_tree.dart';
 import 'internal/path_layout.dart';
+import 'internal/setup_inspector.dart';
 import 'io/atomic_file_writer.dart';
 import 'model.dart';
 import 'overlay_manifest.dart';
@@ -115,6 +116,18 @@ final class Patchwork {
       return p.posix.joinAll(p.split(p.relative(absolute, from: root)));
     }
     return path;
+  }
+
+  /// Inspects repository setup recommendations without mutating files.
+  ///
+  /// The report focuses on Patchwork's project contract: commit patch files,
+  /// ignore generated edit and activation state, and use high-level commands in
+  /// CI unless a script intentionally handles pub resolution itself.
+  Future<SetupReport> inspectSetup() async {
+    return SetupInspector(
+      rootPath: _rootPath,
+      currentPackageRootPath: _currentPackageRootPath,
+    ).inspect();
   }
 
   /// Creates an editable copy for [package] under `.patchwork/`.

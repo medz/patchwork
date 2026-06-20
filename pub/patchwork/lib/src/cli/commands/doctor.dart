@@ -17,6 +17,16 @@ Future<int> runDoctorCommand(
   final parsed = parseCommandArguments('doctor', arguments);
   final options = _parseDoctorOptions(parsed.rest);
   expectNoArguments('doctor', options.rest);
+  if (options.setup) {
+    final report = await patchwork.inspectSetup();
+    if (parsed.json) {
+      printSetupJson(patchwork, report, out);
+    } else {
+      printSetup(patchwork, report, out);
+    }
+    return report.hasWarnings ? 1 : 0;
+  }
+
   final state = await patchwork.inspect();
   if (parsed.json) {
     printStatusJson(patchwork, state, out, explain: options.explain);
@@ -26,10 +36,11 @@ Future<int> runDoctorCommand(
   return state.problems.isEmpty && state.needsApply.isEmpty ? 0 : 1;
 }
 
-({bool explain, List<String> rest}) _parseDoctorOptions(
+({bool explain, bool setup, List<String> rest}) _parseDoctorOptions(
   List<String> arguments,
 ) {
   var explain = false;
+  var setup = false;
   final rest = <String>[];
   for (final argument in arguments) {
     if (argument == '--explain') {
@@ -39,10 +50,20 @@ Future<int> runDoctorCommand(
       explain = true;
       continue;
     }
+    if (argument == '--setup') {
+      if (setup) {
+        throw duplicateOption('--setup');
+      }
+      setup = true;
+      continue;
+    }
     if (argument.startsWith('--explain=')) {
+      throw unknownOption(argument, 'doctor');
+    }
+    if (argument.startsWith('--setup=')) {
       throw unknownOption(argument, 'doctor');
     }
     rest.add(argument);
   }
-  return (explain: explain, rest: List.unmodifiable(rest));
+  return (explain: explain, setup: setup, rest: List.unmodifiable(rest));
 }

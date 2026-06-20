@@ -15,12 +15,34 @@ Future<int> runDoctorCommand(
   io.IOSink out,
 ) async {
   final parsed = parseCommandArguments('doctor', arguments);
-  expectNoArguments('doctor', parsed.rest);
+  final options = _parseDoctorOptions(parsed.rest);
+  expectNoArguments('doctor', options.rest);
   final state = await patchwork.inspect();
   if (parsed.json) {
-    printStatusJson(patchwork, state, out);
+    printStatusJson(patchwork, state, out, explain: options.explain);
   } else {
-    printStatus(patchwork, state, out);
+    printStatus(patchwork, state, out, explain: options.explain);
   }
   return state.problems.isEmpty && state.needsApply.isEmpty ? 0 : 1;
+}
+
+({bool explain, List<String> rest}) _parseDoctorOptions(
+  List<String> arguments,
+) {
+  var explain = false;
+  final rest = <String>[];
+  for (final argument in arguments) {
+    if (argument == '--explain') {
+      if (explain) {
+        throw duplicateOption('--explain');
+      }
+      explain = true;
+      continue;
+    }
+    if (argument.startsWith('--explain=')) {
+      throw unknownOption(argument, 'doctor');
+    }
+    rest.add(argument);
+  }
+  return (explain: explain, rest: List.unmodifiable(rest));
 }

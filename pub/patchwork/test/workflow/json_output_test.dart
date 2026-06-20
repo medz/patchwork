@@ -195,7 +195,24 @@ void main() {
         exitCodes: {1},
       );
       expect(doctorResult.exitCode, 1);
-      expect(_decodeObject(doctorResult.stdout)['problems'], isNotEmpty);
+      final doctorJson = _decodeObject(doctorResult.stdout);
+      expect(doctorJson['problems'], isNotEmpty);
+      final plainProblem = _objects(doctorJson['problems']).single;
+      expect(plainProblem, isNot(contains('suggestedActions')));
+
+      final explainResult = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final explainJson = _decodeObject(explainResult.stdout);
+      final explainProblem = _objects(explainJson['problems']).single;
+      expect(explainProblem['code'], 'pub.override_conflict');
+      final actions = _objects(explainProblem['suggestedActions']);
+      expect(
+        actions.map((action) => action['command']),
+        contains('patchwork apply greeter'),
+      );
+      expect(actions.map((action) => action['description']), isNotEmpty);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

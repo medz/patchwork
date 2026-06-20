@@ -4,6 +4,7 @@ import 'dart:io' as io;
 import '../error.dart';
 import '../model.dart';
 import '../patchwork.dart';
+import 'remediation.dart';
 
 /// Writes a [PatchworkException] in the human-readable CLI format.
 ///
@@ -35,7 +36,12 @@ void printErrorJson(io.IOSink out, PatchworkException error) {
 ///
 /// Paths are rendered relative to the Patchwork state root when possible so the
 /// output can be copied between checkouts and compared in tests.
-void printStatus(Patchwork patchwork, PatchworkState state, io.IOSink out) {
+void printStatus(
+  Patchwork patchwork,
+  PatchworkState state,
+  io.IOSink out, {
+  bool explain = false,
+}) {
   if (state.packages.isEmpty) {
     out.writeln('No patchwork packages.');
     return;
@@ -54,30 +60,54 @@ void printStatus(Patchwork patchwork, PatchworkState state, io.IOSink out) {
     }
     if (package.needsApply) {
       out.writeln('  action: patchwork apply ${package.package}');
+      if (explain) {
+        _printSuggestedActions(out, [applyAction(package)]);
+      }
     }
     for (final problem in package.problems) {
       out.writeln('  problem: ${problem.message}');
       if (problem.hint != null) {
         out.writeln('    ${problem.hint}');
       }
+      if (explain) {
+        _printSuggestedActions(out, remediationActions(package, problem));
+      }
     }
   }
 }
 
 /// Writes inspected state as a single JSON document.
-void printStatusJson(Patchwork patchwork, PatchworkState state, io.IOSink out) {
+void printStatusJson(
+  Patchwork patchwork,
+  PatchworkState state,
+  io.IOSink out, {
+  bool explain = false,
+}) {
   _printJson(out, {
     'packages': [
-      for (final package in state.packages) _statusJson(patchwork, package),
+      for (final package in state.packages)
+        _statusJson(patchwork, package, explain: explain),
     ],
     'needsApply': [
       for (final package in state.needsApply)
-        {'package': package.package, 'version': package.version},
+        {
+          'package': package.package,
+          'version': package.version,
+          if (explain) 'suggestedActions': [_actionJson(applyAction(package))],
+        },
     ],
     'problems': [
       for (final package in state.packages)
         for (final problem in package.problems)
-          {'package': package.package, ..._problemJson(problem)},
+          {
+            'package': package.package,
+            ..._problemJson(problem),
+            if (explain)
+              'suggestedActions': [
+                for (final action in remediationActions(package, problem))
+                  _actionJson(action),
+              ],
+          },
     ],
   });
 }
@@ -235,7 +265,11 @@ void printOverlayJson(
   });
 }
 
-Map<String, Object?> _statusJson(Patchwork patchwork, PatchStatus package) {
+Map<String, Object?> _statusJson(
+  Patchwork patchwork,
+  PatchStatus package, {
+  required bool explain,
+}) {
   return {
     'package': package.package,
     'version': package.version,
@@ -247,7 +281,17 @@ Map<String, Object?> _statusJson(Patchwork patchwork, PatchStatus package) {
     'hasOpenEdit': package.hasOpenEdit,
     'hasPatch': package.hasPatch,
     'needsApply': package.needsApply,
-    'problems': [for (final problem in package.problems) _problemJson(problem)],
+    'problems': [
+      for (final problem in package.problems)
+        {
+          ..._problemJson(problem),
+          if (explain)
+            'suggestedActions': [
+              for (final action in remediationActions(package, problem))
+                _actionJson(action),
+            ],
+        },
+    ],
   };
 }
 
@@ -257,6 +301,28 @@ Map<String, Object?> _problemJson(PatchProblem problem) {
     'message': problem.message,
     'hint': problem.hint,
   };
+}
+
+Map<String, Object?> _actionJson(SuggestedAction action) {
+  return {
+    if (action.command != null) 'command': action.command,
+    'description': action.description,
+  };
+}
+
+void _printSuggestedActions(io.IOSink out, List<SuggestedAction> actions) {
+  if (actions.isEmpty) {
+    return;
+  }
+  out.writeln('  remediation:');
+  for (final action in actions) {
+    if (action.command == null) {
+      out.writeln('    - ${action.description}');
+      continue;
+    }
+    out.writeln('    - ${action.command}');
+    out.writeln('      ${action.description}');
+  }
 }
 
 String _cleanupKindLabel(CleanupChangeKind kind) {

@@ -36,7 +36,7 @@ void main() {
     final generalHelp = await _runApplication(root, ['--help']);
     expect(generalHelp.exitCode, 0);
     expect(generalHelp.stdout, contains('status [--json]'));
-    expect(generalHelp.stdout, contains('doctor [--json]'));
+    expect(generalHelp.stdout, contains('doctor [--explain] [--json]'));
     expect(generalHelp.stdout, contains('patch <pkg>'));
     expect(generalHelp.stdout, contains('overlay <pkg>'));
     expect(generalHelp.stdout, contains('[--json]'));
@@ -47,6 +47,14 @@ void main() {
     expect(statusHelp.exitCode, 0);
     expect(statusHelp.stdout, contains('Usage: patchwork status [--json]'));
     expect(statusHelp.stdout, contains('not a stable schema'));
+
+    final doctorHelp = await _runApplication(root, ['doctor', '--help']);
+    expect(doctorHelp.exitCode, 0);
+    expect(
+      doctorHelp.stdout,
+      contains('Usage: patchwork doctor [--explain] [--json]'),
+    );
+    expect(doctorHelp.stdout, contains('remediation actions'));
 
     final applyHelp = await _runApplication(root, ['apply', '--help']);
     expect(applyHelp.exitCode, 0);

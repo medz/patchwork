@@ -321,6 +321,81 @@ void main() {
   );
 
   test(
+    'overlay inspect skips stale provider overlays with missing patch files',
+    () async {
+      final project = await OverlayProjectSandbox.create();
+      addTearDown(project.dispose);
+
+      await project.registerPrefixOverlay(project.providerBRoot, 'Hi');
+      final manifest = project.manifestFor(project.providerBRoot);
+      manifest.writeAsStringSync(
+        manifest.readAsStringSync().replaceFirst(
+          'version: "0.1.0"',
+          'version: "0.0.1"',
+        ),
+      );
+      File(
+        p.join(project.providerBRoot, 'patches', 'greeter@0.1.0.patch'),
+      ).deleteSync();
+      await project.pubGet(project.appRoot);
+
+      final result = await _runApplication(project.appRoot, [
+        'overlay',
+        'inspect',
+        '--json',
+      ]);
+
+      expect(result.exitCode, 0);
+      final decoded = jsonDecode(result.stdout) as Map<String, Object?>;
+      final providers = decoded['providers'] as List<Object?>;
+      final provider = providers.single as Map<String, Object?>;
+      final entries = provider['entries'] as List<Object?>;
+      final entry = entries.single as Map<String, Object?>;
+      expect(entry['status'], 'skipped');
+      expect(entry['skipReason'], 'overlay.version_mismatch');
+      expect(entry['resolvedVersion'], '0.1.0');
+      expect(decoded['targets'], isEmpty);
+      project.expectGreeterResolvedToSource();
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
+
+  test(
+    'overlay inspect fails when provider overlay targets a non-dependency',
+    () async {
+      final project = await OverlayProjectSandbox.create();
+      addTearDown(project.dispose);
+
+      project.manifestFor(project.providerBRoot).writeAsStringSync('''
+overlays:
+  - package: "provider_c"
+    version: "0.1.0"
+    sha256: "unused"
+    patch: "patches/provider_c@0.1.0.patch"
+''');
+      await project.pubGet(project.appRoot);
+
+      final result = await _runApplication(project.appRoot, [
+        'overlay',
+        'inspect',
+        '--json',
+      ]);
+
+      expect(result.exitCode, 1);
+      final decoded = jsonDecode(result.stdout) as Map<String, Object?>;
+      final providers = decoded['providers'] as List<Object?>;
+      final provider = providers.single as Map<String, Object?>;
+      final entries = provider['entries'] as List<Object?>;
+      final entry = entries.single as Map<String, Object?>;
+      expect(entry['status'], 'failed');
+      expect(entry['skipReason'], 'overlay.provider_not_dependency');
+      expect(decoded['targets'], isEmpty);
+      project.expectGreeterResolvedToSource();
+    },
+    timeout: const Timeout(Duration(minutes: 5)),
+  );
+
+  test(
     'workspace provider manifests are applied when the app depends on them',
     () async {
       final project = await OverlayProjectSandbox.create(

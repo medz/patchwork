@@ -137,6 +137,7 @@ final class OverlayInspector {
         entry,
         patchPath: entry.patch,
         skipReason: 'overlay.provider_not_dependency',
+        status: OverlayEntryStatus.failed,
       );
     }
 
@@ -146,6 +147,23 @@ final class OverlayInspector {
         entry,
         patchPath: entry.patch,
         skipReason: 'pub.package_not_found',
+      );
+    }
+
+    if (resolved.version != entry.version) {
+      return _skippedEntry(
+        entry,
+        patchPath: entry.patch,
+        skipReason: 'overlay.version_mismatch',
+        resolved: resolved,
+      );
+    }
+    if (resolved.source.sha256 != entry.sha256) {
+      return _skippedEntry(
+        entry,
+        patchPath: entry.patch,
+        skipReason: 'overlay.source_mismatch',
+        resolved: resolved,
       );
     }
 
@@ -161,22 +179,6 @@ final class OverlayInspector {
         skipReason: 'overlay.patch_file_missing',
         resolved: resolved,
         status: OverlayEntryStatus.failed,
-      );
-    }
-    if (resolved.version != entry.version) {
-      return _skippedEntry(
-        entry,
-        patchPath: patchPath,
-        skipReason: 'overlay.version_mismatch',
-        resolved: resolved,
-      );
-    }
-    if (resolved.source.sha256 != entry.sha256) {
-      return _skippedEntry(
-        entry,
-        patchPath: patchPath,
-        skipReason: 'overlay.source_mismatch',
-        resolved: resolved,
       );
     }
 

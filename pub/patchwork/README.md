@@ -244,6 +244,8 @@ workflow, so Patchwork only manages its own patch override entries.
 | `patchwork overlay <pkg> [--reason <text>] [--json]` | Register a committed patch in `patchwork.yaml`. |
 | `patchwork apply [pkg] [--no-pub-get] [--json]` | Apply committed patches and refresh pub resolution. |
 | `patchwork undo <pkg> [--no-pub-get] [--json]` | Remove one applied patch and refresh pub resolution. |
+| `patchwork remove <pkg> [version] [--dry-run] [--force] [--no-pub-get] [--json]` | Remove selected Patchwork artifacts safely. |
+| `patchwork prune [--dry-run] [--force] [--no-pub-get] [--json]` | Remove stale patch files and unreferenced generated output. |
 | `patchwork status [--json]` | Show patch and override state. |
 | `patchwork doctor [--json]` | Check local readiness. |
 
@@ -278,9 +280,9 @@ Prefer the standalone `patchwork` executable for JSON automation. `dart run`
 may print Dart build-hook progress before the Patchwork process starts when a
 package in the dependency graph provides a hook.
 
-Use `--no-pub-get` with `apply` or `undo` only when a script needs to separate
-Patchwork's filesystem changes from pub resolution refresh. Normal interactive
-usage should let Patchwork run `dart pub get`.
+Use `--no-pub-get` with commands that change generated overrides only when a
+script needs to separate Patchwork's filesystem changes from pub resolution
+refresh. Normal interactive usage should let Patchwork run `dart pub get`.
 
 ## Migrating From Cache Patches
 
@@ -311,6 +313,7 @@ remove it intentionally:
 ```sh
 dart run patchwork patch collection
 dart run patchwork commit collection
+dart run patchwork remove collection 1.19.0
 ```
 
 If the upstream release does not contain the fix, explicitly continue from the
@@ -321,6 +324,10 @@ dart run patchwork patch collection --continue 1.19.0
 dart run patchwork commit collection
 dart run patchwork apply collection
 ```
+
+Use `patchwork prune --dry-run` to inspect stale patch files and unreferenced
+generated output before cleanup. `prune` only removes generated output when a
+valid Patchwork marker proves ownership and no active override points at it.
 
 ## CI Check
 

@@ -8,6 +8,8 @@ import 'commands/commit.dart';
 import 'commands/doctor.dart';
 import 'commands/overlay.dart';
 import 'commands/patch.dart';
+import 'commands/prune.dart';
+import 'commands/remove.dart';
 import 'commands/status.dart';
 import 'commands/undo.dart';
 import 'output.dart';
@@ -67,6 +69,8 @@ final class Application {
         'overlay' => await runOverlayCommand(patchwork, rest, out),
         'apply' => await runApplyCommand(patchwork, rest, out, cwd),
         'undo' => await runUndoCommand(patchwork, rest, out, cwd),
+        'remove' => await runRemoveCommand(patchwork, rest, out, cwd),
+        'prune' => await runPruneCommand(patchwork, rest, out, cwd),
         'status' => await runStatusCommand(patchwork, rest, out),
         'doctor' => await runDoctorCommand(patchwork, rest, out),
         _ => throw StateError('unreachable command: $command'),
@@ -90,6 +94,8 @@ bool isKnownCommand(String command) {
     'overlay' ||
     'apply' ||
     'undo' ||
+    'remove' ||
+    'prune' ||
     'status' ||
     'doctor' => true,
     _ => false,
@@ -106,6 +112,10 @@ void printGeneralHelp(io.IOSink out) {
   out.writeln('  overlay <pkg> [--reason <text>] [--json]');
   out.writeln('  apply [pkg] [--no-pub-get] [--json]');
   out.writeln('  undo <pkg> [--no-pub-get] [--json]');
+  out.writeln(
+    '  remove <pkg> [version] [--dry-run] [--force] [--no-pub-get] [--json]',
+  );
+  out.writeln('  prune [--dry-run] [--force] [--no-pub-get] [--json]');
   out.writeln('  status [--json]');
   out.writeln('  doctor [--json]');
   printJsonHelp(out);
@@ -131,6 +141,18 @@ void printCommandHelp(String command, io.IOSink out) {
     case 'undo':
       out.writeln('Usage: patchwork undo <pkg> [--no-pub-get] [--json]');
       printJsonHelp(out);
+    case 'remove':
+      out.writeln(
+        'Usage: patchwork remove <pkg> [version] [--dry-run] [--force] [--no-pub-get] [--json]',
+      );
+      printCleanupHelp(out);
+      printJsonHelp(out);
+    case 'prune':
+      out.writeln(
+        'Usage: patchwork prune [--dry-run] [--force] [--no-pub-get] [--json]',
+      );
+      printCleanupHelp(out);
+      printJsonHelp(out);
     case 'status':
       out.writeln('Usage: patchwork status [--json]');
       printJsonHelp(out);
@@ -153,4 +175,16 @@ void printJsonHelp(io.IOSink out) {
     '--json prints one structured diagnostic JSON document on stdout.',
   );
   out.writeln('It mirrors current Patchwork state and is not a stable schema.');
+}
+
+/// Writes cleanup-specific option help.
+void printCleanupHelp(io.IOSink out) {
+  out.writeln('');
+  out.writeln('--dry-run prints planned cleanup without changing files.');
+  out.writeln(
+    '--force allows cleanup to discard open edits or applied Patchwork state.',
+  );
+  out.writeln(
+    '--no-pub-get skips pub resolution refresh after override cleanup.',
+  );
 }

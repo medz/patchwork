@@ -7,6 +7,8 @@
   and applied output keeps generated ownership markers under `.dart_tool/`.
 - Made CLI `apply` and `undo` refresh pub resolution by default, with
   `--no-pub-get` for scripts that need the lower-level filesystem step.
+- Added `patchwork remove` and `patchwork prune` for safe cleanup of stale patch
+  files, open edit directories, and Patchwork-owned generated state.
 
 ## 0.4.0 - 2026-06-20
 

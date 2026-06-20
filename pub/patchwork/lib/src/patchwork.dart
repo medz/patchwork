@@ -587,39 +587,222 @@ final class Patchwork {
     }
     final marker = applied.single;
 
-    final absoluteAppliedPath = _requirePatchworkAppliedPath(
-      package,
-      marker.version,
-      marker.path,
+    final absoluteAppliedPath = _removeAppliedMarker(
+      marker,
       code: 'undo.applied_path_not_deletable',
-      message: _invalidAppliedPathMessage,
     );
-    final markers = _appliedMarkerStore.readAll();
-    final mirroredPubspecDependencyOverrides =
-        _mirroredPubspecDependencyOverrides(markers);
-    final nextMirroredPubspecDependencyOverrides = _pubspecOverrides
-        .removePathOverrideIfMatches(
-          workspaceRootPath: _rootPath,
-          package: package,
-          path: marker.path,
-          ownedDependencyOverrides: _ownedPubspecDependencyOverrides(markers),
-          pubspecDependencyOverrides: _rootPubspecDependencyOverrides(),
-          mirroredPubspecDependencyOverrides:
-              mirroredPubspecDependencyOverrides,
-        );
-    _packageTree.deleteDirectory(absoluteAppliedPath);
-
-    _setMirroredPubspecDependencyOverrides([
-      for (final existing in markers)
-        if (!(existing.package == package &&
-            existing.version == marker.version))
-          existing,
-    ], nextMirroredPubspecDependencyOverrides);
 
     return UnappliedPatch(
       package: package,
       changed: true,
       path: absoluteAppliedPath,
+    );
+  }
+
+  /// Removes Patchwork artifacts for [package] and optional [version].
+  ///
+  /// By default this refuses to discard open edit directories or applied output
+  /// markers. Set [force] to explicitly remove those local states too. When
+  /// [dryRun] is true, the returned changes are planned but no files are
+  /// modified.
+  Future<CleanupResult> remove(
+    String package, {
+    String? version,
+    bool dryRun = false,
+    bool force = false,
+  }) async {
+    _checkPlainPackageName(package);
+    final selectedVersion = _removeVersion(package, version);
+    final changes = <CleanupChange>[];
+    final appliedMarkers = <AppliedMarker>[];
+
+    final patchPath = _layout.patchPath(package, selectedVersion);
+    if (File(patchPath).existsSync()) {
+      changes.add(
+        CleanupChange(
+          kind: CleanupChangeKind.patchFile,
+          package: package,
+          version: selectedVersion,
+          path: patchPath,
+        ),
+      );
+    }
+
+    final edit = _editDirectory(package, selectedVersion);
+    if (edit != null) {
+      if (!force) {
+        throw PatchworkException(
+          'Package "$package@$selectedVersion" has an open edit directory.',
+          code: 'remove.open_edit',
+          hint: 'Pass --force to discard the edit directory.',
+          location: edit.path,
+        );
+      }
+      changes.add(
+        CleanupChange(
+          kind: CleanupChangeKind.editDirectory,
+          package: package,
+          version: selectedVersion,
+          path: edit.path,
+        ),
+      );
+    }
+
+    final marker = _appliedMarkerStore.read(package, selectedVersion);
+    if (marker != null) {
+      if (!force) {
+        throw PatchworkException(
+          'Package "$package@$selectedVersion" has applied Patchwork state.',
+          code: 'remove.patch_applied',
+          hint: 'Run patchwork undo $package first, or pass --force.',
+          location: _layout.appliedPath(package, selectedVersion),
+        );
+      }
+      _addAppliedCleanupChanges(changes, marker);
+      appliedMarkers.add(marker);
+    }
+
+    if (!dryRun) {
+      for (final marker in appliedMarkers) {
+        _removeAppliedMarker(marker, code: 'remove.applied_path_not_deletable');
+      }
+      if (edit != null) {
+        _packageTree.deleteDirectory(edit.path);
+      }
+      final patchFile = File(patchPath);
+      if (patchFile.existsSync()) {
+        patchFile.deleteSync();
+      }
+    }
+
+    return CleanupResult(
+      command: 'remove',
+      dryRun: dryRun,
+      force: force,
+      changes: List.unmodifiable(changes),
+    );
+  }
+
+  /// Removes stale Patchwork artifacts that can be proven safe to clean.
+  ///
+  /// Stale patch files are selected when they no longer match current pub
+  /// resolution. Generated output is selected only when its valid marker points
+  /// at Patchwork's deterministic generated directory and no active override
+  /// references it. Set [force] to also discard open edits or active applied
+  /// state associated with stale patches.
+  Future<CleanupResult> prune({bool dryRun = false, bool force = false}) async {
+    final changes = <CleanupChange>[];
+    final appliedMarkers = <AppliedMarker>[];
+    final edits = _layout.editDirectories();
+    final appliedDirectories = _layout.appliedDirectories();
+    final seen = <String>{};
+    final resolution = _readResolution();
+
+    for (final patch in _layout.patchFiles()) {
+      if (_patchMatchesResolution(patch, resolution)) {
+        continue;
+      }
+      final edit = _findPackageVersionPath(edits, patch.package, patch.version);
+      if (edit != null && !force) {
+        throw PatchworkException(
+          'Package "${patch.package}@${patch.version}" has an open edit directory.',
+          code: 'prune.open_edit',
+          hint: 'Pass --force to discard the edit directory.',
+          location: edit.path,
+        );
+      }
+
+      final marker = _appliedMarkerStore.read(patch.package, patch.version);
+      final activeOverride =
+          marker != null &&
+          _pubspecOverrides.pointsToPath(
+            workspaceRootPath: _rootPath,
+            package: marker.package,
+            path: marker.path,
+          );
+      if (activeOverride && !force) {
+        throw PatchworkException(
+          'Package "${patch.package}@${patch.version}" has applied Patchwork state.',
+          code: 'prune.patch_applied',
+          hint: 'Run patchwork undo ${patch.package} first, or pass --force.',
+          location: _layout.appliedPath(patch.package, patch.version),
+        );
+      }
+
+      _addCleanupChange(
+        changes,
+        seen,
+        CleanupChange(
+          kind: CleanupChangeKind.patchFile,
+          package: patch.package,
+          version: patch.version,
+          path: patch.path,
+        ),
+      );
+      if (edit != null) {
+        _addCleanupChange(
+          changes,
+          seen,
+          CleanupChange(
+            kind: CleanupChangeKind.editDirectory,
+            package: edit.package,
+            version: edit.version,
+            path: edit.path,
+          ),
+        );
+      }
+      if (marker != null && (force || !activeOverride)) {
+        _addAppliedCleanupChanges(changes, marker, seen: seen);
+        appliedMarkers.add(marker);
+      }
+    }
+
+    for (final appliedDirectory in appliedDirectories) {
+      final marker = _tryReadAppliedMarker(appliedDirectory);
+      if (marker == null) {
+        continue;
+      }
+      if (_pubspecOverrides.pointsToPath(
+        workspaceRootPath: _rootPath,
+        package: marker.package,
+        path: marker.path,
+      )) {
+        continue;
+      }
+      _addAppliedCleanupChanges(changes, marker, seen: seen);
+      appliedMarkers.add(marker);
+    }
+
+    if (!dryRun) {
+      final removedMarkers = <String>{};
+      for (final marker in appliedMarkers) {
+        final key = '${marker.package}@${marker.version}';
+        if (!removedMarkers.add(key)) {
+          continue;
+        }
+        _removeAppliedMarker(marker, code: 'prune.applied_path_not_deletable');
+      }
+      for (final change in changes) {
+        switch (change.kind) {
+          case CleanupChangeKind.patchFile:
+            final file = File(change.path);
+            if (file.existsSync()) {
+              file.deleteSync();
+            }
+          case CleanupChangeKind.editDirectory:
+            _packageTree.deleteDirectory(change.path);
+          case CleanupChangeKind.appliedDirectory ||
+              CleanupChangeKind.pubspecOverride:
+            break;
+        }
+      }
+    }
+
+    return CleanupResult(
+      command: 'prune',
+      dryRun: dryRun,
+      force: force,
+      changes: List.unmodifiable(changes),
     );
   }
 
@@ -672,6 +855,183 @@ final class Patchwork {
       );
     }
     return PatchworkState(packages: statuses);
+  }
+
+  String _removeVersion(String package, String? version) {
+    if (version != null) {
+      _checkSafeRemoveVersionSegment(version);
+      return version;
+    }
+
+    final versions = <String>{
+      for (final patch in _layout.patchFiles())
+        if (patch.package == package) patch.version,
+      for (final edit in _layout.editDirectories())
+        if (edit.package == package) edit.version,
+      for (final applied in _layout.appliedDirectories())
+        if (applied.package == package) applied.version,
+    };
+    if (versions.isEmpty) {
+      throw PatchworkException(
+        'No Patchwork artifacts exist for "$package".',
+        code: 'remove.artifact_missing',
+        hint: 'Pass an explicit version if you expected a historical artifact.',
+      );
+    }
+
+    try {
+      final resolved = _readResolution().resolvePackage(
+        package,
+        requireDirectDependency: false,
+      );
+      if (versions.contains(resolved.version)) {
+        return resolved.version;
+      }
+    } on PatchworkException {
+      // Fall back to artifact inventory below. Cleanup can still target stale
+      // files when the package no longer resolves.
+    }
+
+    if (versions.length == 1) {
+      return versions.single;
+    }
+    final sortedVersions = versions.toList()..sort();
+    throw PatchworkException(
+      'More than one Patchwork artifact version exists for "$package".',
+      code: 'remove.ambiguous_version',
+      hint:
+          'Pass the version to remove, for example patchwork remove $package ${sortedVersions.first}.',
+    );
+  }
+
+  PackageVersionPath? _editDirectory(String package, String version) {
+    return _findPackageVersionPath(_layout.editDirectories(), package, version);
+  }
+
+  PackageVersionPath? _findPackageVersionPath(
+    List<PackageVersionPath> paths,
+    String package,
+    String version,
+  ) {
+    for (final path in paths) {
+      if (path.package == package && path.version == version) {
+        return path;
+      }
+    }
+    return null;
+  }
+
+  bool _patchMatchesResolution(
+    PackageVersionPath patch,
+    PubResolution resolution,
+  ) {
+    try {
+      final resolved = resolution.resolvePackage(
+        patch.package,
+        requireDirectDependency: false,
+      );
+      return resolved.version == patch.version;
+    } on PatchworkException catch (error) {
+      if (error.code == 'pub.package_not_found') {
+        return false;
+      }
+      rethrow;
+    }
+  }
+
+  AppliedMarker? _tryReadAppliedMarker(PackageVersionPath appliedDirectory) {
+    try {
+      return _appliedMarkerStore.read(
+        appliedDirectory.package,
+        appliedDirectory.version,
+      );
+    } on PatchworkException {
+      return null;
+    }
+  }
+
+  void _addAppliedCleanupChanges(
+    List<CleanupChange> changes,
+    AppliedMarker marker, {
+    Set<String>? seen,
+  }) {
+    final appliedPath = _requirePatchworkAppliedPath(
+      marker.package,
+      marker.version,
+      marker.path,
+      code: 'cleanup.applied_path_not_deletable',
+      message: _invalidAppliedPathMessage,
+    );
+    final addChange = seen == null
+        ? (CleanupChange change) => changes.add(change)
+        : (CleanupChange change) => _addCleanupChange(changes, seen, change);
+    addChange(
+      CleanupChange(
+        kind: CleanupChangeKind.appliedDirectory,
+        package: marker.package,
+        version: marker.version,
+        path: appliedPath,
+      ),
+    );
+    if (_pubspecOverrides.pointsToPath(
+          workspaceRootPath: _rootPath,
+          package: marker.package,
+          path: marker.path,
+        ) ||
+        marker.mirroredPubspecDependencyOverrides.isNotEmpty) {
+      addChange(
+        CleanupChange(
+          kind: CleanupChangeKind.pubspecOverride,
+          package: marker.package,
+          version: marker.version,
+          path: p.join(_rootPath, 'pubspec_overrides.yaml'),
+        ),
+      );
+    }
+  }
+
+  void _addCleanupChange(
+    List<CleanupChange> changes,
+    Set<String> seen,
+    CleanupChange change,
+  ) {
+    final key = '${change.kind.name}:${change.path}';
+    if (seen.add(key)) {
+      changes.add(change);
+    }
+  }
+
+  String _removeAppliedMarker(AppliedMarker marker, {required String code}) {
+    final absoluteAppliedPath = _requirePatchworkAppliedPath(
+      marker.package,
+      marker.version,
+      marker.path,
+      code: code,
+      message: _invalidAppliedPathMessage,
+    );
+    final markers = _appliedMarkerStore.readAll();
+    final mirroredPubspecDependencyOverrides =
+        _mirroredPubspecDependencyOverrides(markers);
+    final nextMirroredPubspecDependencyOverrides = _pubspecOverrides
+        .removePathOverrideIfMatches(
+          workspaceRootPath: _rootPath,
+          package: marker.package,
+          path: marker.path,
+          ownedDependencyOverrides: _ownedPubspecDependencyOverrides(markers),
+          pubspecDependencyOverrides: _rootPubspecDependencyOverrides(),
+          mirroredPubspecDependencyOverrides:
+              mirroredPubspecDependencyOverrides,
+        );
+    _packageTree.deleteDirectory(absoluteAppliedPath);
+
+    _setMirroredPubspecDependencyOverrides([
+      for (final existing in markers)
+        if (!(existing.package == marker.package &&
+            existing.version == marker.version))
+          existing,
+    ], nextMirroredPubspecDependencyOverrides);
+
+    return absoluteAppliedPath;
   }
 
   PubResolution _readResolution() {
@@ -1211,8 +1571,7 @@ final class Patchwork {
           code: 'applied.stale',
           message:
               'Generated output ${relativePath(appliedDirectory.path)} targets "$package@${appliedDirectory.version}", but current state is "$package@$version".',
-          hint:
-              'Remove the stale generated output directory if no override points at it.',
+          hint: 'Run patchwork prune to remove unreferenced generated output.',
         ),
       );
     }
@@ -1222,7 +1581,8 @@ final class Patchwork {
         PatchProblem(
           code: 'commit.open_edit',
           message: 'Package "$package" has an uncommitted edit directory.',
-          hint: 'Run patchwork commit $package or delete the edit.',
+          hint:
+              'Run patchwork commit $package, or patchwork remove $package $version --force to discard it.',
         ),
       );
     } else if (edit.isNotEmpty) {
@@ -1230,7 +1590,7 @@ final class Patchwork {
         PatchProblem(
           code: 'apply.open_edit',
           message: 'Package "$package" has an open edit directory.',
-          hint: 'Commit or delete the edit before applying this patch.',
+          hint: 'Run patchwork commit $package before applying this patch.',
         ),
       );
     }
@@ -1245,7 +1605,7 @@ final class Patchwork {
             message:
                 'Patch file ${relativePath(patch.path)} targets "$package@${patch.version}", but current pub resolution is "$package@${resolved.version}".',
             hint:
-                'Use patchwork patch $package --continue ${patch.version} to carry it forward, or remove the stale patch file.',
+                'Use patchwork patch $package --continue ${patch.version} to carry it forward, or patchwork remove $package ${patch.version} to remove it.',
           ),
         );
       }
@@ -1545,6 +1905,19 @@ void _checkSafePatchVersionSegment(String version) {
     throw PatchworkException(
       'Patch version "$version" is not a safe path segment.',
       code: 'patch.continue_version_invalid',
+    );
+  }
+}
+
+void _checkSafeRemoveVersionSegment(String version) {
+  if (version.isEmpty ||
+      version == '.' ||
+      version == '..' ||
+      version.contains('/') ||
+      version.contains(r'\')) {
+    throw PatchworkException(
+      'Patch version "$version" is not a safe path segment.',
+      code: 'remove.version_invalid',
     );
   }
 }

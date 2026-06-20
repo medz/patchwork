@@ -67,6 +67,37 @@ CommandArguments parseCommandArguments(String command, List<String> arguments) {
   return (pubGet: pubGet, rest: List.unmodifiable(rest));
 }
 
+/// Removes common cleanup flags from [arguments].
+({bool dryRun, bool force, List<String> rest}) parseCleanupOptions(
+  String command,
+  List<String> arguments,
+) {
+  var dryRun = false;
+  var force = false;
+  final rest = <String>[];
+  for (final argument in arguments) {
+    if (argument == '--dry-run') {
+      if (dryRun) {
+        throw duplicateOption('--dry-run');
+      }
+      dryRun = true;
+      continue;
+    }
+    if (argument == '--force') {
+      if (force) {
+        throw duplicateOption('--force');
+      }
+      force = true;
+      continue;
+    }
+    if (argument.startsWith('--dry-run=') || argument.startsWith('--force=')) {
+      throw unknownOption(argument, command);
+    }
+    rest.add(argument);
+  }
+  return (dryRun: dryRun, force: force, rest: List.unmodifiable(rest));
+}
+
 /// Parses the optional package operand accepted by a command.
 ///
 /// Options are rejected here because these commands do not have command-specific

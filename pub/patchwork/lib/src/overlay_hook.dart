@@ -31,12 +31,7 @@ Future<void> _applyPackageOverlays(BuildOutputBuilder output) async {
   final layout = PathLayout(rootPath);
   final graph = _PackageGraph.read(p.join(rootPath, '.dart_tool'));
   final currentPackageConfig = _PackageConfigFile.read(packageConfigPath);
-  _declareBaseDependencies(
-    output,
-    packageConfigPath: packageConfigPath,
-    rootPath: rootPath,
-    layout: layout,
-  );
+  _declareBaseDependencies(output, rootPath: rootPath, layout: layout);
 
   final manifests = _readOverlayManifests(
     currentPackageConfig,
@@ -104,7 +99,11 @@ List<_PackageManifest> _readOverlayManifests(
     }
     final manifestPath = p.join(package.rootPath, 'patchwork.yaml');
     final manifestFile = File(manifestPath);
-    output.dependencies.add(manifestFile.absolute.uri);
+    _declareOverlayManifestDependency(
+      output,
+      manifestFile: manifestFile,
+      packageRootPath: package.rootPath,
+    );
     if (!manifestFile.existsSync()) {
       continue;
     }
@@ -384,18 +383,39 @@ String _basePackageConfigPath(PathLayout layout) {
 
 void _declareBaseDependencies(
   BuildOutputBuilder output, {
-  required String packageConfigPath,
   required String rootPath,
   required PathLayout layout,
 }) {
   final files = {
-    packageConfigPath,
     p.join(rootPath, '.dart_tool', 'package_graph.json'),
     p.join(rootPath, 'pubspec.lock'),
     p.join(rootPath, 'pubspec.yaml'),
-    _basePackageConfigPath(layout),
   };
   output.dependencies.addAll(files.map((path) => File(path).absolute.uri));
+  final basePackageConfigPath = _basePackageConfigPath(layout);
+  _declareExistingFileDependency(output, basePackageConfigPath);
+}
+
+void _declareOverlayManifestDependency(
+  BuildOutputBuilder output, {
+  required File manifestFile,
+  required String packageRootPath,
+}) {
+  if (manifestFile.existsSync()) {
+    output.dependencies.add(manifestFile.absolute.uri);
+    return;
+  }
+
+  // Missing file dependencies make the hooks runner rerun immediately. Watch the
+  // package root instead so a newly-created patchwork.yaml still invalidates.
+  output.dependencies.add(Directory(packageRootPath).absolute.uri);
+}
+
+void _declareExistingFileDependency(BuildOutputBuilder output, String path) {
+  final file = File(path);
+  if (file.existsSync()) {
+    output.dependencies.add(file.absolute.uri);
+  }
 }
 
 Future<T> _wrapPatchworkErrors<T>(Future<T> Function() run) async {

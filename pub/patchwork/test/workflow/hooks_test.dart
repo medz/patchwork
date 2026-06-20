@@ -7,6 +7,21 @@ import 'project_sandbox.dart';
 
 void main() {
   test(
+    'package overlay hook no-op does not force an immediate rerun',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+
+      final result = await project.patchworkResult(['status']);
+      expect(result.stdout, contains('No patchwork packages.'));
+      expect(result.stdout, isNot(contains('File modified during build')));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'auto-applies committed patches before running a standalone project',
     () async {
       final project = await ProjectSandbox.standalone();

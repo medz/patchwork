@@ -229,11 +229,15 @@ List<SuggestedAction> _appliedRepairActions(
   PatchStatus status,
   PatchProblem problem,
 ) {
+  final package = status.package;
+  if (!status.hasPatch) {
+    return _missingPatchAppliedRepairActions(status, problem);
+  }
+
   if (!problem.remediationRequiresUndoFirst) {
     return [applyAction(status)];
   }
 
-  final package = status.package;
   return [
     SuggestedAction(
       command: 'patchwork undo $package',
@@ -246,6 +250,35 @@ List<SuggestedAction> _appliedRepairActions(
           'Refresh pub resolution after removing the generated override.',
     ),
     applyAction(status),
+  ];
+}
+
+List<SuggestedAction> _missingPatchAppliedRepairActions(
+  PatchStatus status,
+  PatchProblem problem,
+) {
+  if (problem.code == 'applied.output_missing') {
+    return const [
+      SuggestedAction(
+        description:
+            'Clean up the applied Patchwork state before applying again because the committed patch file is gone.',
+      ),
+    ];
+  }
+
+  final package = status.package;
+  return [
+    SuggestedAction(
+      command: 'patchwork undo $package',
+      description:
+          'Remove the applied Patchwork state because the committed patch file is gone.',
+    ),
+    if (problem.remediationRequiresUndoFirst)
+      const SuggestedAction(
+        command: 'dart pub get',
+        description:
+            'Refresh pub resolution after removing the generated override.',
+      ),
   ];
 }
 

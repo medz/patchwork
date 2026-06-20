@@ -36,7 +36,10 @@ void main() {
     final generalHelp = await _runApplication(root, ['--help']);
     expect(generalHelp.exitCode, 0);
     expect(generalHelp.stdout, contains('status [--json]'));
-    expect(generalHelp.stdout, contains('doctor [--explain] [--json]'));
+    expect(
+      generalHelp.stdout,
+      contains('doctor [--setup] [--explain] [--json]'),
+    );
     expect(generalHelp.stdout, contains('patch <pkg>'));
     expect(generalHelp.stdout, contains('overlay <pkg>'));
     expect(generalHelp.stdout, contains('[--json]'));
@@ -52,8 +55,9 @@ void main() {
     expect(doctorHelp.exitCode, 0);
     expect(
       doctorHelp.stdout,
-      contains('Usage: patchwork doctor [--explain] [--json]'),
+      contains('Usage: patchwork doctor [--setup] [--explain] [--json]'),
     );
+    expect(doctorHelp.stdout, contains('gitignore, hook, and CI'));
     expect(doctorHelp.stdout, contains('remediation actions'));
 
     final applyHelp = await _runApplication(root, ['apply', '--help']);

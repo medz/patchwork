@@ -247,7 +247,7 @@ workflow, so Patchwork only manages its own patch override entries.
 | `patchwork remove <pkg> [version] [--dry-run] [--force] [--no-pub-get] [--json]` | Remove selected Patchwork artifacts safely. |
 | `patchwork prune [--dry-run] [--force] [--no-pub-get] [--json]` | Remove stale patch files and unreferenced generated output. |
 | `patchwork status [--json]` | Show patch and override state. |
-| `patchwork doctor [--explain] [--json]` | Check local readiness and optionally explain remediation actions. |
+| `patchwork doctor [--setup] [--explain] [--json]` | Check local readiness, setup recommendations, and optional remediation actions. |
 
 Packages are plain pub package names selected by the current pub resolution.
 Patchwork rejects target syntax such as `pub:collection`, `collection@1.19.1`,
@@ -276,6 +276,21 @@ Use `patchwork doctor --explain` when you want remediation guidance attached to
 each diagnostic. In JSON mode, `doctor --explain --json` includes diagnostic
 `suggestedActions`; those actions are current CLI guidance, not a fixed
 compatibility schema.
+
+Use `patchwork doctor --setup` to validate repository setup without mutating
+files. It checks that generated Patchwork state stays ignored, committed patch
+files remain visible to Git, hook setup is complete when `hook/build.dart`
+exists, and CI uses the high-level `patchwork apply` or `patchwork doctor`
+commands. A typical `.gitignore` should include:
+
+```gitignore
+.patchwork/
+.dart_tool/
+pubspec_overrides.yaml
+```
+
+Do not ignore `patches/` or `patches/*.patch`; those files are Patchwork's
+reviewable durable state.
 
 State JSON is derived from committed patch files, open edit-session metadata,
 generated applied markers, pub resolution, and `pubspec_overrides.yaml`. It
@@ -343,6 +358,11 @@ dart run patchwork apply
 dart run patchwork status
 dart test
 ```
+
+Run `dart run patchwork doctor --setup` when you want CI to verify repository
+configuration. Use plain `patchwork apply` in CI so Patchwork refreshes
+`pubspec_overrides.yaml` and pub resolution together. Reserve `--no-pub-get` for
+low-level scripts that run `dart pub get` themselves.
 
 Use `patchwork doctor` when CI should fail on missing, stale, or unapplied
 patch state. Use `patchwork doctor --explain` when CI logs should include the

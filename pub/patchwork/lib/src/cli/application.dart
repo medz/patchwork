@@ -117,7 +117,7 @@ void printGeneralHelp(io.IOSink out) {
   );
   out.writeln('  prune [--dry-run] [--force] [--no-pub-get] [--json]');
   out.writeln('  status [--json]');
-  out.writeln('  doctor [--explain] [--json]');
+  out.writeln('  doctor [--setup] [--explain] [--json]');
   printJsonHelp(out);
 }
 
@@ -157,8 +157,9 @@ void printCommandHelp(String command, io.IOSink out) {
       out.writeln('Usage: patchwork status [--json]');
       printJsonHelp(out);
     case 'doctor':
-      out.writeln('Usage: patchwork doctor [--explain] [--json]');
+      out.writeln('Usage: patchwork doctor [--setup] [--explain] [--json]');
       out.writeln('');
+      out.writeln('--setup checks gitignore, hook, and CI recommendations.');
       out.writeln('--explain prints remediation actions for each diagnostic.');
       printJsonHelp(out);
     default:

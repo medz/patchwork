@@ -112,6 +112,30 @@ void printStatusJson(
   });
 }
 
+/// Writes setup checks in the human-readable CLI format.
+void printSetup(Patchwork patchwork, SetupReport report, io.IOSink out) {
+  out.writeln('Setup checks:');
+  for (final check in report.checks) {
+    out.writeln('${_setupCheckPrefix(check.level)} ${check.message}');
+    if (check.path != null) {
+      out.writeln('  path: ${patchwork.relativePath(check.path!)}');
+    }
+    if (check.hint != null) {
+      out.writeln('  ${check.hint}');
+    }
+  }
+}
+
+/// Writes setup checks as a single JSON document.
+void printSetupJson(Patchwork patchwork, SetupReport report, io.IOSink out) {
+  _printJson(out, {
+    'setupChecks': [
+      for (final check in report.checks) _setupCheckJson(patchwork, check),
+    ],
+    'hasWarnings': report.hasWarnings,
+  });
+}
+
 /// Writes a `patchwork patch` result as a single JSON document.
 void printPatchJson(Patchwork patchwork, PreparedEdit edit, io.IOSink out) {
   _printJson(out, {
@@ -317,6 +341,24 @@ Map<String, Object?> _actionJson(SuggestedAction action) {
   return {
     if (action.command != null) 'command': action.command,
     'description': action.description,
+  };
+}
+
+Map<String, Object?> _setupCheckJson(Patchwork patchwork, SetupCheck check) {
+  return {
+    'code': check.code,
+    'level': check.level.name,
+    'message': check.message,
+    'hint': check.hint,
+    'path': check.path == null ? null : patchwork.relativePath(check.path!),
+  };
+}
+
+String _setupCheckPrefix(SetupCheckLevel level) {
+  return switch (level) {
+    SetupCheckLevel.ok => 'ok:',
+    SetupCheckLevel.warning => 'warning:',
+    SetupCheckLevel.info => 'info:',
   };
 }
 

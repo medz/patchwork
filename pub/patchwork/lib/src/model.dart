@@ -392,6 +392,76 @@ final class PatchStatus {
   final List<PatchProblem> problems;
 }
 
+/// The severity of a project setup check.
+///
+/// Setup checks distinguish required fixes from optional guidance. Warnings are
+/// intended to make `patchwork doctor --setup` fail so CI can catch generated
+/// state or patch-file configuration mistakes.
+enum SetupCheckLevel {
+  /// The project satisfies the setup check.
+  ok,
+
+  /// The project should change configuration before relying on Patchwork.
+  warning,
+
+  /// Informational guidance for optional setup choices.
+  info,
+}
+
+/// A setup recommendation reported by `patchwork doctor --setup`.
+///
+/// Setup checks are read-only diagnostics. They describe repository
+/// configuration around ignored generated state, committed patch files, optional
+/// hooks, and CI command choices without creating any Patchwork state.
+final class SetupCheck {
+  /// Creates a setup check result.
+  const SetupCheck({
+    required this.code,
+    required this.level,
+    required this.message,
+    this.hint,
+    this.path,
+  });
+
+  /// A stable identifier for the setup check.
+  final String code;
+
+  /// Whether this check passed, warns, or only provides optional guidance.
+  final SetupCheckLevel level;
+
+  /// Human-readable setup status.
+  final String message;
+
+  /// Optional concrete remediation guidance.
+  final String? hint;
+
+  /// Optional file or directory path related to this check.
+  final String? path;
+}
+
+/// Setup diagnostics for a Patchwork project.
+///
+/// A report is independent from patch status. It answers whether the project is
+/// configured to keep durable patch files committed while leaving edit,
+/// activation, and pub override files local or generated.
+final class SetupReport {
+  /// Creates a setup report.
+  const SetupReport({required this.checks});
+
+  /// Setup checks in deterministic presentation order.
+  final List<SetupCheck> checks;
+
+  /// Checks that should make `patchwork doctor --setup` fail.
+  Iterable<SetupCheck> get warnings {
+    return checks.where((check) => check.level == SetupCheckLevel.warning);
+  }
+
+  /// Whether the setup report contains warning-level diagnostics.
+  bool get hasWarnings {
+    return warnings.isNotEmpty;
+  }
+}
+
 /// The inspected Patchwork state for an entire project.
 final class PatchworkState {
   /// Creates a project state snapshot.

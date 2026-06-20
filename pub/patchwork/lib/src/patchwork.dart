@@ -18,6 +18,7 @@ import 'pub/package_resolution.dart';
 import 'pub/pubspec_dependency_overrides.dart';
 import 'pub/pubspec_overrides.dart';
 import 'pub/pub_workspace.dart';
+import 'setup_inspector.dart';
 
 const _invalidAppliedPathMessage =
     'Applied output must point at the generated Patchwork output for this package.';
@@ -115,6 +116,18 @@ final class Patchwork {
       return p.posix.joinAll(p.split(p.relative(absolute, from: root)));
     }
     return path;
+  }
+
+  /// Inspects repository setup recommendations without mutating files.
+  ///
+  /// The report focuses on Patchwork's project contract: commit patch files,
+  /// ignore generated edit and activation state, and use high-level commands in
+  /// CI unless a script intentionally handles pub resolution itself.
+  Future<SetupReport> inspectSetup() async {
+    return SetupInspector(
+      rootPath: _rootPath,
+      currentPackageRootPath: _currentPackageRootPath,
+    ).inspect();
   }
 
   /// Creates an editable copy for [package] under `.patchwork/`.

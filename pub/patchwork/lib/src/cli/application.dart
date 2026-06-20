@@ -109,7 +109,8 @@ void printGeneralHelp(io.IOSink out) {
   out.writeln('Commands:');
   out.writeln('  patch <pkg> [--continue [version]] [--force] [--json]');
   out.writeln('  commit [pkg] [--json]');
-  out.writeln('  overlay <pkg> [--reason <text>] [--json]');
+  out.writeln('  overlay add <pkg> [--reason <text>] [--json]');
+  out.writeln('  overlay inspect [--json]');
   out.writeln('  apply [pkg] [--no-pub-get] [--json]');
   out.writeln('  undo <pkg> [--no-pub-get] [--json]');
   out.writeln(
@@ -133,7 +134,15 @@ void printCommandHelp(String command, io.IOSink out) {
       out.writeln('Usage: patchwork commit [pkg] [--json]');
       printJsonHelp(out);
     case 'overlay':
-      out.writeln('Usage: patchwork overlay <pkg> [--reason <text>] [--json]');
+      out.writeln('Usage: patchwork overlay <subcommand> [arguments]');
+      out.writeln('');
+      out.writeln('Subcommands:');
+      out.writeln('  add <pkg> [--reason <text>] [--json]');
+      out.writeln('  inspect [--json]');
+      out.writeln('');
+      out.writeln(
+        'Compatibility: patchwork overlay <pkg> still means overlay add <pkg>.',
+      );
       printJsonHelp(out);
     case 'apply':
       out.writeln('Usage: patchwork apply [pkg] [--no-pub-get] [--json]');

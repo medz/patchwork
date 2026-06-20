@@ -41,7 +41,8 @@ void main() {
       contains('doctor [--setup] [--explain] [--json]'),
     );
     expect(generalHelp.stdout, contains('patch <pkg>'));
-    expect(generalHelp.stdout, contains('overlay <pkg>'));
+    expect(generalHelp.stdout, contains('overlay add <pkg>'));
+    expect(generalHelp.stdout, contains('overlay inspect'));
     expect(generalHelp.stdout, contains('[--json]'));
     expect(generalHelp.stdout, contains('structured diagnostic JSON document'));
     expect(generalHelp.stdout, contains('not a stable schema'));
@@ -59,6 +60,16 @@ void main() {
     );
     expect(doctorHelp.stdout, contains('gitignore, hook, and CI'));
     expect(doctorHelp.stdout, contains('remediation actions'));
+
+    final overlayHelp = await _runApplication(root, ['overlay', '--help']);
+    expect(overlayHelp.exitCode, 0);
+    expect(
+      overlayHelp.stdout,
+      contains('Usage: patchwork overlay <subcommand> [arguments]'),
+    );
+    expect(overlayHelp.stdout, contains('add <pkg>'));
+    expect(overlayHelp.stdout, contains('inspect [--json]'));
+    expect(overlayHelp.stdout, contains('Compatibility'));
 
     final applyHelp = await _runApplication(root, ['apply', '--help']);
     expect(applyHelp.exitCode, 0);

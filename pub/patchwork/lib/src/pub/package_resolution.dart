@@ -74,10 +74,21 @@ final class PubResolutionReader {
   final PackageTree packageTree;
 
   /// Reads and validates the pub resolution active for [currentDirectory].
-  PubResolution readFromDirectory(String currentDirectory) {
+  ///
+  /// When [packageConfigContent] is provided, it is parsed as the active
+  /// `package_config.json` contents while retaining the same project paths.
+  /// This lets read-only diagnostics inspect pub's base resolution even when a
+  /// generated tool has temporarily rewritten `.dart_tool/package_config.json`.
+  PubResolution readFromDirectory(
+    String currentDirectory, {
+    String? packageConfigContent,
+  }) {
     final workspace = workspaceLocator.locate(currentDirectory);
     final packages = _PackageIndex(
-      packageConfig: _readPackageConfig(workspace),
+      packageConfig: _readPackageConfig(
+        workspace,
+        packageConfigContent: packageConfigContent,
+      ),
       lockfile: _readLockfile(workspace),
     );
     final currentPackageName = packages.currentPackageName(workspace);
@@ -93,10 +104,15 @@ final class PubResolutionReader {
     );
   }
 
-  Map<String, String> _readPackageConfig(PubWorkspace workspace) {
+  Map<String, String> _readPackageConfig(
+    PubWorkspace workspace, {
+    String? packageConfigContent,
+  }) {
     final packageConfigFile = File(workspace.packageConfigPath);
     try {
-      final decoded = jsonDecode(packageConfigFile.readAsStringSync());
+      final decoded = jsonDecode(
+        packageConfigContent ?? packageConfigFile.readAsStringSync(),
+      );
       if (decoded is! Map<String, Object?>) {
         throw _malformedPackageConfig(
           workspace,

@@ -163,6 +163,59 @@ void printUndoJson(
   });
 }
 
+/// Writes a cleanup command result in the human-readable CLI format.
+void printCleanup(
+  Patchwork patchwork,
+  CleanupResult result,
+  io.IOSink out, {
+  required bool pubGetRan,
+  required bool needsPubGet,
+}) {
+  if (result.changes.isEmpty) {
+    out.writeln('No patchwork artifacts to ${result.command}.');
+    return;
+  }
+
+  final verb = result.dryRun ? 'Would remove' : 'Removed';
+  for (final change in result.changes) {
+    out.writeln(
+      '$verb ${_cleanupKindLabel(change.kind)} '
+      '${patchwork.relativePath(change.path)}.',
+    );
+  }
+  if (pubGetRan) {
+    out.writeln('Ran dart pub get.');
+  } else if (needsPubGet) {
+    out.writeln('Run dart pub get.');
+  }
+}
+
+/// Writes a cleanup command result as a single JSON document.
+void printCleanupJson(
+  Patchwork patchwork,
+  CleanupResult result,
+  io.IOSink out, {
+  required bool pubGetRan,
+  required bool needsPubGet,
+}) {
+  _printJson(out, {
+    'command': result.command,
+    'dryRun': result.dryRun,
+    'force': result.force,
+    'changes': [
+      for (final change in result.changes)
+        {
+          'kind': change.kind.name,
+          'package': change.package,
+          'version': change.version,
+          'path': patchwork.relativePath(change.path),
+        },
+    ],
+    'pubGetRan': pubGetRan,
+    'needsPubGet': needsPubGet,
+  });
+}
+
 /// Writes a `patchwork overlay` result as a single JSON document.
 void printOverlayJson(
   Patchwork patchwork,
@@ -203,6 +256,15 @@ Map<String, Object?> _problemJson(PatchProblem problem) {
     'code': problem.code,
     'message': problem.message,
     'hint': problem.hint,
+  };
+}
+
+String _cleanupKindLabel(CleanupChangeKind kind) {
+  return switch (kind) {
+    CleanupChangeKind.patchFile => 'patch file',
+    CleanupChangeKind.editDirectory => 'edit directory',
+    CleanupChangeKind.appliedDirectory => 'applied directory',
+    CleanupChangeKind.pubspecOverride => 'pubspec override',
   };
 }
 

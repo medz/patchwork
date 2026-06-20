@@ -186,6 +186,74 @@ final class UnappliedPatch {
   final String? path;
 }
 
+/// The kind of Patchwork artifact selected by a cleanup command.
+enum CleanupChangeKind {
+  /// A committed patch file under `patches/`.
+  patchFile,
+
+  /// An open edit directory under `.patchwork/`.
+  editDirectory,
+
+  /// A generated package directory under `.dart_tool/patchwork/`.
+  appliedDirectory,
+
+  /// A Patchwork-owned entry in `pubspec_overrides.yaml`.
+  pubspecOverride,
+}
+
+/// One artifact that `patchwork remove` or `patchwork prune` selected.
+///
+/// Cleanup commands return planned changes in dry-run mode and completed
+/// changes after mutation. Paths are absolute when returned from the library;
+/// the CLI may render them relative to the project root.
+final class CleanupChange {
+  /// Creates a cleanup change entry.
+  const CleanupChange({
+    required this.kind,
+    required this.package,
+    required this.version,
+    required this.path,
+  });
+
+  /// The kind of artifact selected for cleanup.
+  final CleanupChangeKind kind;
+
+  /// The dependency package associated with [path].
+  final String package;
+
+  /// The package version associated with [path].
+  final String version;
+
+  /// The selected artifact path.
+  final String path;
+}
+
+/// The result of a Patchwork cleanup command.
+///
+/// When [dryRun] is true, [changes] describes what would be removed. Otherwise
+/// [changes] describes the artifacts that were removed or updated.
+final class CleanupResult {
+  /// Creates a cleanup command result.
+  const CleanupResult({
+    required this.command,
+    required this.dryRun,
+    required this.force,
+    required this.changes,
+  });
+
+  /// The cleanup command that produced this result.
+  final String command;
+
+  /// Whether the command only planned cleanup without mutating files.
+  final bool dryRun;
+
+  /// Whether the command was allowed to discard open edit or applied state.
+  final bool force;
+
+  /// Planned or completed cleanup changes.
+  final List<CleanupChange> changes;
+}
+
 /// A package-provided overlay registered in `patchwork.yaml`.
 ///
 /// Overlay declarations let a package author publish a committed patch for one

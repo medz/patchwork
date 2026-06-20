@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:test/test.dart';
 
@@ -404,6 +405,84 @@ void main() {
         actions.map((action) => action['description']),
         contains(
           'Remove the "greeter" entry from pubspec_overrides.yaml if it points at .dart_tool/patchwork/greeter@0.1.0.',
+        ),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'explains marker-missing remediation without apply when patch is missing',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a missing marker and patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      project.appliedMarkerFor('0.1.0').deleteSync();
+      File('${project.stateRoot}/patches/greeter@0.1.0.patch').deleteSync();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(
+        _decodeObject(result.stdout)['problems'],
+      ).where((problem) => problem['code'] == 'applied.marker_missing').single;
+
+      final actions = _objects(problem['suggestedActions']);
+      expect(
+        actions.map((action) => action['command']),
+        isNot(contains('patchwork apply greeter')),
+      );
+      expect(
+        actions.map((action) => action['description']),
+        contains(
+          'No committed patch file exists, so cleanup must finish before applying again.',
+        ),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'explains unowned stale applied output with manual cleanup',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from unowned stale applied output');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      project.overrideFile.deleteSync();
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      await project.pubGet();
+      project.appliedMarkerFor('0.1.0').deleteSync();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(
+        _decodeObject(result.stdout)['problems'],
+      ).where((problem) => problem['code'] == 'applied.stale').single;
+      expect(problem['remediationVersion'], '0.1.0');
+      expect(problem['remediationRequiresManualCleanup'], isTrue);
+
+      final actions = _objects(problem['suggestedActions']);
+      expect(actions.map((action) => action['command']), orderedEquals([null]));
+      expect(
+        actions.map((action) => action['description']),
+        contains(
+          'Review and remove .dart_tool/patchwork/greeter@0.1.0 manually because Patchwork cannot verify its ownership marker.',
         ),
       );
     },

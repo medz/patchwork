@@ -308,6 +308,8 @@ Map<String, Object?> _problemJson(PatchProblem problem) {
       'remediationRequiresUndoFirst': true,
     if (problem.remediationRequiresOverrideCleanup)
       'remediationRequiresOverrideCleanup': true,
+    if (problem.remediationRequiresManualCleanup)
+      'remediationRequiresManualCleanup': true,
   };
 }
 

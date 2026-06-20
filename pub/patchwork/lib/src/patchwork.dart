@@ -1707,12 +1707,23 @@ final class Patchwork {
       if (appliedDirectory.version == version) {
         continue;
       }
+      final staleAppliedMarker = _tryReadAppliedMarker(appliedDirectory);
+      final staleAppliedCanPrune =
+          staleAppliedMarker != null &&
+          _patchworkAppliedPath(
+                package,
+                appliedDirectory.version,
+                staleAppliedMarker.path,
+              ) !=
+              null;
       problems.add(
         PatchProblem(
           code: 'applied.stale',
           message:
               'Generated output ${relativePath(appliedDirectory.path)} targets "$package@${appliedDirectory.version}", but current state is "$package@$version".',
           hint: 'Run patchwork prune to remove unreferenced generated output.',
+          remediationVersion: appliedDirectory.version,
+          remediationRequiresManualCleanup: !staleAppliedCanPrune,
         ),
       );
     }

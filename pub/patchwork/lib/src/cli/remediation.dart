@@ -44,13 +44,7 @@ List<SuggestedAction> remediationActions(
     'commit.edit_baseline_missing' => _editRepairActions(status, problem),
     'applied.marker_invalid' ||
     'applied.marker_missing' => _markerRepairActions(status, problem),
-    'applied.stale' => [
-      const SuggestedAction(
-        command: 'patchwork prune',
-        description:
-            'Remove generated output that no longer matches current patch state.',
-      ),
-    ],
+    'applied.stale' => _staleAppliedActions(status, problem),
     'commit.open_edit' => [
       SuggestedAction(
         command: 'patchwork commit $package',
@@ -174,7 +168,37 @@ List<SuggestedAction> _markerRepairActions(
             'Refresh pub resolution after removing the generated override.',
       ),
     ],
-    applyAction(status),
+    if (status.hasPatch)
+      applyAction(status)
+    else
+      const SuggestedAction(
+        description:
+            'No committed patch file exists, so cleanup must finish before applying again.',
+      ),
+  ];
+}
+
+List<SuggestedAction> _staleAppliedActions(
+  PatchStatus status,
+  PatchProblem problem,
+) {
+  final package = status.package;
+  final version = problem.remediationVersion ?? status.version;
+  if (problem.remediationRequiresManualCleanup) {
+    return [
+      SuggestedAction(
+        description:
+            'Review and remove ${_PatchworkPath.applied(package, version)} manually because Patchwork cannot verify its ownership marker.',
+      ),
+    ];
+  }
+
+  return const [
+    SuggestedAction(
+      command: 'patchwork prune',
+      description:
+          'Remove generated output that no longer matches current patch state.',
+    ),
   ];
 }
 

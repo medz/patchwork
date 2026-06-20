@@ -304,6 +304,7 @@ final class PatchProblem {
     this.remediationCanContinuePatch = false,
     this.remediationRequiresUndoFirst = false,
     this.remediationRequiresOverrideCleanup = false,
+    this.remediationRequiresManualCleanup = false,
   });
 
   /// A stable identifier for the problem category.
@@ -338,6 +339,10 @@ final class PatchProblem {
   /// Whether remediation must remove a generated override and refresh pub
   /// resolution before applying again.
   final bool remediationRequiresOverrideCleanup;
+
+  /// Whether remediation requires manual cleanup because Patchwork cannot prove
+  /// ownership well enough to remove the artifact automatically.
+  final bool remediationRequiresManualCleanup;
 }
 
 /// The inspected Patchwork state for a single dependency package.

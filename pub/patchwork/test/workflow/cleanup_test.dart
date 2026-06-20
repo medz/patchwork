@@ -188,6 +188,46 @@ void main() {
   );
 
   test(
+    'remove force refuses applied output referenced by pubspec dependency override',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a forced remove guard');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      final patchFile = File(
+        p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
+      );
+      expect(patchFile.existsSync(), isTrue);
+      expect(project.appliedDirectory.existsSync(), isTrue);
+
+      project.overrideFile.deleteSync();
+      final pubspec = File(p.join(project.appRoot, 'pubspec.yaml'));
+      pubspec.writeAsStringSync('''
+${pubspec.readAsStringSync()}
+dependency_overrides:
+  greeter:
+    path: .dart_tool/patchwork/greeter@0.1.0
+''');
+      await project.pubGet();
+      project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
+
+      await project.patchwork(
+        ['remove', 'greeter', '--force'],
+        exitCodes: {1},
+        stderrContains: 'still referenced by pubspec.yaml',
+      );
+      expect(patchFile.existsSync(), isTrue);
+      expect(project.appliedDirectory.existsSync(), isTrue);
+      project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'prune removes stale patch files and unreferenced generated output',
     () async {
       final staleProject = await ProjectSandbox.standalone();

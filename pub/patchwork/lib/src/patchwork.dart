@@ -658,6 +658,16 @@ final class Patchwork {
           location: _layout.appliedPath(package, selectedVersion),
         );
       }
+      final userOverride = _userOwnedOverrideForAppliedOutput(marker);
+      if (userOverride != null) {
+        throw PatchworkException(
+          'Package "$package@$selectedVersion" is still referenced by ${userOverride.fileName}.',
+          code: 'remove.active_override',
+          hint:
+              'Remove the dependency override that points at ${marker.path} before running patchwork remove --force.',
+          location: userOverride.path,
+        );
+      }
       _addAppliedCleanupChanges(changes, marker);
       appliedMarkers.add(marker);
     }
@@ -972,6 +982,46 @@ final class Patchwork {
     }
 
     return false;
+  }
+
+  _OverrideConflict? _userOwnedOverrideForAppliedOutput(AppliedMarker marker) {
+    final absoluteAppliedPath = _patchworkAppliedPath(
+      marker.package,
+      marker.version,
+      marker.path,
+    );
+    if (absoluteAppliedPath == null) {
+      return null;
+    }
+
+    for (final overrideRootPath in _overrideRootPaths) {
+      if (!p.equals(overrideRootPath, _rootPath) &&
+          _pubspecOverrides.pointsToPath(
+            workspaceRootPath: overrideRootPath,
+            package: marker.package,
+            path: absoluteAppliedPath,
+          )) {
+        return _OverrideConflict(
+          fileName: 'pubspec_overrides.yaml',
+          path: p.join(overrideRootPath, 'pubspec_overrides.yaml'),
+        );
+      }
+
+      final dependencyOverrides = _pubspecDependencyOverrides
+          .dependencyOverrides(packageRootPath: overrideRootPath);
+      if (_overrideValuePointsToPath(
+        workspaceRootPath: overrideRootPath,
+        value: dependencyOverrides[marker.package],
+        path: absoluteAppliedPath,
+      )) {
+        return _OverrideConflict(
+          fileName: 'pubspec.yaml',
+          path: p.join(overrideRootPath, 'pubspec.yaml'),
+        );
+      }
+    }
+
+    return null;
   }
 
   bool _overrideValuePointsToPath({

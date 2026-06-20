@@ -1775,6 +1775,7 @@ final class Patchwork {
     final repairHint = pubResolutionMatchesSource
         ? 'Run patchwork apply $package.'
         : 'Run patchwork undo $package, dart pub get, then patchwork apply $package.';
+    final repairRequiresUndoFirst = !pubResolutionMatchesSource;
     if (hasBlockingOverride) {
       problems.add(
         PatchProblem(
@@ -1793,6 +1794,7 @@ final class Patchwork {
           message:
               'Applied marker exists, but the generated directory is missing.',
           hint: repairHint,
+          remediationRequiresUndoFirst: repairRequiresUndoFirst,
         ),
       );
     }
@@ -1827,6 +1829,7 @@ final class Patchwork {
           code: 'applied.patch_stale',
           message: 'Applied patch sha256 differs from the committed patch.',
           hint: repairHint,
+          remediationRequiresUndoFirst: repairRequiresUndoFirst,
         ),
       );
     }
@@ -1840,6 +1843,7 @@ final class Patchwork {
           code: 'applied.source_stale',
           message: 'Applied output was generated from a different source tree.',
           hint: repairHint,
+          remediationRequiresUndoFirst: repairRequiresUndoFirst,
         ),
       );
     }
@@ -1859,6 +1863,7 @@ final class Patchwork {
           message:
               'pubspec_overrides.yaml no longer points at the applied patch.',
           hint: repairHint,
+          remediationRequiresUndoFirst: repairRequiresUndoFirst,
         ),
       );
     }

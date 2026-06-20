@@ -302,6 +302,8 @@ Map<String, Object?> _problemJson(PatchProblem problem) {
     'hint': problem.hint,
     if (problem.remediationVersion != null)
       'remediationVersion': problem.remediationVersion,
+    if (problem.remediationRequiresUndoFirst)
+      'remediationRequiresUndoFirst': true,
   };
 }
 

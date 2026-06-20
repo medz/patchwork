@@ -301,6 +301,7 @@ final class PatchProblem {
     required this.message,
     this.hint,
     this.remediationVersion,
+    this.remediationRequiresUndoFirst = false,
   });
 
   /// A stable identifier for the problem category.
@@ -319,6 +320,14 @@ final class PatchProblem {
   /// stale patch file, while the package status itself points at the current
   /// pub resolution.
   final String? remediationVersion;
+
+  /// Whether remediation must remove applied output and refresh pub resolution
+  /// before applying again.
+  ///
+  /// Applied output can be stale while pub still resolves the package through
+  /// `.dart_tool/patchwork`. In that state `patchwork apply` cannot regenerate
+  /// the output until the generated override has been unwound.
+  final bool remediationRequiresUndoFirst;
 }
 
 /// The inspected Patchwork state for a single dependency package.

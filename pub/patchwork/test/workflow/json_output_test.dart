@@ -292,6 +292,48 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
+
+  test(
+    'explains stale applied remediation with undo first when pub resolves output',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a stale applied JSON patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+
+      final marker = project.appliedMarkerFor('0.1.0');
+      final decoded =
+          jsonDecode(marker.readAsStringSync()) as Map<String, Object?>;
+      decoded['patchSha256'] = 'stale';
+      marker.writeAsStringSync('${jsonEncode(decoded)}\n');
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(
+        _decodeObject(result.stdout)['problems'],
+      ).where((problem) => problem['code'] == 'applied.patch_stale').single;
+      expect(problem['remediationRequiresUndoFirst'], isTrue);
+
+      final commands = _objects(
+        problem['suggestedActions'],
+      ).map((action) => action['command']);
+      expect(
+        commands,
+        orderedEquals([
+          'patchwork undo greeter',
+          'dart pub get',
+          'patchwork apply greeter',
+        ]),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
 }
 
 Map<String, Object?> _decodeObject(String source) {

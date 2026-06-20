@@ -113,14 +113,7 @@ List<SuggestedAction> remediationActions(
     'applied.output_missing' ||
     'applied.patch_stale' ||
     'applied.source_stale' ||
-    'applied.override_missing' => [
-      applyAction(status),
-      SuggestedAction(
-        command: 'patchwork undo $package',
-        description:
-            'Remove the current generated output first if pub still resolves to stale Patchwork state.',
-      ),
-    ],
+    'applied.override_missing' => _appliedRepairActions(status, problem),
     'applied.patch_missing' => [
       SuggestedAction(
         command: 'patchwork undo $package',
@@ -144,6 +137,30 @@ List<SuggestedAction> remediationActions(
     _ when problem.code.startsWith('pub.') => _pubActions(status, problem),
     _ => _fallbackActions(problem),
   };
+}
+
+List<SuggestedAction> _appliedRepairActions(
+  PatchStatus status,
+  PatchProblem problem,
+) {
+  if (!problem.remediationRequiresUndoFirst) {
+    return [applyAction(status)];
+  }
+
+  final package = status.package;
+  return [
+    SuggestedAction(
+      command: 'patchwork undo $package',
+      description:
+          'Remove the current generated output so pub can resolve the original dependency source.',
+    ),
+    const SuggestedAction(
+      command: 'dart pub get',
+      description:
+          'Refresh pub resolution after removing the generated override.',
+    ),
+    applyAction(status),
+  ];
 }
 
 List<SuggestedAction> _pubActions(PatchStatus status, PatchProblem problem) {

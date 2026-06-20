@@ -49,7 +49,7 @@ List<SuggestedAction> remediationActions(
     'commit.edit_baseline_missing' => [
       SuggestedAction(
         description:
-            'Back up any useful edits from ${PatchworkPath.edit(package, version)} before recreating the edit session.',
+            'Back up any useful edits from ${_PatchworkPath.edit(package, version)} before recreating the edit session.',
       ),
       SuggestedAction(
         command: 'patchwork remove $package $version --force',
@@ -64,7 +64,7 @@ List<SuggestedAction> remediationActions(
     'applied.marker_invalid' || 'applied.marker_missing' => [
       SuggestedAction(
         description:
-            'Review and remove the generated directory at ${PatchworkPath.applied(package, version)} if it is safe.',
+            'Review and remove the generated directory at ${_PatchworkPath.applied(package, version)} if it is safe.',
       ),
       applyAction(status),
     ],
@@ -204,7 +204,7 @@ List<SuggestedAction> _fallbackActions(PatchProblem problem) {
   ];
 }
 
-abstract final class PatchworkPath {
+abstract final class _PatchworkPath {
   static String edit(String package, String version) {
     return '.patchwork/$package@$version';
   }

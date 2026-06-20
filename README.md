@@ -50,7 +50,6 @@ See `examples/README.md` for the complete walkthrough.
 
 Patchwork commits portable state to:
 
-- `patchwork.lock`
 - `patches/*.patch`
 
 It generates local state in:
@@ -59,6 +58,5 @@ It generates local state in:
 - `.dart_tool/patchwork/`
 - `pubspec_overrides.yaml`
 
-Generated state should be reproducible from committed patch files plus the
-lockfile safety state Patchwork writes for the current source, current patch,
-and active generated output.
+Generated state should be reproducible from committed patch files and the
+current pub resolution.

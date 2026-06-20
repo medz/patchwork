@@ -19,10 +19,10 @@ final class PatchRef {
 
 /// The pub source that Patchwork used as the baseline for a package patch.
 ///
-/// Patchwork stores this value in `patchwork.lock` so later operations can
-/// verify that a patch is still being generated or applied against the same
-/// dependency source. The [fields] map contains source-specific identity such
-/// as hosted URL, path, Git URL, branch, or commit.
+/// Patchwork records this value in local edit/applied metadata and provider
+/// overlay manifests when source identity is needed for safety diagnostics.
+/// The [fields] map contains source-specific identity such as hosted URL, path,
+/// Git URL, branch, or commit.
 final class PackageSource {
   /// Creates a resolved source description.
   const PackageSource({

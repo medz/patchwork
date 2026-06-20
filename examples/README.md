@@ -54,8 +54,7 @@ Hello from a patch, Patchwork!
 
 The generated Patchwork state lives under `.dart_tool/patchwork/` and
 `pubspec_overrides.yaml`. The editable work-in-progress copy lives under
-`.patchwork/`. The committed state for a real project is `patchwork.lock` plus
-`patches/*.patch`.
+`.patchwork/`. The committed state for a real project is `patches/*.patch`.
 
 This example uses a path dependency so it can run without a hosted package.
 Patchwork still targets the package by pub package name (`greeter`); the

@@ -11,7 +11,6 @@ import 'error.dart';
 import 'internal/package_tree.dart';
 import 'internal/path_layout.dart';
 import 'io/atomic_file_writer.dart';
-import 'lockfile.dart';
 import 'overlay_manifest.dart';
 import 'patch_file.dart';
 import 'pub/package_resolution.dart';
@@ -231,23 +230,11 @@ void _appendRootPatches(
   required PubResolution resolution,
   required BuildOutputBuilder output,
 }) {
-  final lockfile = LockfileStore(path: layout.lockfilePath).read();
-  output.dependencies.add(File(layout.lockfilePath).absolute.uri);
-
   for (final group in groups.values) {
-    final record = lockfile.packages[group.package];
-    final patch = record?.patch;
-    if (record == null ||
-        patch == null ||
-        record.version != group.version ||
-        record.source.sha256 != group.sourceSha256) {
-      continue;
-    }
-
     final resolved = _resolveOverlayTarget(resolution, group.package);
     if (resolved == null ||
-        resolved.version != record.version ||
-        resolved.source != record.source) {
+        resolved.version != group.version ||
+        resolved.source.sha256 != group.sourceSha256) {
       continue;
     }
 
@@ -257,13 +244,6 @@ void _appendRootPatches(
       continue;
     }
     final patchSha256 = _sha256(patchFile.readAsBytesSync());
-    if (patchSha256 != patch.commitSha256) {
-      throw PatchworkException(
-        'Root patch file sha256 does not match patchwork.lock.',
-        code: 'overlay.root_patch_sha_mismatch',
-        location: patchPath,
-      );
-    }
     output.dependencies.add(patchFile.absolute.uri);
     if (_hasContributionPatchSha(group, patchSha256)) {
       continue;
@@ -413,7 +393,6 @@ void _declareBaseDependencies(
     p.join(rootPath, '.dart_tool', 'package_graph.json'),
     p.join(rootPath, 'pubspec.lock'),
     p.join(rootPath, 'pubspec.yaml'),
-    layout.lockfilePath,
     _basePackageConfigPath(layout),
   };
   output.dependencies.addAll(files.map((path) => File(path).absolute.uri));

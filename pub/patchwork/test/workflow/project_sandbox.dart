@@ -46,13 +46,36 @@ final class ProjectSandbox {
     return Directory(p.join(stateRoot, '.patchwork', 'greeter@$version'));
   }
 
-  File get lockfile => File(p.join(stateRoot, 'patchwork.lock'));
+  File editManifestFor(String version) {
+    return File(
+      p.join(
+        stateRoot,
+        '.patchwork',
+        'greeter@$version',
+        '.patchwork',
+        'edit.json',
+      ),
+    );
+  }
 
   File get overrideFile => File(p.join(stateRoot, 'pubspec_overrides.yaml'));
 
   Directory get appliedDirectory {
     return Directory(
       p.join(stateRoot, '.dart_tool', 'patchwork', 'greeter@0.1.0'),
+    );
+  }
+
+  File appliedMarkerFor(String version) {
+    return File(
+      p.join(
+        stateRoot,
+        '.dart_tool',
+        'patchwork',
+        'greeter@$version',
+        '.patchwork',
+        'applied.json',
+      ),
     );
   }
 

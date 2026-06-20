@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:patchwork/src/internal/setup_inspector.dart';
 import 'package:patchwork/src/model.dart';
-import 'package:patchwork/src/setup_inspector.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -53,6 +53,29 @@ pubspec_overrides.yaml
     expect(_level(report, 'setup.ci_patchwork_check'), SetupCheckLevel.ok);
   });
 
+  test('honors gitignore rules from ancestor repository roots', () {
+    final repo = Directory.systemTemp.createTempSync('patchwork_setup_');
+    addTearDown(() => repo.deleteSync(recursive: true));
+    Directory(p.join(repo.path, '.git')).createSync();
+    File(p.join(repo.path, '.gitignore')).writeAsStringSync('''
+.patchwork/
+.dart_tool/
+pubspec_overrides.yaml
+''');
+    final app = Directory(p.join(repo.path, 'packages', 'app'))
+      ..createSync(recursive: true);
+    _writePubspec(app.path);
+
+    final report = _inspect(app.path);
+
+    expect(_level(report, 'setup.ignore_edit_state'), SetupCheckLevel.ok);
+    expect(_level(report, 'setup.ignore_applied_output'), SetupCheckLevel.ok);
+    expect(
+      _level(report, 'setup.ignore_pubspec_overrides'),
+      SetupCheckLevel.ok,
+    );
+  });
+
   test('accepts Patchwork package-provided overlay hook setup', () {
     final root = Directory.systemTemp.createTempSync('patchwork_setup_');
     addTearDown(() => root.deleteSync(recursive: true));
@@ -80,6 +103,7 @@ pubspec_overrides.yaml
 .dart_tool/
 pubspec_overrides.yaml
 patches/
+!patches/*.patch
 ''');
       _writeHook(root.path, includeImports: false);
       _writeWorkflow(root.path, 'dart run patchwork apply --no-pub-get');

@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
 
-import 'model.dart';
+import '../model.dart';
 
 /// Inspects repository configuration that affects Patchwork workflows.
 final class SetupInspector {
@@ -37,8 +37,8 @@ final class SetupInspector {
   }
 
   List<SetupCheck> _gitignoreChecks() {
-    final gitignorePath = p.join(rootPath, '.gitignore');
-    final rules = _GitignoreRules.read(gitignorePath);
+    final rules = _GitignoreRules.read(rootPath);
+    final gitignorePath = rules.displayPath ?? p.join(rootPath, '.gitignore');
     final checks = <SetupCheck>[];
 
     checks.add(
@@ -308,63 +308,130 @@ final class SetupInspector {
 }
 
 final class _GitignoreRules {
-  const _GitignoreRules(this.rules);
+  const _GitignoreRules({
+    required this.rootPath,
+    required this.rules,
+    required this.displayPath,
+  });
 
+  final String rootPath;
   final List<_GitignoreRule> rules;
+  final String? displayPath;
 
-  static _GitignoreRules read(String path) {
-    final file = File(path);
-    if (!file.existsSync()) {
-      return const _GitignoreRules([]);
-    }
+  static _GitignoreRules read(String rootPath) {
+    final normalizedRoot = p.normalize(p.absolute(rootPath));
+    final files = _gitignoreFiles(normalizedRoot);
     final rules = <_GitignoreRule>[];
-    for (final rawLine in file.readAsLinesSync()) {
-      final line = rawLine.trim();
-      if (line.isEmpty || line.startsWith('#')) {
-        continue;
+    for (final file in files) {
+      for (final rawLine in file.readAsLinesSync()) {
+        final line = rawLine.trim();
+        if (line.isEmpty || line.startsWith('#')) {
+          continue;
+        }
+        final negated = line.startsWith('!');
+        final pattern = (negated ? line.substring(1) : line).trim();
+        if (pattern.isEmpty) {
+          continue;
+        }
+        rules.add(
+          _GitignoreRule(
+            basePath: p.dirname(file.path),
+            pattern: pattern,
+            negated: negated,
+          ),
+        );
       }
-      final negated = line.startsWith('!');
-      final pattern = (negated ? line.substring(1) : line).trim();
-      if (pattern.isEmpty) {
-        continue;
-      }
-      rules.add(_GitignoreRule(pattern: pattern, negated: negated));
     }
-    return _GitignoreRules(rules);
+    return _GitignoreRules(
+      rootPath: normalizedRoot,
+      rules: rules,
+      displayPath: files.isEmpty ? null : files.last.path,
+    );
   }
 
   bool ignores(String path, {required bool directory}) {
+    final absolute = p.normalize(
+      p.isAbsolute(path) ? path : p.absolute(rootPath, path),
+    );
+    final directlyIgnored = _ignoresAbsolute(absolute, directory: directory);
+    if (directlyIgnored) {
+      return true;
+    }
+
+    var parent = p.dirname(absolute);
+    while (p.isWithin(rootPath, parent)) {
+      if (_ignoresAbsolute(parent, directory: true)) {
+        return true;
+      }
+      parent = p.dirname(parent);
+    }
+    return false;
+  }
+
+  bool _ignoresAbsolute(String absolute, {required bool directory}) {
     var ignored = false;
-    final normalized = p.posix.joinAll(p.split(path));
     for (final rule in rules) {
-      if (rule.matches(normalized, directory: directory)) {
+      if (rule.matches(absolute, directory: directory)) {
         ignored = !rule.negated;
       }
     }
     return ignored;
   }
+
+  static List<File> _gitignoreFiles(String rootPath) {
+    final scopedAncestors = <String>[];
+    var current = rootPath;
+    while (true) {
+      scopedAncestors.add(current);
+      if (Directory(p.join(current, '.git')).existsSync()) {
+        break;
+      }
+      final parent = p.dirname(current);
+      if (p.equals(parent, current)) {
+        break;
+      }
+      current = parent;
+    }
+
+    return [
+      for (final directory in scopedAncestors.reversed)
+        File(p.join(directory, '.gitignore')),
+    ].where((file) => file.existsSync()).toList();
+  }
 }
 
 final class _GitignoreRule {
-  const _GitignoreRule({required this.pattern, required this.negated});
+  const _GitignoreRule({
+    required this.basePath,
+    required this.pattern,
+    required this.negated,
+  });
 
+  final String basePath;
   final String pattern;
   final bool negated;
 
-  bool matches(String path, {required bool directory}) {
+  bool matches(String absolutePath, {required bool directory}) {
+    if (!p.equals(basePath, absolutePath) &&
+        !p.isWithin(basePath, absolutePath)) {
+      return false;
+    }
+    final path = p.equals(basePath, absolutePath)
+        ? '.'
+        : p.posix.joinAll(p.split(p.relative(absolutePath, from: basePath)));
     var normalizedPattern = pattern;
+    final directoryOnly = normalizedPattern.endsWith('/');
     if (normalizedPattern.startsWith('/')) {
       normalizedPattern = normalizedPattern.substring(1);
     }
-    normalizedPattern = p.posix.joinAll(p.split(normalizedPattern));
-    final directoryOnly = normalizedPattern.endsWith('/');
     if (directoryOnly) {
       normalizedPattern = normalizedPattern.substring(
         0,
         normalizedPattern.length - 1,
       );
     }
-    if (directoryOnly && !directory) {
+    normalizedPattern = p.posix.joinAll(p.split(normalizedPattern));
+    if (directoryOnly && !directory && path == normalizedPattern) {
       return false;
     }
     if (normalizedPattern.isEmpty) {

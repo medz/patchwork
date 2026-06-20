@@ -10,6 +10,7 @@ import 'edit_session.dart';
 import 'error.dart';
 import 'internal/package_tree.dart';
 import 'internal/path_layout.dart';
+import 'internal/setup_inspector.dart';
 import 'io/atomic_file_writer.dart';
 import 'model.dart';
 import 'overlay_manifest.dart';
@@ -18,7 +19,6 @@ import 'pub/package_resolution.dart';
 import 'pub/pubspec_dependency_overrides.dart';
 import 'pub/pubspec_overrides.dart';
 import 'pub/pub_workspace.dart';
-import 'setup_inspector.dart';
 
 const _invalidAppliedPathMessage =
     'Applied output must point at the generated Patchwork output for this package.';

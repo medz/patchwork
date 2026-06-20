@@ -5,7 +5,7 @@ final class CommandArguments {
   /// Creates parsed command arguments.
   const CommandArguments({required this.json, required this.rest});
 
-  /// Whether the command should render machine-readable JSON.
+  /// Whether the command should render structured diagnostic JSON.
   final bool json;
 
   /// Remaining command operands and command-specific options.

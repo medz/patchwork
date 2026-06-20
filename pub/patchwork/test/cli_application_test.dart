@@ -40,10 +40,13 @@ void main() {
     expect(generalHelp.stdout, contains('patch <pkg>'));
     expect(generalHelp.stdout, contains('overlay <pkg>'));
     expect(generalHelp.stdout, contains('[--json]'));
+    expect(generalHelp.stdout, contains('structured diagnostic JSON document'));
+    expect(generalHelp.stdout, contains('not a stable schema'));
 
     final statusHelp = await _runApplication(root, ['status', '--help']);
     expect(statusHelp.exitCode, 0);
     expect(statusHelp.stdout, contains('Usage: patchwork status [--json]'));
+    expect(statusHelp.stdout, contains('not a stable schema'));
 
     final applyHelp = await _runApplication(root, ['apply', '--help']);
     expect(applyHelp.exitCode, 0);

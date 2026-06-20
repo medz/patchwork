@@ -1646,6 +1646,9 @@ final class Patchwork {
         : null;
 
     if (edit.length == 1) {
+      final editHasPatchFile = patchFiles.any(
+        (patch) => patch.version == edit.single.version,
+      );
       try {
         _editSessionStore.read(edit.single);
       } on PatchworkException catch (error) {
@@ -1655,6 +1658,7 @@ final class Patchwork {
             message: error.message,
             hint: error.hint,
             remediationVersion: edit.single.version,
+            remediationCanContinuePatch: editHasPatchFile,
           ),
         );
       }
@@ -1664,6 +1668,13 @@ final class Patchwork {
     final appliedForVersion = appliedDirectories
         .where((candidate) => candidate.version == version)
         .toList();
+    final markerlessOverridePointsToApplied =
+        appliedForVersion.isNotEmpty &&
+        _pubspecOverrides.pointsToPath(
+          workspaceRootPath: _rootPath,
+          package: package,
+          path: _layout.relativeAppliedPath(package, version),
+        );
     if (appliedForVersion.isNotEmpty) {
       try {
         applied = _appliedMarkerStore.read(package, version);
@@ -1673,6 +1684,8 @@ final class Patchwork {
             code: error.code,
             message: error.message,
             hint: error.hint,
+            remediationRequiresOverrideCleanup:
+                markerlessOverridePointsToApplied,
           ),
         );
       }
@@ -1684,6 +1697,8 @@ final class Patchwork {
                 'Generated Patchwork output exists without an ownership marker.',
             hint:
                 'Remove ${relativePath(_layout.appliedPath(package, version))} before applying again if it is safe.',
+            remediationRequiresOverrideCleanup:
+                markerlessOverridePointsToApplied,
           ),
         );
       }

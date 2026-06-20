@@ -301,7 +301,9 @@ final class PatchProblem {
     required this.message,
     this.hint,
     this.remediationVersion,
+    this.remediationCanContinuePatch = false,
     this.remediationRequiresUndoFirst = false,
+    this.remediationRequiresOverrideCleanup = false,
   });
 
   /// A stable identifier for the problem category.
@@ -321,6 +323,10 @@ final class PatchProblem {
   /// pub resolution.
   final String? remediationVersion;
 
+  /// Whether edit remediation can recreate the edit directory from a committed
+  /// patch file for [remediationVersion].
+  final bool remediationCanContinuePatch;
+
   /// Whether remediation must remove applied output and refresh pub resolution
   /// before applying again.
   ///
@@ -328,6 +334,10 @@ final class PatchProblem {
   /// `.dart_tool/patchwork`. In that state `patchwork apply` cannot regenerate
   /// the output until the generated override has been unwound.
   final bool remediationRequiresUndoFirst;
+
+  /// Whether remediation must remove a generated override and refresh pub
+  /// resolution before applying again.
+  final bool remediationRequiresOverrideCleanup;
 }
 
 /// The inspected Patchwork state for a single dependency package.

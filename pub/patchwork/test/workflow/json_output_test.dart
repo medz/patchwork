@@ -372,6 +372,80 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
+
+  test(
+    'explains marker-missing remediation with generated override cleanup',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a marker-missing JSON patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      project.appliedMarkerFor('0.1.0').deleteSync();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(
+        _decodeObject(result.stdout)['problems'],
+      ).where((problem) => problem['code'] == 'applied.marker_missing').single;
+      expect(problem['remediationRequiresOverrideCleanup'], isTrue);
+
+      final actions = _objects(problem['suggestedActions']);
+      expect(
+        actions.map((action) => action['command']),
+        orderedEquals([null, null, 'dart pub get', 'patchwork apply greeter']),
+      );
+      expect(
+        actions.map((action) => action['description']),
+        contains(
+          'Remove the "greeter" entry from pubspec_overrides.yaml if it points at .dart_tool/patchwork/greeter@0.1.0.',
+        ),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'explains stale broken edit remediation by continuing the stale patch',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a stale broken edit JSON patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['patch', 'greeter', '--continue']);
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      await project.pubGet();
+      project.editManifestFor('0.1.0').deleteSync();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(_decodeObject(result.stdout)['problems'])
+          .where((problem) => problem['code'] == 'commit.edit_manifest_missing')
+          .single;
+      expect(problem['remediationVersion'], '0.1.0');
+      expect(problem['remediationCanContinuePatch'], isTrue);
+
+      final commands = _objects(
+        problem['suggestedActions'],
+      ).map((action) => action['command']);
+      expect(commands, contains('patchwork patch greeter --continue 0.1.0'));
+      expect(commands, isNot(contains('patchwork patch greeter')));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
 }
 
 Map<String, Object?> _decodeObject(String source) {

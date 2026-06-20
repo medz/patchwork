@@ -42,13 +42,8 @@ List<SuggestedAction> remediationActions(
     'commit.edit_manifest_missing' ||
     'commit.edit_manifest_invalid' ||
     'commit.edit_baseline_missing' => _editRepairActions(status, problem),
-    'applied.marker_invalid' || 'applied.marker_missing' => [
-      SuggestedAction(
-        description:
-            'Review and remove the generated directory at ${_PatchworkPath.applied(package, version)} if it is safe.',
-      ),
-      applyAction(status),
-    ],
+    'applied.marker_invalid' ||
+    'applied.marker_missing' => _markerRepairActions(status, problem),
     'applied.stale' => [
       const SuggestedAction(
         command: 'patchwork prune',
@@ -132,7 +127,9 @@ List<SuggestedAction> _editRepairActions(
   final package = status.package;
   final version = problem.remediationVersion ?? status.version;
   final editPath = _PatchworkPath.edit(package, version);
-  final hasCurrentPatch = status.hasPatch && version == status.version;
+  final canContinuePatch =
+      problem.remediationCanContinuePatch ||
+      (status.hasPatch && version == status.version);
 
   return [
     SuggestedAction(
@@ -144,13 +141,40 @@ List<SuggestedAction> _editRepairActions(
           'Delete only the broken edit directory at $editPath; do not remove the committed patch file.',
     ),
     SuggestedAction(
-      command: hasCurrentPatch
+      command: canContinuePatch
           ? 'patchwork patch $package --continue $version'
           : 'patchwork patch $package',
-      description: hasCurrentPatch
+      description: canContinuePatch
           ? 'Recreate a valid edit directory from the committed patch.'
           : 'Create a fresh edit directory with valid Patchwork metadata.',
     ),
+  ];
+}
+
+List<SuggestedAction> _markerRepairActions(
+  PatchStatus status,
+  PatchProblem problem,
+) {
+  final package = status.package;
+  final version = problem.remediationVersion ?? status.version;
+  final appliedPath = _PatchworkPath.applied(package, version);
+  return [
+    SuggestedAction(
+      description:
+          'Review and remove the generated directory at $appliedPath if it is safe.',
+    ),
+    if (problem.remediationRequiresOverrideCleanup) ...[
+      SuggestedAction(
+        description:
+            'Remove the "$package" entry from pubspec_overrides.yaml if it points at $appliedPath.',
+      ),
+      const SuggestedAction(
+        command: 'dart pub get',
+        description:
+            'Refresh pub resolution after removing the generated override.',
+      ),
+    ],
+    applyAction(status),
   ];
 }
 

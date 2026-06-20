@@ -123,8 +123,10 @@ void printCommitJson(
 void printApplyJson(
   Patchwork patchwork,
   List<AppliedPatch> applied,
-  io.IOSink out,
-) {
+  io.IOSink out, {
+  required bool pubGetRan,
+  required bool needsPubGet,
+}) {
   _printJson(out, {
     'command': 'apply',
     'applied': [
@@ -136,12 +138,19 @@ void printApplyJson(
           'patchPath': patchwork.relativePath(patch.patchPath),
         },
     ],
-    'needsPubGet': applied.isNotEmpty,
+    'pubGetRan': pubGetRan,
+    'needsPubGet': needsPubGet,
   });
 }
 
 /// Writes a `patchwork undo` result as a single JSON document.
-void printUndoJson(Patchwork patchwork, UnappliedPatch result, io.IOSink out) {
+void printUndoJson(
+  Patchwork patchwork,
+  UnappliedPatch result,
+  io.IOSink out, {
+  required bool pubGetRan,
+  required bool needsPubGet,
+}) {
   _printJson(out, {
     'command': 'undo',
     'result': {
@@ -149,7 +158,8 @@ void printUndoJson(Patchwork patchwork, UnappliedPatch result, io.IOSink out) {
       'changed': result.changed,
       'path': result.path == null ? null : patchwork.relativePath(result.path!),
     },
-    'needsPubGet': result.changed,
+    'pubGetRan': pubGetRan,
+    'needsPubGet': needsPubGet,
   });
 }
 

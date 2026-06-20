@@ -24,13 +24,10 @@ void main() {
         exitCodes: {1},
         stderrContains: 'already has an applied Patchwork patch',
       );
-      await project.patchwork(
-        ['doctor'],
-        exitCodes: {0, 1},
-        stdoutContains: 'applied: .dart_tool/patchwork/greeter@0.1.0',
-      );
+      await project.patchwork([
+        'doctor',
+      ], stdoutContains: 'applied: .dart_tool/patchwork/greeter@0.1.0');
 
-      await project.pubGet();
       await project.patchwork([
         'doctor',
       ], stdoutContains: 'applied: .dart_tool/patchwork/greeter@0.1.0');
@@ -43,7 +40,6 @@ void main() {
       await project.runApp('Hello from a standalone patch, Patchwork!');
 
       await project.patchwork(['undo', 'greeter']);
-      await project.pubGet();
       await project.patchwork(
         ['doctor'],
         exitCodes: {1},

@@ -44,6 +44,29 @@ CommandArguments parseCommandArguments(String command, List<String> arguments) {
   return CommandArguments(json: json, rest: List.unmodifiable(rest));
 }
 
+/// Removes the `--no-pub-get` flag from [arguments].
+({bool pubGet, List<String> rest}) parsePubGetOption(
+  String command,
+  List<String> arguments,
+) {
+  var pubGet = true;
+  final rest = <String>[];
+  for (final argument in arguments) {
+    if (argument == '--no-pub-get') {
+      if (!pubGet) {
+        throw duplicateOption('--no-pub-get');
+      }
+      pubGet = false;
+      continue;
+    }
+    if (argument.startsWith('--no-pub-get=')) {
+      throw unknownOption(argument, command);
+    }
+    rest.add(argument);
+  }
+  return (pubGet: pubGet, rest: List.unmodifiable(rest));
+}
+
 /// Parses the optional package operand accepted by a command.
 ///
 /// Options are rejected here because these commands do not have command-specific

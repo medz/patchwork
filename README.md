@@ -31,7 +31,7 @@ dart pub publish --dry-run
 
 ## Example
 
-The example demonstrates the 0.2 patch flow against a small app and a local pub
+The example demonstrates the patch flow against a small app and a local pub
 dependency:
 
 ```sh
@@ -41,7 +41,6 @@ dart run patchwork doctor
 dart run patchwork patch greeter
 dart run patchwork commit greeter
 dart run patchwork apply greeter
-dart pub get
 ```
 
 See `examples/README.md` for the complete walkthrough.

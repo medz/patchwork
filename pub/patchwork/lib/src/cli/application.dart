@@ -65,8 +65,8 @@ final class Application {
         'patch' => await runPatchCommand(patchwork, rest, out),
         'commit' => await runCommitCommand(patchwork, rest, out),
         'overlay' => await runOverlayCommand(patchwork, rest, out),
-        'apply' => await runApplyCommand(patchwork, rest, out),
-        'undo' => await runUndoCommand(patchwork, rest, out),
+        'apply' => await runApplyCommand(patchwork, rest, out, cwd),
+        'undo' => await runUndoCommand(patchwork, rest, out, cwd),
         'status' => await runStatusCommand(patchwork, rest, out),
         'doctor' => await runDoctorCommand(patchwork, rest, out),
         _ => throw StateError('unreachable command: $command'),
@@ -104,8 +104,8 @@ void printGeneralHelp(io.IOSink out) {
   out.writeln('  patch <pkg> [--continue [version]] [--force] [--json]');
   out.writeln('  commit [pkg] [--json]');
   out.writeln('  overlay <pkg> [--reason <text>] [--json]');
-  out.writeln('  apply [pkg] [--json]');
-  out.writeln('  undo <pkg> [--json]');
+  out.writeln('  apply [pkg] [--no-pub-get] [--json]');
+  out.writeln('  undo <pkg> [--no-pub-get] [--json]');
   out.writeln('  status [--json]');
   out.writeln('  doctor [--json]');
 }
@@ -122,9 +122,9 @@ void printCommandHelp(String command, io.IOSink out) {
     case 'overlay':
       out.writeln('Usage: patchwork overlay <pkg> [--reason <text>] [--json]');
     case 'apply':
-      out.writeln('Usage: patchwork apply [pkg] [--json]');
+      out.writeln('Usage: patchwork apply [pkg] [--no-pub-get] [--json]');
     case 'undo':
-      out.writeln('Usage: patchwork undo <pkg> [--json]');
+      out.writeln('Usage: patchwork undo <pkg> [--no-pub-get] [--json]');
     case 'status':
       out.writeln('Usage: patchwork status [--json]');
     case 'doctor':

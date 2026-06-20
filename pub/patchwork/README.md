@@ -46,7 +46,7 @@ dart run patchwork --help
 ```
 
 Global activation is optional for interactive use, but recommended for scripts,
-editors, and agents that need clean stdout:
+editors, and agents that use `--json` and need clean stdout:
 
 ```sh
 dart pub global activate patchwork
@@ -252,16 +252,27 @@ Patchwork rejects target syntax such as `pub:collection`, `collection@1.19.1`,
 `path:collection`, git URLs, filesystem paths, the current project package, and
 workspace member packages.
 
-Use `--json` when a script, editor, or agent needs stable command output:
+Use `--json` when a script, editor, or agent needs structured Patchwork state
+instead of human-readable text:
 
 ```sh
 patchwork status --json
 ```
 
 JSON mode prints one JSON object on stdout and keeps the normal exit-code
-rules. Patchwork and usage failures use an `error` object with a stable `code`.
-Path fields use the same values the command would show in human output, such as
-`.patchwork/collection@1.19.1` and `patches/collection@1.19.1.patch`.
+rules. It is diagnostic output that mirrors Patchwork's current product model,
+not a fixed public schema. Fields may evolve as commands and state concepts
+change.
+
+Patchwork and usage failures use an `error` object with a clear `code`. Problem
+entries also expose codes and hints so tools can decide the next action without
+parsing prose. Path fields use the same values the command would show in human
+output, such as `.patchwork/collection@1.19.1` and
+`patches/collection@1.19.1.patch`.
+
+State JSON is derived from committed patch files, open edit-session metadata,
+generated applied markers, pub resolution, and `pubspec_overrides.yaml`. It
+does not imply a committed Patchwork state file.
 
 Prefer the standalone `patchwork` executable for JSON automation. `dart run`
 may print Dart build-hook progress before the Patchwork process starts when a

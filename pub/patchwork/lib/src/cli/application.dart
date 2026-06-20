@@ -108,6 +108,7 @@ void printGeneralHelp(io.IOSink out) {
   out.writeln('  undo <pkg> [--no-pub-get] [--json]');
   out.writeln('  status [--json]');
   out.writeln('  doctor [--json]');
+  printJsonHelp(out);
 }
 
 /// Writes usage help for a single [command].
@@ -117,18 +118,25 @@ void printCommandHelp(String command, io.IOSink out) {
       out.writeln(
         'Usage: patchwork patch <pkg> [--continue [version]] [--force] [--json]',
       );
+      printJsonHelp(out);
     case 'commit':
       out.writeln('Usage: patchwork commit [pkg] [--json]');
+      printJsonHelp(out);
     case 'overlay':
       out.writeln('Usage: patchwork overlay <pkg> [--reason <text>] [--json]');
+      printJsonHelp(out);
     case 'apply':
       out.writeln('Usage: patchwork apply [pkg] [--no-pub-get] [--json]');
+      printJsonHelp(out);
     case 'undo':
       out.writeln('Usage: patchwork undo <pkg> [--no-pub-get] [--json]');
+      printJsonHelp(out);
     case 'status':
       out.writeln('Usage: patchwork status [--json]');
+      printJsonHelp(out);
     case 'doctor':
       out.writeln('Usage: patchwork doctor [--json]');
+      printJsonHelp(out);
     default:
       throw PatchworkException(
         'Unknown command "$command".',
@@ -136,4 +144,13 @@ void printCommandHelp(String command, io.IOSink out) {
         hint: 'Run patchwork --help to see available commands.',
       );
   }
+}
+
+/// Writes the support boundary for JSON command output.
+void printJsonHelp(io.IOSink out) {
+  out.writeln('');
+  out.writeln(
+    '--json prints one structured diagnostic JSON document on stdout.',
+  );
+  out.writeln('It mirrors current Patchwork state and is not a stable schema.');
 }

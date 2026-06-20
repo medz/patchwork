@@ -334,6 +334,44 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
+
+  test(
+    'explains broken edit remediation without removing committed patches',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a committed JSON patch');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['patch', 'greeter', '--continue']);
+      project.editManifestFor('0.1.0').deleteSync();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(_decodeObject(result.stdout)['problems'])
+          .where((problem) => problem['code'] == 'commit.edit_manifest_missing')
+          .single;
+
+      final actions = _objects(problem['suggestedActions']);
+      final commands = actions.map((action) => action['command']);
+      expect(commands, contains('patchwork patch greeter --continue 0.1.0'));
+      expect(
+        commands,
+        isNot(contains('patchwork remove greeter 0.1.0 --force')),
+      );
+      expect(
+        actions.map((action) => action['description']),
+        contains(
+          'Delete only the broken edit directory at .patchwork/greeter@0.1.0; do not remove the committed patch file.',
+        ),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
 }
 
 Map<String, Object?> _decodeObject(String source) {

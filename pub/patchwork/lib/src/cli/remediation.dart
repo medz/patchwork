@@ -41,21 +41,7 @@ List<SuggestedAction> remediationActions(
     ],
     'commit.edit_manifest_missing' ||
     'commit.edit_manifest_invalid' ||
-    'commit.edit_baseline_missing' => [
-      SuggestedAction(
-        description:
-            'Back up any useful edits from ${_PatchworkPath.edit(package, version)} before recreating the edit session.',
-      ),
-      SuggestedAction(
-        command: 'patchwork remove $package $version --force',
-        description: 'Remove the broken edit directory metadata.',
-      ),
-      SuggestedAction(
-        command: 'patchwork patch $package',
-        description:
-            'Create a fresh edit directory with valid Patchwork metadata.',
-      ),
-    ],
+    'commit.edit_baseline_missing' => _editRepairActions(status, problem),
     'applied.marker_invalid' || 'applied.marker_missing' => [
       SuggestedAction(
         description:
@@ -137,6 +123,35 @@ List<SuggestedAction> remediationActions(
     _ when problem.code.startsWith('pub.') => _pubActions(status, problem),
     _ => _fallbackActions(problem),
   };
+}
+
+List<SuggestedAction> _editRepairActions(
+  PatchStatus status,
+  PatchProblem problem,
+) {
+  final package = status.package;
+  final version = problem.remediationVersion ?? status.version;
+  final editPath = _PatchworkPath.edit(package, version);
+  final hasCurrentPatch = status.hasPatch && version == status.version;
+
+  return [
+    SuggestedAction(
+      description:
+          'Back up any useful edits from $editPath before recreating the edit session.',
+    ),
+    SuggestedAction(
+      description:
+          'Delete only the broken edit directory at $editPath; do not remove the committed patch file.',
+    ),
+    SuggestedAction(
+      command: hasCurrentPatch
+          ? 'patchwork patch $package --continue $version'
+          : 'patchwork patch $package',
+      description: hasCurrentPatch
+          ? 'Recreate a valid edit directory from the committed patch.'
+          : 'Create a fresh edit directory with valid Patchwork metadata.',
+    ),
+  ];
 }
 
 List<SuggestedAction> _appliedRepairActions(

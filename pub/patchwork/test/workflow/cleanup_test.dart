@@ -247,6 +247,62 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
+
+  test(
+    'prune preserves generated output referenced by pubspec dependency override',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from pubspec override');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['apply', 'greeter']);
+      expect(project.appliedDirectory.existsSync(), isTrue);
+
+      project.overrideFile.deleteSync();
+      final pubspec = File(p.join(project.appRoot, 'pubspec.yaml'));
+      pubspec.writeAsStringSync('''
+${pubspec.readAsStringSync()}
+dependency_overrides:
+  greeter:
+    path: .dart_tool/patchwork/greeter@0.1.0
+''');
+      await project.pubGet();
+      project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
+
+      await project.patchwork([
+        'prune',
+      ], stdoutContains: 'No patchwork artifacts to prune.');
+      expect(project.appliedDirectory.existsSync(), isTrue);
+      project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'prune removes stale patch files for packages that became workspace roots',
+    () async {
+      final project = await ProjectSandbox.workspace();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      final stalePatch = File(
+        p.join(project.stateRoot, 'patches', 'member_greeter@0.1.0.patch'),
+      );
+      stalePatch.parent.createSync(recursive: true);
+      stalePatch.writeAsStringSync('stale patch');
+
+      await project.patchwork(
+        ['prune'],
+        stdoutContains:
+            'Removed patch file patches/member_greeter@0.1.0.patch.',
+      );
+      expect(stalePatch.existsSync(), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
 }
 
 Map<String, Object?> _decodeObject(String source) {

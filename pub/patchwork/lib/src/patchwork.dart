@@ -713,14 +713,9 @@ final class Patchwork {
       }
 
       final marker = _appliedMarkerStore.read(patch.package, patch.version);
-      final activeOverride =
-          marker != null &&
-          _pubspecOverrides.pointsToPath(
-            workspaceRootPath: _rootPath,
-            package: marker.package,
-            path: marker.path,
-          );
-      if (activeOverride && !force) {
+      final activeAppliedReference =
+          marker != null && _appliedOutputHasActiveOverride(marker);
+      if (activeAppliedReference && !force) {
         throw PatchworkException(
           'Package "${patch.package}@${patch.version}" has applied Patchwork state.',
           code: 'prune.patch_applied',
@@ -751,7 +746,7 @@ final class Patchwork {
           ),
         );
       }
-      if (marker != null && (force || !activeOverride)) {
+      if (marker != null && (force || !activeAppliedReference)) {
         _addAppliedCleanupChanges(changes, marker, seen: seen);
         appliedMarkers.add(marker);
       }
@@ -762,11 +757,7 @@ final class Patchwork {
       if (marker == null) {
         continue;
       }
-      if (_pubspecOverrides.pointsToPath(
-        workspaceRootPath: _rootPath,
-        package: marker.package,
-        path: marker.path,
-      )) {
+      if (_appliedOutputHasActiveOverride(marker)) {
         continue;
       }
       _addAppliedCleanupChanges(changes, marker, seen: seen);
@@ -932,11 +923,75 @@ final class Patchwork {
       );
       return resolved.version == patch.version;
     } on PatchworkException catch (error) {
-      if (error.code == 'pub.package_not_found') {
+      if (_isStalePatchResolutionError(error)) {
         return false;
       }
       rethrow;
     }
+  }
+
+  bool _isStalePatchResolutionError(PatchworkException error) {
+    return error.code == 'pub.package_not_found' ||
+        error.code == 'pub.package_is_project' ||
+        error.code == 'pub.unsupported_source';
+  }
+
+  bool _appliedOutputHasActiveOverride(AppliedMarker marker) {
+    final absoluteAppliedPath = _patchworkAppliedPath(
+      marker.package,
+      marker.version,
+      marker.path,
+    );
+    if (absoluteAppliedPath == null) {
+      return false;
+    }
+
+    for (final overrideRootPath in _overrideRootPaths) {
+      final hasOverrideFileDependencyOverrides = _pubspecOverrides
+          .hasDependencyOverrides(workspaceRootPath: overrideRootPath);
+      if (_pubspecOverrides.pointsToPath(
+        workspaceRootPath: overrideRootPath,
+        package: marker.package,
+        path: absoluteAppliedPath,
+      )) {
+        return true;
+      }
+      if (hasOverrideFileDependencyOverrides) {
+        continue;
+      }
+
+      final dependencyOverrides = _pubspecDependencyOverrides
+          .dependencyOverrides(packageRootPath: overrideRootPath);
+      if (_overrideValuePointsToPath(
+        workspaceRootPath: overrideRootPath,
+        value: dependencyOverrides[marker.package],
+        path: absoluteAppliedPath,
+      )) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool _overrideValuePointsToPath({
+    required String workspaceRootPath,
+    required Object? value,
+    required String path,
+  }) {
+    if (value is! Map<String, Object?>) {
+      return false;
+    }
+    final overridePath = value['path'];
+    if (overridePath is! String) {
+      return false;
+    }
+    final absoluteOverridePath = p.normalize(
+      p.isAbsolute(overridePath)
+          ? overridePath
+          : p.absolute(workspaceRootPath, overridePath),
+    );
+    return p.equals(absoluteOverridePath, p.normalize(path));
   }
 
   AppliedMarker? _tryReadAppliedMarker(PackageVersionPath appliedDirectory) {

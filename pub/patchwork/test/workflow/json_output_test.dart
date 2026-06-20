@@ -255,6 +255,43 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
+
+  test(
+    'explains open edit remediation with the edit directory version',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      await project.pubGet();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(
+        _decodeObject(result.stdout)['problems'],
+      ).where((problem) => problem['code'] == 'commit.open_edit').single;
+      expect(problem['remediationVersion'], '0.1.0');
+
+      final commands = _objects(
+        problem['suggestedActions'],
+      ).map((action) => action['command']);
+      expect(commands, contains('patchwork commit greeter'));
+      expect(commands, contains('patchwork remove greeter 0.1.0 --force'));
+      expect(
+        commands,
+        isNot(contains('patchwork remove greeter 0.1.1 --force')),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
 }
 
 Map<String, Object?> _decodeObject(String source) {

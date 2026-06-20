@@ -38,11 +38,6 @@ List<SuggestedAction> remediationActions(
         description:
             'Keep exactly one .patchwork/$package@<version> edit directory before committing or applying.',
       ),
-      SuggestedAction(
-        command: 'patchwork remove $package $version --force',
-        description:
-            'Discard the selected edit directory if it is not the one to keep.',
-      ),
     ],
     'commit.edit_manifest_missing' ||
     'commit.edit_manifest_invalid' ||
@@ -80,10 +75,16 @@ List<SuggestedAction> remediationActions(
         command: 'patchwork commit $package',
         description: 'Commit the open edit directory into a patch file.',
       ),
-      SuggestedAction(
-        command: 'patchwork remove $package $version --force',
-        description: 'Discard the open edit directory if it is not needed.',
-      ),
+      if (problem.remediationVersion != null)
+        SuggestedAction(
+          command: 'patchwork remove $package $version --force',
+          description: 'Discard the open edit directory if it is not needed.',
+        )
+      else
+        const SuggestedAction(
+          description:
+              'Remove any extra edit directories before discarding one by version.',
+        ),
     ],
     'apply.open_edit' => [
       SuggestedAction(

@@ -1654,6 +1654,7 @@ final class Patchwork {
             code: error.code,
             message: error.message,
             hint: error.hint,
+            remediationVersion: edit.single.version,
           ),
         );
       }
@@ -1701,13 +1702,16 @@ final class Patchwork {
       );
     }
 
+    final editVersion = edit.length == 1 ? edit.single.version : null;
     if (!hasPatchFile && edit.isNotEmpty) {
       problems.add(
         PatchProblem(
           code: 'commit.open_edit',
           message: 'Package "$package" has an uncommitted edit directory.',
-          hint:
-              'Run patchwork commit $package, or patchwork remove $package $version --force to discard it.',
+          hint: editVersion == null
+              ? 'Run patchwork commit $package after removing any extra edit directories.'
+              : 'Run patchwork commit $package, or patchwork remove $package $editVersion --force to discard it.',
+          remediationVersion: editVersion,
         ),
       );
     } else if (edit.isNotEmpty) {
@@ -1716,6 +1720,7 @@ final class Patchwork {
           code: 'apply.open_edit',
           message: 'Package "$package" has an open edit directory.',
           hint: 'Run patchwork commit $package before applying this patch.',
+          remediationVersion: editVersion,
         ),
       );
     }

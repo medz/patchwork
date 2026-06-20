@@ -295,6 +295,45 @@ void main() {
   );
 
   test(
+    'explains stale patch remediation after resolving open edits first',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.patchwork(['patch', 'greeter']);
+      project.writeEdit('Hello from a stale patch with an open edit');
+      await project.patchwork(['commit', 'greeter']);
+      await project.patchwork(['patch', 'greeter', '--continue']);
+
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      await project.pubGet();
+
+      final result = await project.patchworkResult(
+        ['doctor', '--explain', '--json'],
+        exitCodes: {1},
+      );
+      final problem = _objects(
+        _decodeObject(result.stdout)['problems'],
+      ).where((problem) => problem['code'] == 'patch.stale').single;
+
+      final commands = _objects(
+        problem['suggestedActions'],
+      ).map((action) => action['command']);
+      expect(commands, contains('patchwork commit greeter'));
+      expect(
+        commands,
+        isNot(contains('patchwork patch greeter --continue 0.1.0')),
+      );
+      expect(commands, isNot(contains('patchwork remove greeter 0.1.0')));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'explains stale applied remediation with undo first when pub resolves output',
     () async {
       final project = await ProjectSandbox.standalone();

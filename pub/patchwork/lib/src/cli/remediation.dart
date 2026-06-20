@@ -67,17 +67,7 @@ List<SuggestedAction> remediationActions(
         description: 'Commit the open edit directory before applying patches.',
       ),
     ],
-    'patch.stale' => [
-      SuggestedAction(
-        command: 'patchwork patch $package --continue $version',
-        description:
-            'Carry the stale patch content into a fresh edit for the currently resolved version.',
-      ),
-      SuggestedAction(
-        command: 'patchwork remove $package $version',
-        description: 'Remove the stale patch file if it is no longer needed.',
-      ),
-    ],
+    'patch.stale' => _stalePatchActions(status, problem),
     'pub.override_conflict' => [
       SuggestedAction(
         description:
@@ -141,6 +131,39 @@ List<SuggestedAction> _editRepairActions(
       description: canContinuePatch
           ? 'Recreate a valid edit directory from the committed patch.'
           : 'Create a fresh edit directory with valid Patchwork metadata.',
+    ),
+  ];
+}
+
+List<SuggestedAction> _stalePatchActions(
+  PatchStatus status,
+  PatchProblem problem,
+) {
+  final package = status.package;
+  final version = problem.remediationVersion ?? status.version;
+  if (status.hasOpenEdit) {
+    return [
+      SuggestedAction(
+        command: 'patchwork commit $package',
+        description:
+            'Commit the open edit directory before continuing the stale patch.',
+      ),
+      const SuggestedAction(
+        description:
+            'Remove the open edit directory if it is not needed, then rerun patchwork doctor --explain for stale patch actions.',
+      ),
+    ];
+  }
+
+  return [
+    SuggestedAction(
+      command: 'patchwork patch $package --continue $version',
+      description:
+          'Carry the stale patch content into a fresh edit for the currently resolved version.',
+    ),
+    SuggestedAction(
+      command: 'patchwork remove $package $version',
+      description: 'Remove the stale patch file if it is no longer needed.',
     ),
   ];
 }

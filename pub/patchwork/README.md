@@ -45,7 +45,13 @@ Run commands with `dart run`:
 dart run patchwork --help
 ```
 
-Global activation is optional for users who prefer a standalone executable.
+Global activation is optional for interactive use, but recommended for scripts,
+editors, and agents that need clean stdout:
+
+```sh
+dart pub global activate patchwork
+patchwork status --json
+```
 
 ## Workflow
 
@@ -249,13 +255,17 @@ workspace member packages.
 Use `--json` when a script, editor, or agent needs stable command output:
 
 ```sh
-dart run patchwork status --json
+patchwork status --json
 ```
 
 JSON mode prints one JSON object on stdout and keeps the normal exit-code
 rules. Patchwork and usage failures use an `error` object with a stable `code`.
 Path fields use the same values the command would show in human output, such as
 `.patchwork/collection@1.19.1` and `patches/collection@1.19.1.patch`.
+
+Prefer the standalone `patchwork` executable for JSON automation. `dart run`
+may print Dart build-hook progress before the Patchwork process starts when a
+package in the dependency graph provides a hook.
 
 Use `--no-pub-get` with `apply` or `undo` only when a script needs to separate
 Patchwork's filesystem changes from pub resolution refresh. Normal interactive

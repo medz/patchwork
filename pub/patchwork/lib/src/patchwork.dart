@@ -9,6 +9,7 @@ import 'edit_session.dart';
 import 'error.dart';
 import 'internal/applied_patch_freshness.dart';
 import 'internal/applied_patch_activation.dart';
+import 'internal/applied_patch_materializer.dart';
 import 'internal/applied_path_policy.dart';
 import 'internal/artifact_inventory.dart';
 import 'internal/dependency_override_state.dart';
@@ -57,6 +58,7 @@ final class Patchwork {
     required this._appliedMarkerStore,
     required this._editPreparer,
     required this._committer,
+    required this._appliedMaterializer,
     required this._packageTree,
     required this._patchFile,
     required this._pubspecDependencyOverrides,
@@ -111,6 +113,11 @@ final class Patchwork {
         packageTree: packageTree,
         patchFile: patchFile,
       ),
+      appliedMaterializer: AppliedPatchMaterializer(
+        layout: layout,
+        packageTree: packageTree,
+        patchFile: patchFile,
+      ),
       packageTree: packageTree,
       patchFile: patchFile,
       pubspecDependencyOverrides: const PubspecDependencyOverrides(),
@@ -128,6 +135,7 @@ final class Patchwork {
   final AppliedMarkerStore _appliedMarkerStore;
   final EditPreparer _editPreparer;
   final PatchCommitter _committer;
+  final AppliedPatchMaterializer _appliedMaterializer;
   final PackageTree _packageTree;
   final PatchFile _patchFile;
   final PubspecDependencyOverrides _pubspecDependencyOverrides;
@@ -500,25 +508,13 @@ final class Patchwork {
         location: appliedPath,
       );
     }
-    final tempPath = p.join(
-      _layout.appliedRootPath,
-      '.$package@${resolved.version}.$pid.${DateTime.now().microsecondsSinceEpoch}',
+    _appliedMaterializer.materialize(
+      package: package,
+      version: resolved.version,
+      sourcePath: resolved.rootPath,
+      appliedPath: appliedPath,
+      patchContent: utf8.decode(patchBytes),
     );
-    _packageTree.deleteDirectory(tempPath);
-    Directory(tempPath).createSync(recursive: true);
-    try {
-      _packageTree.copy(resolved.rootPath, tempPath);
-      _patchFile.apply(
-        packagePath: tempPath,
-        patchContent: utf8.decode(patchBytes),
-      );
-      _packageTree.deleteDirectory(appliedPath);
-      Directory(p.dirname(appliedPath)).createSync(recursive: true);
-      Directory(tempPath).renameSync(appliedPath);
-    } catch (_) {
-      _packageTree.deleteDirectory(tempPath);
-      rethrow;
-    }
 
     _appliedActivation().activate(
       package: package,

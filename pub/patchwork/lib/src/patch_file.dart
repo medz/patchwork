@@ -214,23 +214,24 @@ final class PatchFile {
         '\r\n',
         '\n',
       );
-      final rejectPaths = _moveNewRejectFiles(
-        packagePath: packagePath,
-        existingRejectBackups: existingRejectBackups,
-        rejectPaths: _gitRejectRelativePaths(gitOutput),
-      );
       final normalizedOutput = _normalizedGitOutput(
         gitOutput,
         workingDirectory: packagePath,
         patchPath: patchFile.path,
       );
-      if (result.exitCode != 0 && rejectPaths.isEmpty && result.exitCode != 1) {
+      if (result.exitCode > 1) {
         throw PatchworkException(
           'Could not apply patch to the package copy.',
           code: 'patch.apply_failed',
           hint: normalizedOutput,
         );
       }
+      final rejectPaths = _moveReportedRejectFiles(
+        packagePath: packagePath,
+        existingRejectBackups: existingRejectBackups,
+        rejectPaths: _gitRejectRelativePaths(gitOutput),
+        failureHint: normalizedOutput,
+      );
       return PartialPatchApply(
         exitCode: result.exitCode,
         output: normalizedOutput,
@@ -257,11 +258,7 @@ final class PatchFile {
         arguments,
         workingDirectory: workingDirectory,
         environment: anchorToWorkingDirectory
-            ? {
-                'GIT_CEILING_DIRECTORIES': p.dirname(
-                  p.normalize(p.absolute(workingDirectory)),
-                ),
-              }
+            ? _gitEnvironment(workingDirectory)
             : null,
       );
     } on ProcessException catch (error) {
@@ -293,11 +290,7 @@ final class PatchFile {
       return _gitRunner(
         arguments,
         workingDirectory: workingDirectory,
-        environment: {
-          'GIT_CEILING_DIRECTORIES': p.dirname(
-            p.normalize(p.absolute(workingDirectory)),
-          ),
-        },
+        environment: _gitEnvironment(workingDirectory, forceCLocale: true),
       );
     } on ProcessException catch (error) {
       throw PatchworkException(
@@ -307,6 +300,18 @@ final class PatchFile {
       );
     }
   }
+}
+
+Map<String, String> _gitEnvironment(
+  String workingDirectory, {
+  bool forceCLocale = false,
+}) {
+  return {
+    'GIT_CEILING_DIRECTORIES': p.dirname(
+      p.normalize(p.absolute(workingDirectory)),
+    ),
+    if (forceCLocale) ...{'LC_ALL': 'C', 'LANG': 'C'},
+  };
 }
 
 /// Result from a best-effort partial patch application.
@@ -514,17 +519,21 @@ bool _isOctalDigit(String value) {
   return codeUnit >= 0x30 && codeUnit <= 0x37;
 }
 
-List<String> _moveNewRejectFiles({
+List<String> _moveReportedRejectFiles({
   required String packagePath,
   required Map<String, _RejectEntryBackup> existingRejectBackups,
   required Set<String> rejectPaths,
+  required String failureHint,
 }) {
+  _validateReportedRejectFiles(
+    packagePath: packagePath,
+    rejectPaths: rejectPaths,
+    failureHint: failureHint,
+  );
+
   final movedPaths = <String>[];
   for (final relativePath in rejectPaths) {
     final source = File(p.joinAll([packagePath, ...relativePath.split('/')]));
-    if (!source.existsSync()) {
-      continue;
-    }
     final rejectBytes = source.readAsBytesSync();
     final movedRelativePath = p
         .joinAll(['.patchwork', 'rejects', ...relativePath.split('/')])
@@ -545,6 +554,27 @@ List<String> _moveNewRejectFiles({
   }
   movedPaths.sort();
   return movedPaths;
+}
+
+void _validateReportedRejectFiles({
+  required String packagePath,
+  required Set<String> rejectPaths,
+  required String failureHint,
+}) {
+  for (final relativePath in rejectPaths) {
+    final path = p.joinAll([packagePath, ...relativePath.split('/')]);
+    final type = FileSystemEntity.typeSync(path, followLinks: false);
+    if (type == FileSystemEntityType.file ||
+        type == FileSystemEntityType.link) {
+      continue;
+    }
+    throw PatchworkException(
+      'Git reported a rejected hunk but did not write the reject file.',
+      code: 'patch.reject_missing',
+      hint: failureHint,
+      location: path,
+    );
+  }
 }
 
 void _deleteExistingPath(String path) {

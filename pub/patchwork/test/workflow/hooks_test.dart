@@ -32,9 +32,7 @@ void main() {
 
       await project.writeAutoApplyAllHook();
       await project.pubGet();
-      await project.application(['patch', 'greeter']);
-      project.writeEdit('Hello from a standalone hook patch');
-      await project.application(['commit', 'greeter']);
+      project.writeGreeterPatch('Hello from a standalone hook patch');
 
       await project.runApp('Hello from a standalone hook patch, Patchwork!');
       project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
@@ -58,9 +56,7 @@ void main() {
 
       await project.writeAutoApplyAllHook();
       await project.pubGet();
-      await project.application(['patch', 'greeter']);
-      project.writeEdit('Hello from a workspace hook patch');
-      await project.application(['commit', 'greeter']);
+      project.writeGreeterPatch('Hello from a workspace hook patch');
 
       await project.runApp('Hello from a workspace hook patch, Patchwork!');
       project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
@@ -76,9 +72,7 @@ void main() {
 
       await project.writeAutoApplyGreeterHook();
       await project.pubGet();
-      await project.application(['patch', 'greeter']);
-      project.writeEdit('Hello from a single hook patch');
-      await project.application(['commit', 'greeter']);
+      project.writeGreeterPatch('Hello from a single hook patch');
 
       await project.runApp('Hello from a single hook patch, Patchwork!');
       project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);

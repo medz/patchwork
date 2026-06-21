@@ -221,9 +221,8 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
+      project.writeResolution();
       project.writeManualOverride();
-      await project.pubGet();
 
       await project.application(
         ['patch', 'greeter'],
@@ -241,9 +240,8 @@ void main() {
       final project = await ProjectSandbox.workspace();
       addTearDown(project.dispose);
 
-      await project.pubGet();
+      project.writeResolution();
       _writeWorkspaceMemberOverride(project);
-      await project.pubGet();
 
       await project.application(
         ['patch', 'greeter'],
@@ -263,18 +261,16 @@ void main() {
       addTearDown(standalone.dispose);
       addTearDown(workspace.dispose);
 
-      await standalone.pubGet();
+      standalone.writeResolution();
       _writePubspecDependencyOverride(
         standalone,
         packageRoot: standalone.stateRoot,
       );
-      await standalone.pubGet();
-      await workspace.pubGet();
+      workspace.writeResolution();
       _writePubspecDependencyOverride(
         workspace,
         packageRoot: workspace.appRoot,
       );
-      await workspace.pubGet();
 
       await standalone.application(
         ['patch', 'greeter'],
@@ -367,7 +363,7 @@ void main() {
       addTearDown(standalone.dispose);
       addTearDown(workspace.dispose);
 
-      await standalone.pubGet();
+      standalone.writeResolution();
       _writePubspecDependencyOverride(
         standalone,
         packageRoot: standalone.stateRoot,
@@ -377,7 +373,7 @@ void main() {
       await standalone.application(['apply', 'greeter', '--no-pub-get']);
       await standalone.pubGet();
 
-      await workspace.pubGet();
+      workspace.writeResolution();
       _writePubspecDependencyOverride(
         workspace,
         packageRoot: workspace.appRoot,
@@ -412,7 +408,7 @@ void main() {
       );
       addTearDown(project.dispose);
 
-      await project.pubGet();
+      project.writeResolution();
       _writePubspecDependencyOverride(
         project,
         packageRoot: project.stateRoot,
@@ -424,7 +420,7 @@ void main() {
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
 
       await project.application(['undo', 'greeter', '--no-pub-get']);
-      await project.pubGet();
+      project.writeResolution();
       _writePubspecDependencyOverride(
         project,
         packageRoot: project.stateRoot,
@@ -456,7 +452,7 @@ void main() {
       _writeSimplePackage(manualThirdRoot, 'third_pkg');
       _addPathDependency(project, 'third_pkg', thirdRoot);
 
-      await project.pubGet();
+      project.writeResolution();
       _writePubspecDependencyOverride(
         project,
         packageRoot: project.stateRoot,
@@ -474,7 +470,7 @@ void main() {
         package: 'third_pkg',
         targetRoot: thirdRoot,
       );
-      await _commitOtherPackagePatch(project);
+      _writeOtherPackagePatch(project);
       await project.application(['apply', 'other_pkg']);
       await project.pubGet();
 
@@ -502,7 +498,7 @@ void main() {
       _writeSimplePackage(manualThirdRoot, 'third_pkg');
       _addPathDependency(project, 'third_pkg', thirdRoot);
 
-      await project.pubGet();
+      project.writeResolution();
       _writePubspecDependencyOverride(
         project,
         packageRoot: project.stateRoot,
@@ -513,7 +509,7 @@ void main() {
         'Hello before undo refreshes a remaining mirror',
       );
       await project.application(['apply', 'greeter', '--no-pub-get']);
-      await _commitOtherPackagePatch(project);
+      _writeOtherPackagePatch(project);
       await project.application(['apply', 'other_pkg']);
       await project.pubGet();
       project.expectPackageResolvedTo('third_pkg', manualThirdRoot);
@@ -1209,7 +1205,7 @@ String otherName() {
 
       project.writeResolution();
       project.writeGreeterPatch('Hello from selected apply');
-      await _commitOtherPackagePatch(project);
+      _writeOtherPackagePatch(project);
 
       project.replaceAppPubspecText(
         '  other_pkg:\n    path: ../packages/other_pkg\n',
@@ -1425,22 +1421,21 @@ dependency_overrides:
 ''');
 }
 
-Future<void> _commitOtherPackagePatch(ProjectSandbox project) async {
-  await project.application(['patch', 'other_pkg']);
-  File(
-    p.join(
-      project.stateRoot,
-      '.patchwork',
-      'other_pkg@0.1.0',
-      'lib',
-      'other_pkg.dart',
-    ),
-  ).writeAsStringSync('''
-String otherName() {
-  return 'patched_other_pkg';
-}
+void _writeOtherPackagePatch(ProjectSandbox project) {
+  final patch = File(
+    p.join(project.stateRoot, 'patches', 'other_pkg@0.1.0.patch'),
+  );
+  patch.parent.createSync(recursive: true);
+  patch.writeAsStringSync('''
+diff --git a/lib/other_pkg.dart b/lib/other_pkg.dart
+--- a/lib/other_pkg.dart
++++ b/lib/other_pkg.dart
+@@ -1,3 +1,3 @@
+ String otherName() {
+-  return 'other_pkg';
++  return 'patched_other_pkg';
+ }
 ''');
-  await project.application(['commit', 'other_pkg']);
 }
 
 void _appendPubspecOverridesPathOverride(

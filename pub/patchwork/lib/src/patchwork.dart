@@ -8,6 +8,7 @@ import 'package:yaml/yaml.dart';
 import 'applied_marker.dart';
 import 'edit_session.dart';
 import 'error.dart';
+import 'internal/applied_path_policy.dart';
 import 'internal/artifact_inventory.dart';
 import 'internal/package_tree.dart';
 import 'internal/overlay_inspector.dart';
@@ -45,8 +46,8 @@ final class Patchwork {
     required this._rootPath,
     required this._currentPackageRootPath,
     required this._overrideRootPaths,
-    required this._protectedRootPaths,
     required this._layout,
+    required this._appliedPaths,
     required this._pubResolutionReader,
     required this._editSessionStore,
     required this._appliedMarkerStore,
@@ -79,8 +80,12 @@ final class Patchwork {
       rootPath: workspace.rootPath,
       currentPackageRootPath: workspace.currentPackageRootPath,
       overrideRootPaths: workspace.rootPackageRootPaths,
-      protectedRootPaths: workspace.rootPackageRootPaths,
       layout: layout,
+      appliedPaths: AppliedPathPolicy(
+        rootPath: workspace.rootPath,
+        layout: layout,
+        protectedRootPaths: workspace.rootPackageRootPaths,
+      ),
       pubResolutionReader: const PubResolutionReader(),
       editSessionStore: EditSessionStore(layout: layout),
       appliedMarkerStore: AppliedMarkerStore(layout: layout),
@@ -94,8 +99,8 @@ final class Patchwork {
   final String _rootPath;
   final String _currentPackageRootPath;
   final Set<String> _overrideRootPaths;
-  final Set<String> _protectedRootPaths;
   final PathLayout _layout;
+  final AppliedPathPolicy _appliedPaths;
   final PubResolutionReader _pubResolutionReader;
   final EditSessionStore _editSessionStore;
   final AppliedMarkerStore _appliedMarkerStore;
@@ -570,7 +575,12 @@ final class Patchwork {
 
       final applied = _appliedMarkerStore.read(package, patch.version);
       if (applied != null &&
-          _patchworkAppliedPath(package, patch.version, applied.path) == null) {
+          _appliedPaths.patchworkAppliedPath(
+                package,
+                patch.version,
+                applied.path,
+              ) ==
+              null) {
         throw PatchworkException(
           _invalidAppliedPathMessage,
           code: 'apply.applied_path_not_deletable',
@@ -662,7 +672,7 @@ final class Patchwork {
     );
     final appliedPath = existingApplied == null
         ? _layout.appliedPath(package, resolved.version)
-        : _requirePatchworkAppliedPath(
+        : _appliedPaths.requirePatchworkAppliedPath(
             package,
             resolved.version,
             existingApplied.path,
@@ -1143,7 +1153,7 @@ final class Patchwork {
   }
 
   bool _appliedOutputHasActiveOverride(AppliedMarker marker) {
-    final absoluteAppliedPath = _patchworkAppliedPath(
+    final absoluteAppliedPath = _appliedPaths.patchworkAppliedPath(
       marker.package,
       marker.version,
       marker.path,
@@ -1181,7 +1191,7 @@ final class Patchwork {
   }
 
   _OverrideConflict? _userOwnedOverrideForAppliedOutput(AppliedMarker marker) {
-    final absoluteAppliedPath = _patchworkAppliedPath(
+    final absoluteAppliedPath = _appliedPaths.patchworkAppliedPath(
       marker.package,
       marker.version,
       marker.path,
@@ -1274,7 +1284,7 @@ final class Patchwork {
     AppliedMarker marker, {
     Set<String>? seen,
   }) {
-    final appliedPath = _requirePatchworkAppliedPath(
+    final appliedPath = _appliedPaths.requirePatchworkAppliedPath(
       marker.package,
       marker.version,
       marker.path,
@@ -1321,7 +1331,7 @@ final class Patchwork {
   }
 
   String _removeAppliedMarker(AppliedMarker marker, {required String code}) {
-    final absoluteAppliedPath = _requirePatchworkAppliedPath(
+    final absoluteAppliedPath = _appliedPaths.requirePatchworkAppliedPath(
       marker.package,
       marker.version,
       marker.path,
@@ -1555,7 +1565,7 @@ final class Patchwork {
     if (marker == null) {
       return false;
     }
-    final absoluteAppliedPath = _patchworkAppliedPath(
+    final absoluteAppliedPath = _appliedPaths.patchworkAppliedPath(
       package,
       version,
       marker.path,
@@ -1750,7 +1760,11 @@ final class Patchwork {
     if (applied == null) {
       return true;
     }
-    final appliedPath = _patchworkAppliedPath(package, version, applied.path);
+    final appliedPath = _appliedPaths.patchworkAppliedPath(
+      package,
+      version,
+      applied.path,
+    );
     if (appliedPath == null) {
       return false;
     }
@@ -1902,7 +1916,7 @@ final class Patchwork {
       final staleAppliedMarker = _tryReadAppliedMarker(appliedDirectory);
       final staleAppliedCanPrune =
           staleAppliedMarker != null &&
-          _patchworkAppliedPath(
+          _appliedPaths.patchworkAppliedPath(
                 package,
                 appliedDirectory.version,
                 staleAppliedMarker.path,
@@ -1963,15 +1977,15 @@ final class Patchwork {
     final appliedPathInProject = applied == null
         ? (appliedForVersion.isEmpty
               ? null
-              : _patchworkAppliedPath(
+              : _appliedPaths.patchworkAppliedPath(
                   package,
                   version,
                   _layout.relativeAppliedPath(package, version),
                 ))
-        : _patchworkAppliedPath(package, version, applied.path);
+        : _appliedPaths.patchworkAppliedPath(package, version, applied.path);
     final appliedAbsolutePath = applied == null
         ? appliedPathInProject
-        : _absoluteFromRoot(applied.path);
+        : _appliedPaths.absoluteFromRoot(applied.path);
     final appliedExists =
         appliedPathInProject != null &&
         Directory(appliedPathInProject).existsSync();
@@ -2114,79 +2128,6 @@ final class Patchwork {
       problems: problems,
     );
   }
-
-  String _absoluteFromRoot(String path) {
-    final absolute = p.isAbsolute(path) ? path : p.absolute(_rootPath, path);
-    return p.normalize(absolute);
-  }
-
-  String? _projectChildPath(String path) {
-    final absolute = _absoluteFromRoot(path);
-    final root = p.normalize(p.absolute(_rootPath));
-    if (p.equals(root, absolute) || !p.isWithin(root, absolute)) {
-      return null;
-    }
-    final canonical = _canonicalPathThroughExistingAncestors(absolute);
-    final canonicalRoot = _canonicalPathThroughExistingAncestors(root);
-    if (canonical == null ||
-        canonicalRoot == null ||
-        p.equals(canonicalRoot, canonical) ||
-        !p.isWithin(canonicalRoot, canonical)) {
-      return null;
-    }
-    return absolute;
-  }
-
-  String? _deletableProjectChildPath(String path) {
-    final absolute = _projectChildPath(path);
-    if (absolute == null || _isProtectedRootPath(absolute)) {
-      return null;
-    }
-    return absolute;
-  }
-
-  String? _patchworkAppliedPath(String package, String version, String path) {
-    final absolute = _deletableProjectChildPath(path);
-    if (absolute == null) {
-      return null;
-    }
-    final expected = p.normalize(_layout.appliedPath(package, version));
-    if (!p.equals(absolute, expected)) {
-      return null;
-    }
-    return absolute;
-  }
-
-  String _requirePatchworkAppliedPath(
-    String package,
-    String version,
-    String path, {
-    required String code,
-    required String message,
-  }) {
-    final absolute = _patchworkAppliedPath(package, version, path);
-    if (absolute == null) {
-      throw PatchworkException(message, code: code, location: path);
-    }
-    return absolute;
-  }
-
-  bool _isProtectedRootPath(String path) {
-    final normalized = p.normalize(path);
-    final canonical = _canonicalPathIfExists(path);
-    for (final protectedRoot in _protectedRootPaths) {
-      if (p.equals(normalized, protectedRoot)) {
-        return true;
-      }
-      final canonicalProtectedRoot = _canonicalPathIfExists(protectedRoot);
-      if (canonical != null &&
-          canonicalProtectedRoot != null &&
-          p.equals(canonical, canonicalProtectedRoot)) {
-        return true;
-      }
-    }
-    return false;
-  }
 }
 
 final class _OverrideConflict {
@@ -2194,49 +2135,6 @@ final class _OverrideConflict {
 
   final String fileName;
   final String path;
-}
-
-String? _canonicalPathIfExists(String path) {
-  try {
-    return p.normalize(_resolveExistingPath(path));
-  } on FileSystemException {
-    return null;
-  }
-}
-
-String? _canonicalPathThroughExistingAncestors(String path) {
-  final missingSegments = <String>[];
-  var current = p.normalize(path);
-  while (FileSystemEntity.typeSync(current, followLinks: false) ==
-      FileSystemEntityType.notFound) {
-    final parent = p.dirname(current);
-    if (p.equals(parent, current)) {
-      return null;
-    }
-    missingSegments.add(p.basename(current));
-    current = parent;
-  }
-
-  try {
-    var canonical = p.normalize(_resolveExistingPath(current));
-    for (final segment in missingSegments.reversed) {
-      canonical = p.join(canonical, segment);
-    }
-    return p.normalize(canonical);
-  } on FileSystemException {
-    return null;
-  }
-}
-
-String _resolveExistingPath(String path) {
-  return switch (FileSystemEntity.typeSync(path, followLinks: false)) {
-    FileSystemEntityType.directory => Directory(
-      path,
-    ).resolveSymbolicLinksSync(),
-    FileSystemEntityType.file => File(path).resolveSymbolicLinksSync(),
-    FileSystemEntityType.link => Link(path).resolveSymbolicLinksSync(),
-    _ => throw FileSystemException('Path cannot be resolved.', path),
-  };
 }
 
 void _checkPlainPackageName(String package) {

@@ -4,6 +4,7 @@ import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 import 'package:patchwork/src/cli/application.dart';
+import 'package:patchwork/src/internal/package_tree.dart';
 import 'package:test/test.dart';
 
 final class OverlayProjectSandbox {
@@ -348,6 +349,21 @@ final class OverlayProjectSandbox {
     ]);
   }
 
+  void writePrefixOverlay(
+    String providerRoot,
+    String prefix, {
+    String reason = 'Test overlay',
+  }) {
+    _writeOverlay(providerRoot, _prefixPatch(prefix), reason: reason);
+  }
+
+  void writeRootPrefixPatch(String prefix) {
+    final patchPath = p.join(stateRoot, 'patches', 'greeter@0.1.0.patch');
+    File(patchPath)
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync(_prefixPatch(prefix));
+  }
+
   Future<void> registerPunctuationOverlay(
     String providerRoot,
     String punctuation, {
@@ -364,6 +380,33 @@ final class OverlayProjectSandbox {
       '--reason',
       reason,
     ]);
+  }
+
+  void writePunctuationOverlay(
+    String providerRoot,
+    String punctuation, {
+    String reason = 'Test overlay',
+  }) {
+    _writeOverlay(providerRoot, _punctuationPatch(punctuation), reason: reason);
+  }
+
+  void _writeOverlay(
+    String providerRoot,
+    String patchContent, {
+    required String reason,
+  }) {
+    final patchPath = p.join(providerRoot, 'patches', 'greeter@0.1.0.patch');
+    File(patchPath)
+      ..parent.createSync(recursive: true)
+      ..writeAsStringSync(patchContent);
+    manifestFor(providerRoot).writeAsStringSync('''
+overlays:
+  - package: "greeter"
+    version: "0.1.0"
+    sha256: "${const PackageTree().sha256Of(greeterRoot)}"
+    patch: "patches/greeter@0.1.0.patch"
+    reason: "$reason"
+''');
   }
 
   void expectGreeterResolvedToAppliedOutput() {
@@ -563,6 +606,34 @@ environment:
 workspace:
   - packages/provider_b
 ''');
+}
+
+String _prefixPatch(String prefix) {
+  return 'diff --git a/lib/greeter.dart b/lib/greeter.dart\n'
+      '--- a/lib/greeter.dart\n'
+      '+++ b/lib/greeter.dart\n'
+      '@@ -4,7 +4,7 @@ String greeting(String name) {\n'
+      ' }\n'
+      ' \n'
+      ' String prefix() {\n'
+      '-  return "Hello";\n'
+      '+  return ${jsonEncode(prefix)};\n'
+      ' }\n'
+      ' \n'
+      ' String punctuation() {\n';
+}
+
+String _punctuationPatch(String punctuation) {
+  return 'diff --git a/lib/greeter.dart b/lib/greeter.dart\n'
+      '--- a/lib/greeter.dart\n'
+      '+++ b/lib/greeter.dart\n'
+      '@@ -8,5 +8,5 @@ String prefix() {\n'
+      ' }\n'
+      ' \n'
+      ' String punctuation() {\n'
+      '-  return "!";\n'
+      '+  return ${jsonEncode(punctuation)};\n'
+      ' }\n';
 }
 
 Future<String> _patchworkPackageRoot() async {

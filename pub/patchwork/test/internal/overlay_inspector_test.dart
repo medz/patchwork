@@ -61,6 +61,47 @@ void main() {
     },
   );
 
+  test('skips stale provider overlays before checking patch files', () async {
+    final fixture = _OverlayFixture.create();
+    addTearDown(fixture.dispose);
+
+    fixture.writeProviderManifest(
+      'provider_a',
+      patchPath: 'patches/missing.patch',
+      version: '0.0.1',
+    );
+
+    final inspection = await fixture.inspect();
+
+    final entry = inspection.providers.single.entries.single;
+    expect(entry.status, OverlayEntryStatus.skipped);
+    expect(entry.skipReason, 'overlay.version_mismatch');
+    expect(entry.resolvedVersion, '0.1.0');
+    expect(inspection.targets, isEmpty);
+  });
+
+  test(
+    'fails provider overlays that do not target provider dependencies',
+    () async {
+      final fixture = _OverlayFixture.create();
+      addTearDown(fixture.dispose);
+
+      fixture.writeProviderManifest(
+        'provider_a',
+        package: 'provider_b',
+        patchPath: 'patches/provider_b@0.1.0.patch',
+        sha256: 'unused',
+      );
+
+      final inspection = await fixture.inspect();
+
+      final entry = inspection.providers.single.entries.single;
+      expect(entry.status, OverlayEntryStatus.failed);
+      expect(entry.skipReason, 'overlay.provider_not_dependency');
+      expect(inspection.targets, isEmpty);
+    },
+  );
+
   test('reports deterministic conflicts from fixture patch files', () async {
     final fixture = _OverlayFixture.create();
     addTearDown(fixture.dispose);
@@ -125,14 +166,20 @@ final class _OverlayFixture {
     writeProviderManifest(provider, patchPath: 'patches/greeter@0.1.0.patch');
   }
 
-  void writeProviderManifest(String provider, {required String patchPath}) {
+  void writeProviderManifest(
+    String provider, {
+    required String patchPath,
+    String package = 'greeter',
+    String version = '0.1.0',
+    String? sha256,
+  }) {
     File(
       p.join(root.path, 'packages', provider, 'patchwork.yaml'),
     ).writeAsStringSync('''
 overlays:
-  - package: "greeter"
-    version: "0.1.0"
-    sha256: "$greeterSha256"
+  - package: "$package"
+    version: "$version"
+    sha256: "${sha256 ?? greeterSha256}"
     patch: "$patchPath"
 ''');
   }

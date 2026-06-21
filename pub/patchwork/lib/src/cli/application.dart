@@ -111,7 +111,7 @@ void printGeneralHelp(io.IOSink out) {
   out.writeln('');
   out.writeln('Commands:');
   out.writeln('  patch <pkg> [--continue [version]] [--force] [--json]');
-  out.writeln('  carry <pkg> [--from version] [--json]');
+  out.writeln('  carry <pkg> [--from version] [--partial] [--json]');
   out.writeln('  commit [pkg] [--json]');
   out.writeln('  overlay add <pkg> [--reason <text>] [--json]');
   out.writeln('  overlay inspect [--json]');
@@ -135,9 +135,14 @@ void printCommandHelp(String command, io.IOSink out) {
       );
       printJsonHelp(out);
     case 'carry':
-      out.writeln('Usage: patchwork carry <pkg> [--from version] [--json]');
+      out.writeln(
+        'Usage: patchwork carry <pkg> [--from version] [--partial] [--json]',
+      );
       out.writeln('');
       out.writeln('Creates a current-version edit from a stale patch file.');
+      out.writeln(
+        '--partial keeps applicable hunks and writes reject details.',
+      );
       printJsonHelp(out);
     case 'commit':
       out.writeln('Usage: patchwork commit [pkg] [--json]');

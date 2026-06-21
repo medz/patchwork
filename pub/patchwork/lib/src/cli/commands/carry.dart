@@ -17,11 +17,17 @@ Future<int> runCarryCommand(
 ) async {
   final parsed = parseCommandArguments('carry', arguments);
   String? fromVersion;
+  var partial = false;
   final packages = <String>[];
 
   for (var index = 0; index < parsed.rest.length; index += 1) {
     final argument = parsed.rest[index];
-    if (argument == '--from') {
+    if (argument == '--partial') {
+      if (partial) {
+        throw duplicateOption('--partial');
+      }
+      partial = true;
+    } else if (argument == '--from') {
       if (fromVersion != null) {
         throw duplicateOption('--from');
       }
@@ -58,19 +64,38 @@ Future<int> runCarryCommand(
   }
 
   final package = singlePackage('carry', packages, required: true)!;
-  final edit = await patchwork.carry(package, fromVersion: fromVersion);
+  final edit = await patchwork.carry(
+    package,
+    fromVersion: fromVersion,
+    partial: partial,
+  );
   if (parsed.json) {
     printEditJson(patchwork, edit, out, command: 'carry');
     return 0;
   }
 
   out.writeln(
-    'Created carry edit ${patchwork.relativePath(edit.path)} from '
+    '${edit.partialRepairLogPath == null ? 'Created carry edit' : 'Created partial carry edit'} '
+    '${patchwork.relativePath(edit.path)} from '
     '${patchwork.relativePath(edit.sourcePath)}.',
   );
-  out.writeln(
-    'Applied ${patchwork.relativePath(edit.continuedFromPatchPath!)}.',
-  );
+  if (edit.partialRepairLogPath == null) {
+    out.writeln(
+      'Applied ${patchwork.relativePath(edit.continuedFromPatchPath!)}.',
+    );
+  } else {
+    out.writeln(
+      'Prepared partial repair from '
+      '${patchwork.relativePath(edit.continuedFromPatchPath!)}.',
+    );
+    out.writeln(
+      'Wrote conflict log '
+      '${patchwork.relativePath(edit.partialRepairLogPath!)}.',
+    );
+    if (edit.partialRejectPaths.isNotEmpty) {
+      out.writeln('Moved rejects under .patchwork/rejects/.');
+    }
+  }
   out.writeln('Review the edit and run patchwork commit ${edit.package}.');
   return 0;
 }

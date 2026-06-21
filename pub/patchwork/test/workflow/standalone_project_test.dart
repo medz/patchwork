@@ -284,6 +284,483 @@ void main() {
   );
 
   test(
+    'partial carry fails when git cannot produce reject repair material',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from a broken stale patch');
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      project.writeResolution(greeterVersion: '0.1.1');
+      File(
+        p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
+      ).writeAsStringSync('tampered\n');
+
+      final result = await project.applicationResult(
+        ['carry', 'greeter', '--partial'],
+        exitCodes: {1},
+      );
+      expect(result.stderr, contains('Could not apply patch'));
+      expect(project.editDirectoryFor('0.1.1').existsSync(), isFalse);
+      expect(project.appliedDirectoryFor('0.1.1').existsSync(), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'partial carry keeps clean hunks when file conflicts produce no rejects',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      File(
+        p.join(project.greeterRoot, 'lib', 'extra.dart'),
+      ).writeAsStringSync("const extra = 'old';\n");
+      project.writeResolution();
+      final stalePatch = File(
+        p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
+      );
+      stalePatch.parent.createSync(recursive: true);
+      stalePatch.writeAsStringSync(r'''
+diff --git a/lib/extra.dart b/lib/extra.dart
+--- a/lib/extra.dart
++++ b/lib/extra.dart
+@@ -1 +1 @@
+-const extra = 'old';
++const extra = 'carried';
+diff --git a/lib/upstream_added.dart b/lib/upstream_added.dart
+new file mode 100644
+--- /dev/null
++++ b/lib/upstream_added.dart
+@@ -0,0 +1 @@
++const added = 'carried';
+''');
+
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      File(
+        p.join(project.greeterRoot, 'lib', 'extra.dart'),
+      ).writeAsStringSync("const extra = 'old';\n");
+      File(
+        p.join(project.greeterRoot, 'lib', 'upstream_added.dart'),
+      ).writeAsStringSync("const added = 'upstream';\n");
+      project.writeResolution(greeterVersion: '0.1.1');
+
+      final result = await project.applicationResult([
+        'carry',
+        'greeter',
+        '--partial',
+      ]);
+      expect(result.stdout, contains('Created partial carry edit'));
+      expect(result.stdout, contains('Prepared partial repair'));
+      expect(result.stdout, isNot(contains('Moved rejects')));
+      expect(
+        File(
+          p.join(project.editDirectoryFor('0.1.1').path, 'lib', 'extra.dart'),
+        ).readAsStringSync(),
+        "const extra = 'carried';\n",
+      );
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            'lib',
+            'upstream_added.dart',
+          ),
+        ).readAsStringSync(),
+        "const added = 'upstream';\n",
+      );
+
+      final repairLog = File(
+        p.join(
+          project.editDirectoryFor('0.1.1').path,
+          '.patchwork',
+          'partial-repair.log',
+        ),
+      ).readAsStringSync();
+      expect(repairLog, contains('gitExitCode: 1'));
+      expect(repairLog, contains('rejects: none'));
+      expect(repairLog, contains('already exists'));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'partial carry keeps log-only file conflicts without rejects',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      project.writeResolution();
+      final stalePatch = File(
+        p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
+      );
+      stalePatch.parent.createSync(recursive: true);
+      stalePatch.writeAsStringSync(r'''
+diff --git a/lib/upstream_added.dart b/lib/upstream_added.dart
+new file mode 100644
+--- /dev/null
++++ b/lib/upstream_added.dart
+@@ -0,0 +1 @@
++const added = 'carried';
+''');
+
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      File(
+        p.join(project.greeterRoot, 'lib', 'upstream_added.dart'),
+      ).writeAsStringSync("const added = 'upstream';\n");
+      project.writeResolution(greeterVersion: '0.1.1');
+
+      final result = await project.applicationResult([
+        'carry',
+        'greeter',
+        '--partial',
+      ]);
+      expect(result.stdout, contains('Created partial carry edit'));
+      expect(result.stdout, contains('Prepared partial repair'));
+      expect(result.stdout, isNot(contains('Moved rejects')));
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            'lib',
+            'upstream_added.dart',
+          ),
+        ).readAsStringSync(),
+        "const added = 'upstream';\n",
+      );
+
+      final repairLog = File(
+        p.join(
+          project.editDirectoryFor('0.1.1').path,
+          '.patchwork',
+          'partial-repair.log',
+        ),
+      ).readAsStringSync();
+      expect(repairLog, contains('gitExitCode: 1'));
+      expect(repairLog, contains('rejects: none'));
+      expect(repairLog, contains('already exists'));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'partially carries applicable hunks into a repairable edit',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      File(
+        p.join(project.greeterRoot, 'lib', 'extra.dart'),
+      ).writeAsStringSync("const extra = 'old';\n");
+      File(
+        p.join(project.greeterRoot, 'lib', 'greeter.dart.rej'),
+      ).writeAsStringSync('existing reject-suffixed source file\n');
+      File(
+        p.join(project.greeterRoot, 'lib', 'quote"name.dart'),
+      ).writeAsStringSync("const quoted = 'old';\n");
+      File(
+        p.join(project.greeterRoot, 'lib', 'quote"name.dart.rej'),
+      ).writeAsStringSync('existing quoted reject source file\n');
+      File(
+        p.join(project.greeterRoot, 'lib', 'mode.dart'),
+      ).writeAsStringSync("const mode = 'old';\n");
+      final executableReject = File(
+        p.join(project.greeterRoot, 'lib', 'mode.dart.rej'),
+      )..writeAsStringSync('existing executable reject source file\n');
+      _chmod(executableReject.path, '755');
+      File(
+        p.join(project.greeterRoot, 'lib', 'link.dart'),
+      ).writeAsStringSync("const link = 'old';\n");
+      File(
+        p.join(project.greeterRoot, 'lib', 'link-target.txt'),
+      ).writeAsStringSync('existing symlink target\n');
+      final supportsSymlinkReject = !Platform.isWindows;
+      if (supportsSymlinkReject) {
+        Link(
+          p.join(project.greeterRoot, 'lib', 'link.dart.rej'),
+        ).createSync('link-target.txt');
+      }
+      project.writeResolution();
+      final stalePatch = File(
+        p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
+      );
+      stalePatch.parent.createSync(recursive: true);
+      stalePatch.writeAsStringSync(r'''
+diff --git a/lib/extra.dart b/lib/extra.dart
+--- a/lib/extra.dart
++++ b/lib/extra.dart
+@@ -1 +1 @@
+-const extra = 'old';
++const extra = 'carried';
+diff --git a/lib/notes.rej b/lib/notes.rej
+new file mode 100644
+--- /dev/null
++++ b/lib/notes.rej
+@@ -0,0 +1 @@
++legitimate reject-suffixed source file
+diff --git a/lib/greeter.dart b/lib/greeter.dart
+--- a/lib/greeter.dart
++++ b/lib/greeter.dart
+@@ -1,3 +1,3 @@
+ String greeting(String name) {
+-  return 'Hello, $name!';
++  return 'Hello from partial stale patch, $name!';
+ }
+diff --git a/lib/quote"name.dart b/lib/quote"name.dart
+--- a/lib/quote"name.dart
++++ b/lib/quote"name.dart
+@@ -1 +1 @@
+-const quoted = 'old';
++const quoted = 'carried';
+diff --git a/lib/mode.dart b/lib/mode.dart
+--- a/lib/mode.dart
++++ b/lib/mode.dart
+@@ -1 +1 @@
+-const mode = 'old';
++const mode = 'carried';
+diff --git a/lib/link.dart b/lib/link.dart
+--- a/lib/link.dart
++++ b/lib/link.dart
+@@ -1 +1 @@
+-const link = 'old';
++const link = 'carried';
+''');
+
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello from upstream, \$name!',
+      );
+      File(
+        p.join(project.greeterRoot, 'lib', 'quote"name.dart'),
+      ).writeAsStringSync("const quoted = 'upstream';\n");
+      File(
+        p.join(project.greeterRoot, 'lib', 'mode.dart'),
+      ).writeAsStringSync("const mode = 'upstream';\n");
+      File(
+        p.join(project.greeterRoot, 'lib', 'link.dart'),
+      ).writeAsStringSync("const link = 'upstream';\n");
+      project.writeResolution(greeterVersion: '0.1.1');
+
+      final result = await project.applicationResult([
+        'carry',
+        'greeter',
+        '--partial',
+      ]);
+      expect(result.stdout, contains('Created partial carry edit'));
+      expect(
+        result.stdout,
+        contains(
+          'Wrote conflict log .patchwork/greeter@0.1.1/.patchwork/partial-repair.log.',
+        ),
+      );
+      expect(
+        result.stdout,
+        contains('Moved rejects under .patchwork/rejects/.'),
+      );
+      expect(
+        project.editFileFor('0.1.1').readAsStringSync(),
+        contains('Hello from upstream, \$name!'),
+      );
+      expect(
+        File(
+          p.join(project.editDirectoryFor('0.1.1').path, 'lib', 'extra.dart'),
+        ).readAsStringSync(),
+        contains("const extra = 'carried';"),
+      );
+      expect(
+        File(
+          p.join(project.editDirectoryFor('0.1.1').path, 'lib', 'notes.rej'),
+        ).readAsStringSync(),
+        contains('legitimate reject-suffixed source file'),
+      );
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            'lib',
+            'greeter.dart.rej',
+          ),
+        ).readAsStringSync(),
+        'existing reject-suffixed source file\n',
+      );
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            'lib',
+            'quote"name.dart',
+          ),
+        ).readAsStringSync(),
+        "const quoted = 'upstream';\n",
+      );
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            'lib',
+            'quote"name.dart.rej',
+          ),
+        ).readAsStringSync(),
+        'existing quoted reject source file\n',
+      );
+      final restoredExecutableReject = File(
+        p.join(project.editDirectoryFor('0.1.1').path, 'lib', 'mode.dart.rej'),
+      );
+      expect(
+        restoredExecutableReject.readAsStringSync(),
+        'existing executable reject source file\n',
+      );
+      if (!Platform.isWindows) {
+        expect(_permissionBits(restoredExecutableReject), 0x1ed);
+      }
+      final restoredLinkReject = p.join(
+        project.editDirectoryFor('0.1.1').path,
+        'lib',
+        'link.dart.rej',
+      );
+      if (supportsSymlinkReject) {
+        expect(Link(restoredLinkReject).targetSync(), 'link-target.txt');
+      } else {
+        expect(File(restoredLinkReject).existsSync(), isFalse);
+      }
+
+      final repairLog = File(
+        p.join(
+          project.editDirectoryFor('0.1.1').path,
+          '.patchwork',
+          'partial-repair.log',
+        ),
+      );
+      expect(repairLog.existsSync(), isTrue);
+      final logContent = repairLog.readAsStringSync();
+      expect(logContent, contains('patch: patches/greeter@0.1.0.patch'));
+      expect(logContent, contains('gitExitCode: 1'));
+      expect(logContent, contains('- .patchwork/rejects/lib/greeter.dart.rej'));
+      expect(
+        logContent,
+        contains('- .patchwork/rejects/lib/quote"name.dart.rej'),
+      );
+      expect(logContent, contains('- .patchwork/rejects/lib/mode.dart.rej'));
+      expect(logContent, contains('- .patchwork/rejects/lib/link.dart.rej'));
+      expect(logContent, isNot(contains(project.root.path)));
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            '.patchwork',
+            'rejects',
+            'lib',
+            'greeter.dart.rej',
+          ),
+        ).readAsStringSync(),
+        contains('Hello from partial stale patch'),
+      );
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            '.patchwork',
+            'rejects',
+            'lib',
+            'quote"name.dart.rej',
+          ),
+        ).readAsStringSync(),
+        contains("const quoted = 'carried';"),
+      );
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            '.patchwork',
+            'rejects',
+            'lib',
+            'mode.dart.rej',
+          ),
+        ).readAsStringSync(),
+        contains("const mode = 'carried';"),
+      );
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            '.patchwork',
+            'rejects',
+            'lib',
+            'link.dart.rej',
+          ),
+        ).readAsStringSync(),
+        contains("const link = 'carried';"),
+      );
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            '.patchwork',
+            'rejects',
+            'lib',
+            'notes.rej',
+          ),
+        ).existsSync(),
+        isFalse,
+      );
+      expect(
+        File(
+          p.join(project.stateRoot, 'patches', 'greeter@0.1.1.patch'),
+        ).existsSync(),
+        isFalse,
+      );
+      expect(project.appliedDirectoryFor('0.1.1').existsSync(), isFalse);
+
+      project.editFileFor('0.1.1').writeAsStringSync('''
+String greeting(String name) {
+  return 'Hello from partial stale patch, \$name!';
+}
+''');
+      File(
+        p.join(
+          project.editDirectoryFor('0.1.1').path,
+          'lib',
+          'quote"name.dart',
+        ),
+      ).writeAsStringSync("const quoted = 'carried';\n");
+      File(
+        p.join(project.editDirectoryFor('0.1.1').path, 'lib', 'link.dart'),
+      ).writeAsStringSync("const link = 'carried';\n");
+      File(
+        p.join(project.editDirectoryFor('0.1.1').path, 'lib', 'mode.dart'),
+      ).writeAsStringSync("const mode = 'carried';\n");
+      await project.application([
+        'commit',
+        'greeter',
+      ], stdoutContains: 'Wrote patches/greeter@0.1.1.patch.');
+      final committedPatch = File(
+        p.join(project.stateRoot, 'patches', 'greeter@0.1.1.patch'),
+      ).readAsStringSync();
+      expect(committedPatch, contains('lib/extra.dart'));
+      expect(committedPatch, contains('lib/notes.rej'));
+      expect(committedPatch, contains('quote\\"name.dart'));
+      expect(committedPatch, contains('lib/link.dart'));
+      expect(committedPatch, contains('lib/mode.dart'));
+      expect(committedPatch, contains('Hello from partial stale patch'));
+      expect(committedPatch, isNot(contains('partial-repair.log')));
+      expect(committedPatch, isNot(contains('greeter.dart.rej')));
+      expect(committedPatch, isNot(contains('link.dart.rej')));
+      expect(committedPatch, isNot(contains('mode.dart.rej')));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'can continue a same-version patch after the dependency source changes',
     () async {
       final project = await ProjectSandbox.standalone();
@@ -376,3 +853,16 @@ void main() {
     timeout: const Timeout(Duration(minutes: 3)),
   );
 }
+
+void _chmod(String path, String mode) {
+  if (Platform.isWindows) {
+    return;
+  }
+
+  final result = Process.runSync('chmod', [mode, path]);
+  if (result.exitCode != 0) {
+    fail('${result.stderr}${result.stdout}');
+  }
+}
+
+int _permissionBits(File file) => file.statSync().mode & 0x1ff;

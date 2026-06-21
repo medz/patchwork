@@ -96,9 +96,12 @@ void main() {
     expect(carryHelp.exitCode, 0);
     expect(
       carryHelp.stdout,
-      contains('Usage: patchwork carry <pkg> [--from version] [--json]'),
+      contains(
+        'Usage: patchwork carry <pkg> [--from version] [--partial] [--json]',
+      ),
     );
     expect(carryHelp.stdout, contains('stale patch file'));
+    expect(carryHelp.stdout, contains('--partial'));
 
     final applyHelp = await _runApplication(root, ['apply', '--help']);
     expect(applyHelp.exitCode, 0);

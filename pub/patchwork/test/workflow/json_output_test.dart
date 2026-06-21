@@ -4,6 +4,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
 import 'package:patchwork/patchwork.dart';
 import 'package:test/test.dart';
 
@@ -183,6 +184,65 @@ void main() {
       expect(editJson['path'], '.patchwork/greeter@0.1.1');
       expect(editJson['sourcePath'], endsWith('/packages/greeter'));
       expect(editJson['continuedFromPatchPath'], 'patches/greeter@0.1.0.patch');
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'renders partial repair details for carry JSON output',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      File(
+        p.join(project.greeterRoot, 'lib', 'extra.dart'),
+      ).writeAsStringSync("const extra = 'old';\n");
+      project.writeResolution();
+      final stalePatch = File(
+        p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
+      );
+      stalePatch.parent.createSync(recursive: true);
+      stalePatch.writeAsStringSync(r'''
+diff --git a/lib/extra.dart b/lib/extra.dart
+--- a/lib/extra.dart
++++ b/lib/extra.dart
+@@ -1 +1 @@
+-const extra = 'old';
++const extra = 'carried';
+diff --git a/lib/greeter.dart b/lib/greeter.dart
+--- a/lib/greeter.dart
++++ b/lib/greeter.dart
+@@ -1,3 +1,3 @@
+ String greeting(String name) {
+-  return 'Hello, $name!';
++  return 'Hello from partial stale patch, $name!';
+ }
+''');
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello from upstream, \$name!',
+      );
+      project.writeResolution(greeterVersion: '0.1.1');
+
+      final carryResult = await project.applicationResult([
+        'carry',
+        'greeter',
+        '--partial',
+        '--json',
+      ]);
+      expect(carryResult.stdout, isNot(contains('Created partial carry edit')));
+      final carryJson = _decodeObject(carryResult.stdout);
+      expect(carryJson['command'], 'carry');
+      final editJson = _object(carryJson['edit']);
+      expect(editJson['path'], '.patchwork/greeter@0.1.1');
+      expect(editJson['continuedFromPatchPath'], 'patches/greeter@0.1.0.patch');
+      expect(
+        editJson['partialRepairLogPath'],
+        '.patchwork/greeter@0.1.1/.patchwork/partial-repair.log',
+      );
+      expect(editJson['partialRejectPaths'], [
+        '.patchwork/rejects/lib/greeter.dart.rej',
+      ]);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

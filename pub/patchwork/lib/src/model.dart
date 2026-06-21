@@ -75,6 +75,8 @@ final class PreparedEdit {
     required this.path,
     required this.sourcePath,
     this.continuedFromPatchPath,
+    this.partialRepairLogPath,
+    this.partialRejectPaths = const [],
   });
 
   /// The dependency package being edited.
@@ -91,6 +93,12 @@ final class PreparedEdit {
 
   /// The patch file that was applied before returning, if this was a continue.
   final String? continuedFromPatchPath;
+
+  /// The partial repair log written under `.patchwork/`, if rejects occurred.
+  final String? partialRepairLogPath;
+
+  /// Reject files moved under `.patchwork/rejects/`, relative to [path].
+  final List<String> partialRejectPaths;
 }
 
 /// How `patchwork commit` changed the committed patch artifact.

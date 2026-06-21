@@ -1,0 +1,3 @@
+tags:
+  full:
+    description: Exercises real downstream Dart projects, pub resolution, hooks, and CLI subprocesses.

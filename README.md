@@ -25,7 +25,8 @@ The publishable package lives in `pub/patchwork`.
 cd pub/patchwork
 dart pub get
 dart analyze
-dart test
+dart test --exclude-tags=full
+dart test --tags=full --concurrency=1
 dart pub publish --dry-run
 ```
 

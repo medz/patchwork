@@ -1,3 +1,6 @@
+@Tags(['full'])
+library;
+
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -13,56 +16,52 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['doctor'], stdoutContains: 'No patchwork');
+      await project.application(['doctor'], stdoutContains: 'No patchwork');
 
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a standalone patch');
-      await project.patchwork(['commit']);
-      await project.patchwork(['apply']);
-      await project.patchwork(
+      await project.application(['commit']);
+      await project.application(['apply']);
+      await project.application(
         ['patch', 'greeter'],
         exitCodes: {1},
         stderrContains: 'already has an applied Patchwork patch',
       );
-      await project.patchwork([
+      await project.application([
         'doctor',
       ], stdoutContains: 'applied: .dart_tool/patchwork/greeter@0.1.0');
-
-      await project.patchwork([
-        'doctor',
-      ], stdoutContains: 'applied: .dart_tool/patchwork/greeter@0.1.0');
-      await project.patchwork([
+      await project.application([
         'status',
       ], stdoutContains: 'applied: .dart_tool/patchwork/greeter@0.1.0');
-      await project.patchwork([
+      await project.application([
         'apply',
       ], stdoutContains: 'No patches need apply.');
       await project.runApp('Hello from a standalone patch, Patchwork!');
 
-      await project.patchwork(['undo', 'greeter']);
-      await project.patchwork(
+      await project.application(['undo', 'greeter']);
+      await project.application(
         ['doctor'],
         exitCodes: {1},
         stdoutContains: 'action: patchwork apply greeter',
       );
       await project.runApp('Hello, Patchwork!');
 
-      await project.patchwork(['patch', '--continue', 'greeter']);
+      await project.application(['patch', '--continue', 'greeter']);
       expect(
         project.editFile.readAsStringSync(),
         contains('Hello from a standalone patch'),
       );
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       expect(project.editFile.readAsStringSync(), contains('Hello, \$name!'));
-      await project.patchwork(['patch', 'greeter', '--continue']);
+      await project.application(['patch', 'greeter', '--continue']);
       expect(
         project.editFile.readAsStringSync(),
         contains('Hello from a standalone patch'),
       );
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
 
       project.writeManualOverride();
-      await project.patchwork(
+      await project.application(
         ['apply', 'greeter'],
         exitCodes: {1},
         stderrContains: 'already has a dependency override',
@@ -72,33 +71,33 @@ void main() {
         contains('manual_greeter'),
       );
       expect(project.appliedDirectory.existsSync(), isFalse);
-      await project.patchwork(
+      await project.application(
         ['doctor'],
         exitCodes: {1},
         stdoutContains: 'already has a dependency override',
       );
-      await project.patchwork([
+      await project.application([
         'status',
       ], stdoutContains: 'already has a dependency override');
 
       project.overrideFile.deleteSync();
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       expect(project.editFile.readAsStringSync(), contains('Hello, \$name!'));
       project.editFile.writeAsStringSync('dirty edit\n');
-      await project.patchwork(
+      await project.application(
         ['patch', 'greeter'],
         exitCodes: {1},
         stderrContains: 'uncommitted changes',
       );
-      await project.patchwork(
+      await project.application(
         ['patch', 'greeter', '--force', '--continue', '9.9.9'],
         exitCodes: {1},
         stderrContains: 'Patch file does not exist',
       );
       expect(project.editFile.readAsStringSync(), 'dirty edit\n');
-      await project.patchwork(['patch', 'greeter', '--force']);
+      await project.application(['patch', 'greeter', '--force']);
       expect(project.editFile.readAsStringSync(), contains('Hello, \$name!'));
     },
     timeout: const Timeout(Duration(minutes: 3)),
@@ -111,9 +110,9 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a carried patch');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
 
       project.updateGreeterPackage(
         version: '0.1.1',
@@ -121,19 +120,19 @@ void main() {
       );
       await project.pubGet();
 
-      await project.patchwork(['patch', 'greeter', '--continue', '0.1.0']);
+      await project.application(['patch', 'greeter', '--continue', '0.1.0']);
       expect(
         project.editFileFor('0.1.1').readAsStringSync(),
         contains('Hello from a carried patch'),
       );
       project.editDirectoryFor('0.1.1').deleteSync(recursive: true);
-      await project.patchwork(
+      await project.application(
         ['doctor'],
         exitCodes: {1},
         stdoutContains: 'targets "greeter@0.1.0"',
       );
 
-      await project.patchwork(['patch', 'greeter', '--continue', '0.1.0']);
+      await project.application(['patch', 'greeter', '--continue', '0.1.0']);
       expect(
         project.editFileFor('0.1.1').readAsStringSync(),
         contains('Hello from a carried patch'),
@@ -143,7 +142,7 @@ void main() {
       File(
         p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
       ).writeAsStringSync('tampered\n');
-      await project.patchwork(
+      await project.application(
         ['patch', 'greeter', '--continue', '0.1.0'],
         exitCodes: {1},
         stderrContains: 'Could not apply patch',
@@ -159,16 +158,16 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a same-version patch');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
 
       File(
         p.join(project.greeterRoot, 'lib', 'upstream.dart'),
       ).writeAsStringSync("const upstream = 'changed';\n");
       await project.pubGet();
 
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       expect(
         File(
           p.join(
@@ -181,7 +180,7 @@ void main() {
       );
       project.editDirectoryFor('0.1.0').deleteSync(recursive: true);
 
-      await project.patchwork(['patch', 'greeter', '--continue', '0.1.0']);
+      await project.application(['patch', 'greeter', '--continue', '0.1.0']);
       expect(
         project.editFileFor('0.1.0').readAsStringSync(),
         contains('Hello from a same-version patch'),
@@ -197,14 +196,14 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
-      await project.patchwork([
+      await project.application(['patch', 'greeter']);
+      await project.application([
         'commit',
         'greeter',
       ], stdoutContains: 'has no changes');
 
       expect(project.editDirectoryFor('0.1.0').existsSync(), isFalse);
-      await project.patchwork(['doctor'], stdoutContains: 'No patchwork');
+      await project.application(['doctor'], stdoutContains: 'No patchwork');
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
@@ -216,9 +215,9 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from upstream');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
       final oldPatch = File(
         p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
       );
@@ -229,14 +228,14 @@ void main() {
         greeting: 'Hello from upstream, \$name!',
       );
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
-      await project.patchwork([
+      await project.application(['patch', 'greeter']);
+      await project.application([
         'commit',
         'greeter',
       ], stdoutContains: 'has no changes');
 
       expect(oldPatch.existsSync(), isTrue);
-      await project.patchwork(
+      await project.application(
         ['doctor'],
         exitCodes: {1},
         stdoutContains: 'targets "greeter@0.1.0"',

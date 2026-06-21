@@ -17,17 +17,38 @@ import 'patch_file.dart';
 import 'pub/package_resolution.dart';
 
 /// Applies package-provided overlays from Patchwork's own build hook.
-Future<void> applyPackageOverlays(BuildInput _, BuildOutputBuilder output) {
-  return _wrapPatchworkErrors(() => _applyPackageOverlays(output));
-}
-
-Future<void> _applyPackageOverlays(BuildOutputBuilder output) async {
+Future<void> applyPackageOverlays(
+  BuildInput _,
+  BuildOutputBuilder output,
+) async {
   final packageConfigUri = await Isolate.packageConfig;
   if (packageConfigUri == null || !packageConfigUri.isScheme('file')) {
     return;
   }
 
-  final packageConfigPath = packageConfigUri.toFilePath();
+  await applyPackageOverlaysFromPackageConfig(
+    packageConfigUri.toFilePath(),
+    output,
+  );
+}
+
+/// Applies package-provided overlays for an explicit pub package config file.
+///
+/// This is the same implementation used by [applyPackageOverlays], with the
+/// package config lookup supplied by callers that already know the state root.
+Future<void> applyPackageOverlaysFromPackageConfig(
+  String packageConfigPath,
+  BuildOutputBuilder output,
+) {
+  return _wrapPatchworkErrors(
+    () => _applyPackageOverlaysFromPackageConfig(packageConfigPath, output),
+  );
+}
+
+Future<void> _applyPackageOverlaysFromPackageConfig(
+  String packageConfigPath,
+  BuildOutputBuilder output,
+) async {
   final rootPath = p.dirname(p.dirname(packageConfigPath));
   final layout = PathLayout(rootPath);
   final graph = PackageGraph.read(p.join(rootPath, '.dart_tool'));

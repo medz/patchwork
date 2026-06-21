@@ -1,3 +1,6 @@
+@Tags(['full'])
+library;
+
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -29,9 +32,7 @@ void main() {
 
       await project.writeAutoApplyAllHook();
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
-      project.writeEdit('Hello from a standalone hook patch');
-      await project.patchwork(['commit', 'greeter']);
+      project.writeGreeterPatch('Hello from a standalone hook patch');
 
       await project.runApp('Hello from a standalone hook patch, Patchwork!');
       project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
@@ -40,8 +41,9 @@ void main() {
         p.join(project.stateRoot, '.dart_tool', 'package_config.json'),
       );
       final modified = packageConfig.lastModifiedSync();
-      await Future<void>.delayed(const Duration(milliseconds: 1200));
-      await project.runApp('Hello from a standalone hook patch, Patchwork!');
+      await _waitForDistinctTimestamp(packageConfig);
+      final status = await project.patchworkResult(['status']);
+      expect(status.stdout, contains('greeter'));
       expect(packageConfig.lastModifiedSync(), modified);
     },
     timeout: const Timeout(Duration(minutes: 3)),
@@ -55,9 +57,7 @@ void main() {
 
       await project.writeAutoApplyAllHook();
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
-      project.writeEdit('Hello from a workspace hook patch');
-      await project.patchwork(['commit', 'greeter']);
+      project.writeGreeterPatch('Hello from a workspace hook patch');
 
       await project.runApp('Hello from a workspace hook patch, Patchwork!');
       project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
@@ -73,13 +73,33 @@ void main() {
 
       await project.writeAutoApplyGreeterHook();
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
-      project.writeEdit('Hello from a single hook patch');
-      await project.patchwork(['commit', 'greeter']);
+      project.writeGreeterPatch('Hello from a single hook patch');
 
       await project.runApp('Hello from a single hook patch, Patchwork!');
       project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
+}
+
+Future<void> _waitForDistinctTimestamp(File file) async {
+  final suffix = DateTime.now().microsecondsSinceEpoch;
+  final probe = File(
+    p.join(file.parent.path, '.patchwork_timestamp_probe_${pid}_$suffix'),
+  );
+  try {
+    probe.writeAsStringSync('0');
+    final initial = probe.lastModifiedSync();
+    for (var attempt = 0; attempt < 60; attempt += 1) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      probe.writeAsStringSync('$attempt');
+      if (probe.lastModifiedSync() != initial) {
+        return;
+      }
+    }
+  } finally {
+    if (probe.existsSync()) {
+      probe.deleteSync();
+    }
+  }
 }

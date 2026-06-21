@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
+import 'package:patchwork/src/cli/application.dart';
 import 'package:test/test.dart';
 
 final class ProjectSandbox {
@@ -60,9 +61,11 @@ final class ProjectSandbox {
 
   File get overrideFile => File(p.join(stateRoot, 'pubspec_overrides.yaml'));
 
-  Directory get appliedDirectory {
+  Directory get appliedDirectory => appliedDirectoryFor('0.1.0');
+
+  Directory appliedDirectoryFor(String version) {
     return Directory(
-      p.join(stateRoot, '.dart_tool', 'patchwork', 'greeter@0.1.0'),
+      p.join(stateRoot, '.dart_tool', 'patchwork', 'greeter@$version'),
     );
   }
 
@@ -213,6 +216,82 @@ final class ProjectSandbox {
     );
   }
 
+  void writeResolution({
+    String greeterVersion = '0.1.0',
+    String? greeterRootPath,
+  }) {
+    final dartTool = Directory(p.join(stateRoot, '.dart_tool'))
+      ..createSync(recursive: true);
+    final otherRootPath = otherRoot;
+    final selectedGreeterRoot = greeterRootPath ?? greeterRoot;
+    final packageRoots = <String, String>{
+      'patchwork_test_app': appRoot,
+      'greeter': selectedGreeterRoot,
+    };
+    if (stateRoot != appRoot) {
+      packageRoots['patchwork_test_workspace'] = stateRoot;
+      packageRoots['member_greeter'] = p.join(
+        stateRoot,
+        'packages',
+        'member_greeter',
+      );
+    }
+    if (otherRootPath != null) {
+      packageRoots['other_pkg'] = otherRootPath;
+    }
+    File(p.join(dartTool.path, 'package_config.json')).writeAsStringSync(
+      '${jsonEncode({
+        'configVersion': 2,
+        'packages': [
+          for (final entry in packageRoots.entries) {'name': entry.key, 'rootUri': Directory(entry.value).absolute.uri.toString(), 'packageUri': 'lib/'},
+        ],
+      })}\n',
+    );
+    File(p.join(dartTool.path, 'package_graph.json')).writeAsStringSync(
+      '${jsonEncode({
+        'roots': stateRoot == appRoot ? ['patchwork_test_app'] : ['patchwork_test_workspace', 'patchwork_test_app', 'member_greeter'],
+        'packages': [
+          {
+            'name': 'patchwork_test_app',
+            'dependencies': ['greeter', if (otherRootPath != null) 'other_pkg', if (stateRoot != appRoot) 'member_greeter'],
+          },
+          {'name': 'greeter', 'dependencies': <String>[]},
+          if (otherRootPath != null) {'name': 'other_pkg', 'dependencies': <String>[]},
+          if (stateRoot != appRoot) ...[
+            {'name': 'patchwork_test_workspace', 'dependencies': <String>[]},
+            {'name': 'member_greeter', 'dependencies': <String>[]},
+          ],
+        ],
+      })}\n',
+    );
+    File(p.join(stateRoot, 'pubspec.lock')).writeAsStringSync('''
+packages:
+  greeter:
+    dependency: "direct main"
+    description:
+      path: ${p.relative(selectedGreeterRoot, from: stateRoot)}
+      relative: true
+    source: path
+    version: "$greeterVersion"
+${otherRootPath == null ? '' : '''  other_pkg:
+    dependency: "direct main"
+    description:
+      path: ${p.relative(otherRootPath, from: stateRoot)}
+      relative: true
+    source: path
+    version: "0.1.0"
+'''}${stateRoot == appRoot ? '' : '''  member_greeter:
+    dependency: "direct main"
+    description:
+      path: packages/member_greeter
+      relative: true
+    source: path
+    version: "0.1.0"
+'''}sdks:
+  dart: ">=3.12.0 <4.0.0"
+''');
+  }
+
   Future<void> patchwork(
     List<String> arguments, {
     String? workingDirectory,
@@ -253,6 +332,79 @@ final class ProjectSandbox {
       exitCodes: exitCodes,
       environment: environment,
     );
+  }
+
+  Future<void> application(
+    List<String> arguments, {
+    String? workingDirectory,
+    Set<int> exitCodes = const {0},
+    String? stdoutContains,
+    String? stderrContains,
+  }) async {
+    final result = await applicationResult(
+      arguments,
+      workingDirectory: workingDirectory,
+      exitCodes: exitCodes,
+    );
+    if (stdoutContains != null) {
+      expect(
+        result.stdout,
+        contains(stdoutContains),
+        reason: 'stderr:\n${result.stderr}',
+      );
+    }
+    if (stderrContains != null) {
+      expect(
+        result.stderr,
+        contains(stderrContains),
+        reason: 'stdout:\n${result.stdout}',
+      );
+    }
+  }
+
+  Future<CommandResult> applicationResult(
+    List<String> arguments, {
+    String? workingDirectory,
+    Set<int> exitCodes = const {0},
+  }) async {
+    final stdoutFile = File(
+      p.join(
+        root.path,
+        '.patchwork_stdout_${DateTime.now().microsecondsSinceEpoch}.txt',
+      ),
+    );
+    final stderrFile = File(
+      p.join(
+        root.path,
+        '.patchwork_stderr_${DateTime.now().microsecondsSinceEpoch}.txt',
+      ),
+    );
+    final stdout = stdoutFile.openWrite();
+    final stderr = stderrFile.openWrite();
+    final exitCode = await Application(
+      stdout: stdout,
+      stderr: stderr,
+      workingDirectory: workingDirectory ?? commandRoot,
+    ).run(arguments);
+    await stdout.close();
+    await stderr.close();
+    final result = CommandResult(
+      exitCode: exitCode,
+      stdout: stdoutFile.readAsStringSync(),
+      stderr: stderrFile.readAsStringSync(),
+    );
+    if (!exitCodes.contains(result.exitCode)) {
+      fail(
+        [
+          'Application failed in ${workingDirectory ?? commandRoot}',
+          '\$ patchwork ${arguments.join(' ')}',
+          'exit code: ${result.exitCode}, expected: ${exitCodes.join(', ')}',
+          if (result.stdout.isNotEmpty) 'stdout:\n${result.stdout}',
+          if (result.stderr.isNotEmpty) 'stderr:\n${result.stderr}',
+        ].join('\n'),
+      );
+    }
+    return result;
   }
 
   Future<void> runApp(String expectedOutput) async {
@@ -311,6 +463,48 @@ String greeting(String name) {
   return '$greetingPrefix, \$name!';
 }
 ''');
+  }
+
+  void writeGreeterPatch(String greetingPrefix, {String version = '0.1.0'}) {
+    final patch = File(p.join(stateRoot, 'patches', 'greeter@$version.patch'));
+    patch.parent.createSync(recursive: true);
+    patch.writeAsStringSync('''
+diff --git a/lib/greeter.dart b/lib/greeter.dart
+--- a/lib/greeter.dart
++++ b/lib/greeter.dart
+@@ -1,3 +1,3 @@
+ String greeting(String name) {
+-  return 'Hello, \$name!';
++  return '$greetingPrefix, \$name!';
+ }
+''');
+  }
+
+  void writeAppliedGreeterPatch(
+    String greetingPrefix, {
+    String version = '0.1.0',
+  }) {
+    writeGreeterPatch(greetingPrefix, version: version);
+    final appliedDirectory = appliedDirectoryFor(version);
+    _writeGreeterPackage(
+      appliedDirectory.path,
+      '$greetingPrefix, \$name!',
+      version: version,
+    );
+    overrideFile.writeAsStringSync('''
+dependency_overrides:
+  greeter:
+    path: .dart_tool/patchwork/greeter@$version
+''');
+    final marker = appliedMarkerFor(version);
+    marker.parent.createSync(recursive: true);
+    marker.writeAsStringSync(
+      '${jsonEncode({'schemaVersion': 1, 'kind': 'patchwork.applied', 'package': 'greeter', 'version': version, 'patchSha256': 'fixture-patch-sha', 'path': '.dart_tool/patchwork/greeter@$version'})}\n',
+    );
+    writeResolution(
+      greeterVersion: version,
+      greeterRootPath: appliedDirectory.path,
+    );
   }
 
   void updateGreeterPackage({

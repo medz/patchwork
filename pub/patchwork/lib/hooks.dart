@@ -100,9 +100,10 @@ void _declareDependencies(
     layout.appliedRootPath,
     layout.editRootPath,
   };
-  output.dependencies.addAll(
-    directories.map((path) => Directory(path).absolute.uri),
-  );
+  output.dependencies.addAll({
+    for (final path in directories)
+      _existingDirectoryDependency(path).absolute.uri,
+  });
 }
 
 bool _pubGetRequired(PatchworkState state, {required String? package}) {
@@ -167,4 +168,20 @@ String _formatPatchworkException(PatchworkException error) {
 
 String _join(String part1, String part2) {
   return Directory(part1).uri.resolve(part2).toFilePath();
+}
+
+Directory _existingDirectoryDependency(String path) {
+  // Dart hooks cannot track a missing directory; track the nearest existing
+  // parent so creating Patchwork state still invalidates the hook cache.
+  var directory = Directory(path);
+  if (directory.existsSync()) {
+    return directory;
+  }
+  while (true) {
+    final parent = directory.parent;
+    if (parent.path == directory.path || parent.existsSync()) {
+      return parent;
+    }
+    directory = parent;
+  }
 }

@@ -1,3 +1,6 @@
+@Tags(['full'])
+library;
+
 import 'dart:convert';
 import 'dart:io';
 
@@ -14,9 +17,9 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a stale patch');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
       final oldPatch = File(
         p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
       );
@@ -27,19 +30,19 @@ void main() {
         greeting: 'Hello, \$name!',
       );
       await project.pubGet();
-      await project.patchwork(
+      await project.application(
         ['doctor'],
         exitCodes: {1},
         stdoutContains: 'patchwork remove greeter 0.1.0',
       );
 
-      await project.patchwork(
+      await project.application(
         ['remove', 'greeter', '0.1.0', '--dry-run'],
         stdoutContains: 'Would remove patch file patches/greeter@0.1.0.patch.',
       );
       expect(oldPatch.existsSync(), isTrue);
 
-      final dryRunJson = await project.patchworkResult([
+      final dryRunJson = await project.applicationResult([
         'remove',
         'greeter',
         '0.1.0',
@@ -63,13 +66,13 @@ void main() {
       });
       expect(oldPatch.existsSync(), isTrue);
 
-      await project.patchwork([
+      await project.application([
         'remove',
         'greeter',
         '0.1.0',
       ], stdoutContains: 'Removed patch file patches/greeter@0.1.0.patch.');
       expect(oldPatch.existsSync(), isFalse);
-      await project.patchwork(['doctor'], stdoutContains: 'No patchwork');
+      await project.application(['doctor'], stdoutContains: 'No patchwork');
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
@@ -81,23 +84,23 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from an open edit');
 
-      await project.patchwork(
+      await project.application(
         ['remove', 'greeter'],
         exitCodes: {1},
         stderrContains: 'has an open edit directory',
       );
       expect(project.editDirectoryFor('0.1.0').existsSync(), isTrue);
 
-      await project.patchwork(
+      await project.application(
         ['remove', 'greeter', '--force', '--dry-run'],
         stdoutContains: 'Would remove edit directory .patchwork/greeter@0.1.0.',
       );
       expect(project.editDirectoryFor('0.1.0').existsSync(), isTrue);
 
-      await project.patchwork([
+      await project.application([
         'remove',
         'greeter',
         '--force',
@@ -114,12 +117,15 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a committed patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['patch', 'greeter']);
 
-      final doctor = await project.patchworkResult(['doctor'], exitCodes: {1});
+      final doctor = await project.applicationResult(
+        ['doctor'],
+        exitCodes: {1},
+      );
       expect(
         doctor.stdout,
         contains('Run patchwork commit greeter before applying this patch.'),
@@ -141,18 +147,18 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a removable patch');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
       project.writeOtherOverride();
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['apply', 'greeter']);
       final patchFile = File(
         p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
       );
       expect(patchFile.existsSync(), isTrue);
       expect(project.appliedDirectory.existsSync(), isTrue);
 
-      await project.patchwork(
+      await project.application(
         ['remove', 'greeter'],
         exitCodes: {1},
         stderrContains: 'has applied Patchwork state',
@@ -160,7 +166,7 @@ void main() {
       expect(patchFile.existsSync(), isTrue);
       expect(project.appliedDirectory.existsSync(), isTrue);
 
-      final dryRun = await project.patchworkResult([
+      final dryRun = await project.applicationResult([
         'remove',
         'greeter',
         '--force',
@@ -175,7 +181,7 @@ void main() {
       expect(patchFile.existsSync(), isTrue);
       expect(project.appliedDirectory.existsSync(), isTrue);
 
-      await project.patchwork(['remove', 'greeter', '--force']);
+      await project.application(['remove', 'greeter', '--force']);
       expect(patchFile.existsSync(), isFalse);
       expect(project.appliedDirectory.existsSync(), isFalse);
       expect(project.overrideFile.readAsStringSync(), contains('other_pkg:'));
@@ -194,10 +200,10 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a forced remove guard');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       final patchFile = File(
         p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
       );
@@ -215,7 +221,7 @@ dependency_overrides:
       await project.pubGet();
       project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
 
-      await project.patchwork(
+      await project.application(
         ['remove', 'greeter', '--force'],
         exitCodes: {1},
         stderrContains: 'still referenced by pubspec.yaml',
@@ -234,9 +240,9 @@ dependency_overrides:
       addTearDown(staleProject.dispose);
 
       await staleProject.pubGet();
-      await staleProject.patchwork(['patch', 'greeter']);
+      await staleProject.application(['patch', 'greeter']);
       staleProject.writeEdit('Hello from prune');
-      await staleProject.patchwork(['commit', 'greeter']);
+      await staleProject.application(['commit', 'greeter']);
       final stalePatch = File(
         p.join(staleProject.stateRoot, 'patches', 'greeter@0.1.0.patch'),
       );
@@ -246,13 +252,13 @@ dependency_overrides:
       );
       await staleProject.pubGet();
 
-      await staleProject.patchwork(
+      await staleProject.application(
         ['prune', '--dry-run'],
         stdoutContains: 'Would remove patch file patches/greeter@0.1.0.patch.',
       );
       expect(stalePatch.existsSync(), isTrue);
 
-      await staleProject.patchwork([
+      await staleProject.application([
         'prune',
       ], stdoutContains: 'Removed patch file patches/greeter@0.1.0.patch.');
       expect(stalePatch.existsSync(), isFalse);
@@ -261,14 +267,14 @@ dependency_overrides:
       addTearDown(appliedProject.dispose);
 
       await appliedProject.pubGet();
-      await appliedProject.patchwork(['patch', 'greeter']);
+      await appliedProject.application(['patch', 'greeter']);
       appliedProject.writeEdit('Hello from unreferenced output');
-      await appliedProject.patchwork(['commit', 'greeter']);
-      await appliedProject.patchwork(['apply', 'greeter']);
+      await appliedProject.application(['commit', 'greeter']);
+      await appliedProject.application(['apply', 'greeter']);
       expect(appliedProject.appliedDirectory.existsSync(), isTrue);
       appliedProject.overrideFile.deleteSync();
 
-      await appliedProject.patchwork(
+      await appliedProject.application(
         ['prune'],
         stdoutContains:
             'Removed applied directory .dart_tool/patchwork/greeter@0.1.0.',
@@ -295,10 +301,10 @@ dependency_overrides:
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from pubspec override');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       expect(project.appliedDirectory.existsSync(), isTrue);
 
       project.overrideFile.deleteSync();
@@ -312,7 +318,7 @@ dependency_overrides:
       await project.pubGet();
       project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
 
-      await project.patchwork([
+      await project.application([
         'prune',
       ], stdoutContains: 'No patchwork artifacts to prune.');
       expect(project.appliedDirectory.existsSync(), isTrue);
@@ -328,10 +334,10 @@ dependency_overrides:
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a forced prune guard');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       final patchFile = File(
         p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
       );
@@ -358,7 +364,7 @@ dependency_overrides:
       await project.pubGet();
       project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
 
-      await project.patchwork(
+      await project.application(
         ['prune', '--force'],
         exitCodes: {1},
         stderrContains: 'still referenced by pubspec.yaml',
@@ -383,7 +389,7 @@ dependency_overrides:
       stalePatch.parent.createSync(recursive: true);
       stalePatch.writeAsStringSync('stale patch');
 
-      await project.patchwork(
+      await project.application(
         ['prune'],
         stdoutContains:
             'Removed patch file patches/member_greeter@0.1.0.patch.',

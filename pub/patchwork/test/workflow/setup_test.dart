@@ -17,7 +17,7 @@ void main() {
       addTearDown(project.dispose);
       await project.pubGet();
 
-      final missingIgnore = await project.patchworkResult(
+      final missingIgnore = await project.applicationResult(
         ['doctor', '--setup', '--json'],
         exitCodes: {1},
       );
@@ -37,7 +37,7 @@ void main() {
 .dart_tool/
 pubspec_overrides.yaml
 ''');
-      final ready = await project.patchworkResult([
+      final ready = await project.applicationResult([
         'doctor',
         '--setup',
         '--json',

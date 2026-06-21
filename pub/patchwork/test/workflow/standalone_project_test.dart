@@ -30,10 +30,6 @@ void main() {
       await project.application([
         'doctor',
       ], stdoutContains: 'applied: .dart_tool/patchwork/greeter@0.1.0');
-
-      await project.application([
-        'doctor',
-      ], stdoutContains: 'applied: .dart_tool/patchwork/greeter@0.1.0');
       await project.application([
         'status',
       ], stdoutContains: 'applied: .dart_tool/patchwork/greeter@0.1.0');

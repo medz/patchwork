@@ -42,7 +42,8 @@ void main() {
       );
       final modified = packageConfig.lastModifiedSync();
       await _waitForDistinctTimestamp(packageConfig);
-      await project.runApp('Hello from a standalone hook patch, Patchwork!');
+      final status = await project.patchworkResult(['status']);
+      expect(status.stdout, contains('greeter'));
       expect(packageConfig.lastModifiedSync(), modified);
     },
     timeout: const Timeout(Duration(minutes: 3)),

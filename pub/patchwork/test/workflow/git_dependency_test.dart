@@ -15,7 +15,7 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       final manifest =
           jsonDecode(project.editManifestFor('0.1.0').readAsStringSync())
               as Map<String, Object?>;
@@ -26,9 +26,9 @@ void main() {
       expect(fields, contains('commit'));
 
       project.writeEdit('Hello from a git patch');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
 
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['apply', 'greeter']);
 
       await project.pubGet();
       await project.runApp('Hello from a git patch, Patchwork!');

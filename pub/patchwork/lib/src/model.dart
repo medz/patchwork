@@ -289,6 +289,181 @@ final class RegisteredOverlay {
   final String? reason;
 }
 
+/// Whether a provider overlay entry affects the current pub resolution.
+enum OverlayEntryStatus {
+  /// The entry matches the current target package and contributes a patch.
+  matched,
+
+  /// The entry was discovered but does not apply to the current resolution.
+  skipped,
+
+  /// The entry matches the current resolution but cannot be used safely.
+  failed,
+}
+
+/// Whether a patch contribution participates in overlay composition.
+enum OverlayContributionStatus {
+  /// The contribution is applied in the listed compose order.
+  active,
+
+  /// The contribution matches another patch's content and is not applied twice.
+  deduplicated,
+}
+
+/// A `patchwork.yaml` entry inspected from a dependency package.
+///
+/// Entries are reported even when they do not match the current application, so
+/// diagnostics can explain why a provider overlay was skipped.
+final class OverlayEntryInspection {
+  /// Creates an inspected provider overlay entry.
+  const OverlayEntryInspection({
+    required this.package,
+    required this.version,
+    required this.sha256,
+    required this.patchPath,
+    required this.status,
+    this.reason,
+    this.skipReason,
+    this.resolvedVersion,
+    this.resolvedSha256,
+  });
+
+  /// The target package declared by the provider.
+  final String package;
+
+  /// The target version declared by the provider.
+  final String version;
+
+  /// The target source hash declared by the provider.
+  final String sha256;
+
+  /// The provider-relative or resolved patch path for this entry.
+  final String patchPath;
+
+  /// Optional provider-authored explanation for this overlay.
+  final String? reason;
+
+  /// Whether this entry contributes to the current overlay plan.
+  final OverlayEntryStatus status;
+
+  /// Stable reason code when [status] is skipped or failed.
+  final String? skipReason;
+
+  /// The currently resolved target version, when the package is selected.
+  final String? resolvedVersion;
+
+  /// The currently resolved target source hash, when the package is selected.
+  final String? resolvedSha256;
+}
+
+/// A dependency package that declares provider overlays.
+final class OverlayProviderInspection {
+  /// Creates an inspected overlay provider.
+  const OverlayProviderInspection({
+    required this.package,
+    required this.rootPath,
+    required this.manifestPath,
+    required this.entries,
+  });
+
+  /// The provider package name.
+  final String package;
+
+  /// The provider package root selected by pub.
+  final String rootPath;
+
+  /// The provider's `patchwork.yaml` path.
+  final String manifestPath;
+
+  /// Entries declared by the provider manifest.
+  final List<OverlayEntryInspection> entries;
+}
+
+/// A patch contribution selected for one overlay target package.
+final class OverlayContributionInspection {
+  /// Creates an inspected overlay contribution.
+  const OverlayContributionInspection({
+    required this.provider,
+    required this.patchPath,
+    required this.sha256,
+    required this.status,
+  });
+
+  /// The provider package name, or `<root>` for the application patch file.
+  final String provider;
+
+  /// The patch file path used by this contribution.
+  final String patchPath;
+
+  /// The patch file content hash used for deduplication diagnostics.
+  final String sha256;
+
+  /// Whether this contribution is applied or deduplicated.
+  final OverlayContributionStatus status;
+}
+
+/// A composition failure discovered during read-only overlay inspection.
+final class OverlayConflictInspection {
+  /// Creates an inspected overlay conflict.
+  const OverlayConflictInspection({
+    required this.provider,
+    required this.patchPath,
+    required this.message,
+  });
+
+  /// The provider whose patch failed to apply.
+  final String provider;
+
+  /// The failed patch path.
+  final String patchPath;
+
+  /// The underlying patch application diagnostic.
+  final String message;
+}
+
+/// The composed overlay plan for a target dependency package.
+final class OverlayTargetInspection {
+  /// Creates an inspected overlay target.
+  const OverlayTargetInspection({
+    required this.package,
+    required this.version,
+    required this.sha256,
+    required this.sourcePath,
+    required this.contributions,
+    this.conflict,
+  });
+
+  /// The target dependency package.
+  final String package;
+
+  /// The target version selected by pub.
+  final String version;
+
+  /// The target source hash selected by pub.
+  final String sha256;
+
+  /// The target source package root selected by pub.
+  final String sourcePath;
+
+  /// Provider and root contributions in deterministic compose order.
+  final List<OverlayContributionInspection> contributions;
+
+  /// Conflict details, if the active contributions cannot compose cleanly.
+  final OverlayConflictInspection? conflict;
+}
+
+/// A read-only report for package-provided overlay discovery and composition.
+final class OverlayInspection {
+  /// Creates an overlay inspection report.
+  const OverlayInspection({required this.providers, required this.targets});
+
+  /// Dependency packages that declared `patchwork.yaml` overlays.
+  final List<OverlayProviderInspection> providers;
+
+  /// Target packages that have matching overlay contributions.
+  final List<OverlayTargetInspection> targets;
+}
+
 /// A machine-readable status or doctor problem.
 ///
 /// The [code] is stable enough for tests and tools to match. The [message] and

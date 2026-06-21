@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io' as io;
 
+import 'package:path/path.dart' as p;
+
 import '../error.dart';
 import '../model.dart';
 import '../patchwork.dart';
@@ -289,6 +291,136 @@ void printOverlayJson(
   });
 }
 
+/// Writes read-only package-provided overlay diagnostics.
+void printOverlayInspection(
+  Patchwork patchwork,
+  OverlayInspection inspection,
+  io.IOSink out,
+) {
+  out.writeln('Overlay inspection');
+
+  if (inspection.providers.isEmpty) {
+    out.writeln('No package-provided overlays found.');
+  } else {
+    out.writeln('Providers:');
+    for (final provider in inspection.providers) {
+      out.writeln(
+        '  ${provider.package}: ${_displayPath(patchwork, provider.manifestPath)}',
+      );
+      if (provider.entries.isEmpty) {
+        out.writeln('    no overlay entries');
+        continue;
+      }
+      for (final entry in provider.entries) {
+        final status = switch (entry.status) {
+          OverlayEntryStatus.matched => 'matched',
+          OverlayEntryStatus.skipped => 'skipped: ${entry.skipReason}',
+          OverlayEntryStatus.failed => 'failed: ${entry.skipReason}',
+        };
+        out.writeln('    ${entry.package}@${entry.version} $status');
+        out.writeln('      patch: ${_displayPath(patchwork, entry.patchPath)}');
+        if (entry.resolvedVersion != null) {
+          out.writeln(
+            '      resolved: ${entry.resolvedVersion} ${entry.resolvedSha256}',
+          );
+        }
+      }
+    }
+  }
+
+  if (inspection.targets.isEmpty) {
+    out.writeln('No matching overlay targets.');
+    return;
+  }
+
+  out.writeln('Targets:');
+  for (final target in inspection.targets) {
+    out.writeln('  ${target.package}@${target.version}');
+    out.writeln('    source: ${target.sha256}');
+    out.writeln('    path: ${_displayPath(patchwork, target.sourcePath)}');
+    out.writeln('    compose order:');
+    for (final contribution in target.contributions) {
+      final suffix =
+          contribution.status == OverlayContributionStatus.deduplicated
+          ? ' (deduplicated)'
+          : '';
+      out.writeln(
+        '      ${contribution.provider}: '
+        '${_displayPath(patchwork, contribution.patchPath)}$suffix',
+      );
+    }
+    final conflict = target.conflict;
+    if (conflict != null) {
+      out.writeln(
+        '    conflict: ${conflict.provider} '
+        '${_displayPath(patchwork, conflict.patchPath)}',
+      );
+      out.writeln('      ${conflict.message.replaceAll('\n', '\n      ')}');
+    }
+  }
+}
+
+/// Writes read-only package-provided overlay diagnostics as JSON.
+void printOverlayInspectionJson(
+  Patchwork patchwork,
+  OverlayInspection inspection,
+  io.IOSink out,
+) {
+  _printJson(out, {
+    'command': 'overlay.inspect',
+    'providers': [
+      for (final provider in inspection.providers)
+        {
+          'package': provider.package,
+          'rootPath': _displayPath(patchwork, provider.rootPath),
+          'manifestPath': _displayPath(patchwork, provider.manifestPath),
+          'entries': [
+            for (final entry in provider.entries)
+              {
+                'package': entry.package,
+                'version': entry.version,
+                'sha256': entry.sha256,
+                'patchPath': _displayPath(patchwork, entry.patchPath),
+                'reason': entry.reason,
+                'status': entry.status.name,
+                'skipReason': entry.skipReason,
+                'resolvedVersion': entry.resolvedVersion,
+                'resolvedSha256': entry.resolvedSha256,
+              },
+          ],
+        },
+    ],
+    'targets': [
+      for (final target in inspection.targets)
+        {
+          'package': target.package,
+          'version': target.version,
+          'sha256': target.sha256,
+          'sourcePath': _displayPath(patchwork, target.sourcePath),
+          'contributions': [
+            for (final contribution in target.contributions)
+              {
+                'provider': contribution.provider,
+                'patchPath': _displayPath(patchwork, contribution.patchPath),
+                'sha256': contribution.sha256,
+                'status': contribution.status.name,
+              },
+          ],
+          'conflict': target.conflict == null
+              ? null
+              : {
+                  'provider': target.conflict!.provider,
+                  'patchPath': _displayPath(
+                    patchwork,
+                    target.conflict!.patchPath,
+                  ),
+                  'message': target.conflict!.message,
+                },
+        },
+    ],
+  });
+}
+
 Map<String, Object?> _statusJson(
   Patchwork patchwork,
   PatchStatus package, {
@@ -317,6 +449,13 @@ Map<String, Object?> _statusJson(
         },
     ],
   };
+}
+
+String _displayPath(Patchwork patchwork, String path) {
+  if (p.isAbsolute(path)) {
+    return patchwork.relativePath(path);
+  }
+  return path;
 }
 
 Map<String, Object?> _problemJson(PatchProblem problem) {

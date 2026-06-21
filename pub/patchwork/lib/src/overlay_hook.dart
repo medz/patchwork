@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 import 'error.dart';
 import 'internal/package_tree.dart';
 import 'internal/path_layout.dart';
+import 'internal/pub_resolution_files.dart';
 import 'io/atomic_file_writer.dart';
 import 'overlay_manifest.dart';
 import 'patch_file.dart';
@@ -29,8 +30,8 @@ Future<void> _applyPackageOverlays(BuildOutputBuilder output) async {
   final packageConfigPath = packageConfigUri.toFilePath();
   final rootPath = p.dirname(p.dirname(packageConfigPath));
   final layout = PathLayout(rootPath);
-  final graph = _PackageGraph.read(p.join(rootPath, '.dart_tool'));
-  final currentPackageConfig = _PackageConfigFile.read(packageConfigPath);
+  final graph = PackageGraph.read(p.join(rootPath, '.dart_tool'));
+  final currentPackageConfig = PackageConfigFile.read(packageConfigPath);
   _declareBaseDependencies(output, rootPath: rootPath, layout: layout);
 
   final manifests = _readOverlayManifests(
@@ -87,8 +88,8 @@ Future<void> _applyPackageOverlays(BuildOutputBuilder output) async {
 }
 
 List<_PackageManifest> _readOverlayManifests(
-  _PackageConfigFile packageConfig, {
-  required _PackageGraph graph,
+  PackageConfigFile packageConfig, {
+  required PackageGraph graph,
   required BuildOutputBuilder output,
 }) {
   final manifests = <_PackageManifest>[];
@@ -124,7 +125,7 @@ List<_PackageManifest> _readOverlayManifests(
 
 SplayTreeMap<String, _OverlayGroup> _collectOverlayGroups(
   List<_PackageManifest> manifests, {
-  required _PackageGraph graph,
+  required PackageGraph graph,
   required PubResolution resolution,
   required BuildOutputBuilder output,
 }) {
@@ -178,8 +179,17 @@ SplayTreeMap<String, _OverlayGroup> _collectOverlayGroups(
       }
       return left.patchPath.compareTo(right.patchPath);
     });
+    _deduplicateOverlayGroupContributions(group);
   }
   return groups;
+}
+
+void _deduplicateOverlayGroupContributions(_OverlayGroup group) {
+  final seen = <String>{};
+  group.contributions.removeWhere((contribution) {
+    final file = File(contribution.patchPath);
+    return !seen.add(_sha256(file.readAsBytesSync()));
+  });
 }
 
 ResolvedPubPackage? _resolveOverlayTarget(
@@ -316,7 +326,7 @@ void _composeOverlayGroup(_OverlayGroup group, {required PathLayout layout}) {
 }
 
 void _writeOverlayPackageConfig(
-  _PackageConfigFile basePackageConfig, {
+  PackageConfigFile basePackageConfig, {
   required String packageConfigPath,
   required Iterable<_OverlayGroup> groups,
 }) {
@@ -348,8 +358,8 @@ void _writeOverlayPackageConfig(
   writeStringFileAtomically(packageConfigPath, '${jsonEncode(json)}\n');
 }
 
-_PackageConfigFile _restoreBasePackageConfig(
-  _PackageConfigFile currentPackageConfig, {
+PackageConfigFile _restoreBasePackageConfig(
+  PackageConfigFile currentPackageConfig, {
   required String packageConfigPath,
   required PathLayout layout,
 }) {
@@ -360,7 +370,7 @@ _PackageConfigFile _restoreBasePackageConfig(
       return currentPackageConfig;
     }
     final content = sidecar.readAsStringSync();
-    final base = _PackageConfigFile.fromContent(
+    final base = PackageConfigFile.fromContent(
       path: packageConfigPath,
       content: content,
     );
@@ -479,164 +489,4 @@ final class _OverlayContribution {
 
   final String provider;
   final String patchPath;
-}
-
-final class _PackageConfigFile {
-  _PackageConfigFile._({
-    required this.content,
-    required this.json,
-    required this.packages,
-  });
-
-  factory _PackageConfigFile.read(String path) {
-    return _PackageConfigFile.fromContent(
-      path: path,
-      content: File(path).readAsStringSync(),
-    );
-  }
-
-  factory _PackageConfigFile.fromContent({
-    required String path,
-    required String content,
-  }) {
-    final decoded = jsonDecode(content);
-    if (decoded is! Map<String, Object?>) {
-      throw PatchworkException(
-        'Malformed pub package_config.json: Expected a JSON object.',
-        code: 'pub.malformed_package_config',
-        location: path,
-      );
-    }
-    final rawPackages = decoded['packages'];
-    if (rawPackages is! List<Object?>) {
-      throw PatchworkException(
-        'Malformed pub package_config.json: Expected packages to be a list.',
-        code: 'pub.malformed_package_config',
-        location: path,
-      );
-    }
-    final baseUri = Directory(p.dirname(path)).uri;
-    final packages = <_PackageConfigPackage>[];
-    for (final rawPackage in rawPackages) {
-      if (rawPackage is! Map<String, Object?>) {
-        continue;
-      }
-      final name = rawPackage['name'];
-      final rootUri = rawPackage['rootUri'];
-      if (name is! String || rootUri is! String) {
-        continue;
-      }
-      packages.add(
-        _PackageConfigPackage(
-          name: name,
-          rootPath: p.normalize(
-            baseUri.resolveUri(Uri.parse(rootUri)).toFilePath(),
-          ),
-        ),
-      );
-    }
-    return _PackageConfigFile._(
-      content: content,
-      json: decoded,
-      packages: packages,
-    );
-  }
-
-  final String content;
-  final Map<String, Object?> json;
-  final List<_PackageConfigPackage> packages;
-
-  bool hasGeneratedPatchworkRoots(String appliedRootPath) {
-    final root = p.normalize(p.absolute(appliedRootPath));
-    return packages.any((package) {
-      final packageRoot = p.normalize(p.absolute(package.rootPath));
-      return p.isWithin(root, packageRoot);
-    });
-  }
-
-  Map<String, Object?> deepCopyJson() {
-    return jsonDecode(jsonEncode(json)) as Map<String, Object?>;
-  }
-}
-
-final class _PackageConfigPackage {
-  const _PackageConfigPackage({required this.name, required this.rootPath});
-
-  final String name;
-  final String rootPath;
-}
-
-final class _PackageGraph {
-  const _PackageGraph({required this.roots, required this.packages});
-
-  factory _PackageGraph.read(String dartToolPath) {
-    final path = p.join(dartToolPath, 'package_graph.json');
-    final decoded = jsonDecode(File(path).readAsStringSync());
-    if (decoded is! Map<String, Object?>) {
-      throw PatchworkException(
-        'Malformed .dart_tool/package_graph.json: Expected a JSON object.',
-        code: 'pub.malformed_package_graph',
-        location: path,
-      );
-    }
-    final roots = decoded['roots'];
-    final rawPackages = decoded['packages'];
-    if (roots is! List<Object?> || rawPackages is! List<Object?>) {
-      throw PatchworkException(
-        'Malformed .dart_tool/package_graph.json: Expected roots and packages lists.',
-        code: 'pub.malformed_package_graph',
-        location: path,
-      );
-    }
-    return _PackageGraph(
-      roots: {
-        for (final root in roots)
-          if (root is String) root,
-      },
-      packages: {
-        for (final rawPackage in rawPackages)
-          if (rawPackage is Map<String, Object?> &&
-              rawPackage['name'] is String)
-            rawPackage['name'] as String: _GraphPackage.fromJson(
-              rawPackage,
-              path,
-            ),
-      },
-    );
-  }
-
-  final Set<String> roots;
-  final Map<String, _GraphPackage> packages;
-
-  bool hasIncomingDependency(String packageName) {
-    return packages.values.any((package) {
-      return package.dependencies.contains(packageName);
-    });
-  }
-}
-
-final class _GraphPackage {
-  const _GraphPackage({required this.dependencies});
-
-  factory _GraphPackage.fromJson(Map<String, Object?> json, String path) {
-    return _GraphPackage(
-      dependencies: _stringList(json['dependencies'], path, 'dependencies'),
-    );
-  }
-
-  final Set<String> dependencies;
-}
-
-Set<String> _stringList(Object? value, String path, String field) {
-  if (value is! List<Object?>) {
-    throw PatchworkException(
-      'Malformed .dart_tool/package_graph.json: Expected $field to be a list.',
-      code: 'pub.malformed_package_graph',
-      location: path,
-    );
-  }
-  return {
-    for (final item in value)
-      if (item is String) item,
-  };
 }

@@ -137,10 +137,10 @@ Create and commit the dependency patch from the provider package:
 dart run patchwork patch collection
 # edit .patchwork/collection@<version>/
 dart run patchwork commit collection
-dart run patchwork overlay collection --reason "Fix parser crash used here."
+dart run patchwork overlay add collection --reason "Fix parser crash used here."
 ```
 
-`patchwork overlay` creates or updates `patchwork.yaml`:
+`patchwork overlay add` creates or updates `patchwork.yaml`:
 
 ```yaml
 overlays:
@@ -169,6 +169,16 @@ name and patch path. If the root application also owns a committed patch for
 that same target, the root patch is applied last. Conflicting patches fail the
 build with a deterministic diagnostic; Patchwork reports the conflict instead
 of trying to merge it.
+
+To inspect overlay discovery without mutating generated package output:
+
+```sh
+dart run patchwork overlay inspect
+dart run patchwork overlay inspect --json
+```
+
+Inspection reports provider manifests, matched and skipped entries, root patch
+contribution, deduplication, compose order, and conflict sources.
 
 ## Library API
 
@@ -241,7 +251,8 @@ workflow, so Patchwork only manages its own patch override entries.
 | --- | --- |
 | `patchwork patch <pkg> [--continue [version]] [--force] [--json]` | Create a source-based edit. |
 | `patchwork commit [pkg] [--json]` | Commit open edits into patch files. |
-| `patchwork overlay <pkg> [--reason <text>] [--json]` | Register a committed patch in `patchwork.yaml`. |
+| `patchwork overlay add <pkg> [--reason <text>] [--json]` | Register a committed patch in `patchwork.yaml`. |
+| `patchwork overlay inspect [--json]` | Inspect provider overlays and composition diagnostics. |
 | `patchwork apply [pkg] [--no-pub-get] [--json]` | Apply committed patches and refresh pub resolution. |
 | `patchwork undo <pkg> [--no-pub-get] [--json]` | Remove one applied patch and refresh pub resolution. |
 | `patchwork remove <pkg> [version] [--dry-run] [--force] [--no-pub-get] [--json]` | Remove selected Patchwork artifacts safely. |

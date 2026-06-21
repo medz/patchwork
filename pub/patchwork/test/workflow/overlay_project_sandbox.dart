@@ -265,7 +265,13 @@ final class OverlayProjectSandbox {
     await patchwork(providerRoot, ['patch', 'greeter']);
     writePrefixEdit(providerRoot, prefix);
     await patchwork(providerRoot, ['commit', 'greeter']);
-    await patchwork(providerRoot, ['overlay', 'greeter', '--reason', reason]);
+    await patchwork(providerRoot, [
+      'overlay',
+      'add',
+      'greeter',
+      '--reason',
+      reason,
+    ]);
   }
 
   Future<void> registerPunctuationOverlay(
@@ -277,7 +283,13 @@ final class OverlayProjectSandbox {
     await patchwork(providerRoot, ['patch', 'greeter']);
     writePunctuationEdit(providerRoot, punctuation);
     await patchwork(providerRoot, ['commit', 'greeter']);
-    await patchwork(providerRoot, ['overlay', 'greeter', '--reason', reason]);
+    await patchwork(providerRoot, [
+      'overlay',
+      'add',
+      'greeter',
+      '--reason',
+      reason,
+    ]);
   }
 
   void expectGreeterResolvedToAppliedOutput() {

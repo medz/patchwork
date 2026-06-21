@@ -9,6 +9,7 @@ import 'applied_marker.dart';
 import 'edit_session.dart';
 import 'error.dart';
 import 'internal/package_tree.dart';
+import 'internal/overlay_inspector.dart';
 import 'internal/path_layout.dart';
 import 'internal/setup_inspector.dart';
 import 'io/atomic_file_writer.dart';
@@ -128,6 +129,15 @@ final class Patchwork {
       rootPath: _rootPath,
       currentPackageRootPath: _currentPackageRootPath,
     ).inspect();
+  }
+
+  /// Inspects package-provided overlay discovery without mutating files.
+  ///
+  /// The report explains provider manifests, match and skip reasons, root patch
+  /// contribution, deduplication, composition order, and conflicts using the
+  /// current pub resolution.
+  Future<OverlayInspection> inspectOverlays() async {
+    return OverlayInspector(rootPath: _rootPath, layout: _layout).inspect();
   }
 
   /// Creates an editable copy for [package] under `.patchwork/`.

@@ -61,6 +61,7 @@ void main() {
       contains('doctor [--setup] [--explain] [--json]'),
     );
     expect(generalHelp.stdout, contains('patch <pkg>'));
+    expect(generalHelp.stdout, contains('carry <pkg>'));
     expect(generalHelp.stdout, contains('overlay add <pkg>'));
     expect(generalHelp.stdout, contains('overlay inspect'));
     expect(generalHelp.stdout, contains('[--json]'));
@@ -90,6 +91,14 @@ void main() {
     expect(overlayHelp.stdout, contains('add <pkg>'));
     expect(overlayHelp.stdout, contains('inspect [--json]'));
     expect(overlayHelp.stdout, contains('Compatibility'));
+
+    final carryHelp = await _runApplication(root, ['carry', '--help']);
+    expect(carryHelp.exitCode, 0);
+    expect(
+      carryHelp.stdout,
+      contains('Usage: patchwork carry <pkg> [--from version] [--json]'),
+    );
+    expect(carryHelp.stdout, contains('stale patch file'));
 
     final applyHelp = await _runApplication(root, ['apply', '--help']);
     expect(applyHelp.exitCode, 0);

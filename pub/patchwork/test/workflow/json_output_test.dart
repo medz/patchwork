@@ -156,6 +156,38 @@ void main() {
   );
 
   test(
+    'renders machine-readable JSON for carry command',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from carried JSON output');
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      project.writeResolution(greeterVersion: '0.1.1');
+
+      final carryResult = await project.applicationResult([
+        'carry',
+        'greeter',
+        '--json',
+      ]);
+      expect(carryResult.stdout, isNot(contains('Created carry edit')));
+      final carryJson = _decodeObject(carryResult.stdout);
+      expect(carryJson['command'], 'carry');
+      final editJson = _object(carryJson['edit']);
+      expect(editJson['package'], 'greeter');
+      expect(editJson['version'], '0.1.1');
+      expect(editJson['path'], '.patchwork/greeter@0.1.1');
+      expect(editJson['sourcePath'], endsWith('/packages/greeter'));
+      expect(editJson['continuedFromPatchPath'], 'patches/greeter@0.1.0.patch');
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'renders JSON problem details while preserving doctor exit behavior',
     () async {
       final project = await ProjectSandbox.standalone();
@@ -245,12 +277,9 @@ void main() {
       final commands = _objects(
         problem['suggestedActions'],
       ).map((action) => action['command']);
-      expect(commands, contains('patchwork patch greeter --continue 0.1.0'));
+      expect(commands, contains('patchwork carry greeter --from 0.1.0'));
       expect(commands, contains('patchwork remove greeter 0.1.0'));
-      expect(
-        commands,
-        isNot(contains('patchwork patch greeter --continue 0.1.1')),
-      );
+      expect(commands, isNot(contains('patchwork carry greeter --from 0.1.1')));
       expect(commands, isNot(contains('patchwork remove greeter 0.1.1')));
     },
     timeout: const Timeout(Duration(minutes: 3)),
@@ -323,10 +352,7 @@ void main() {
         problem['suggestedActions'],
       ).map((action) => action['command']);
       expect(commands, contains('patchwork commit greeter'));
-      expect(
-        commands,
-        isNot(contains('patchwork patch greeter --continue 0.1.0')),
-      );
+      expect(commands, isNot(contains('patchwork carry greeter --from 0.1.0')));
       expect(commands, isNot(contains('patchwork remove greeter 0.1.0')));
     },
     timeout: const Timeout(Duration(minutes: 3)),

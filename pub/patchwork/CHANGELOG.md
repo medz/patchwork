@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added `patchwork carry <pkg> [--from version]` to carry stale patch files into
+  current-version edit sessions for dependency upgrades.
 - Removed `patchwork.lock` from root patch workflows. Patch files are now the
   committed patch truth; edit sessions keep hidden baselines under `.patchwork/`
   and applied output keeps generated ownership markers under `.dart_tool/`.

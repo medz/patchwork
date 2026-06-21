@@ -131,6 +131,35 @@ void main() {
   );
 
   test(
+    'carries a stale patch after a workspace dependency changes',
+    () async {
+      final project = await ProjectSandbox.workspace();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.application(['patch', 'greeter']);
+      project.writeEdit('Hello from a carried workspace command patch');
+      await project.application(['commit', 'greeter']);
+
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      await project.pubGet();
+
+      await project.application([
+        'carry',
+        'greeter',
+      ], stdoutContains: 'Applied patches/greeter@0.1.0.patch');
+      expect(
+        project.editFileFor('0.1.1').readAsStringSync(),
+        contains('Hello from a carried workspace command patch'),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'can continue a same-version patch after a workspace dependency source changes',
     () async {
       final project = await ProjectSandbox.workspace();

@@ -155,6 +155,20 @@ final class Patchwork {
     PatchRef? fromPatch,
     bool replaceExisting = false,
   }) async {
+    return _prepareEdit(
+      package,
+      fromPatch: fromPatch,
+      replaceExisting: replaceExisting,
+      preserveFailedPatchApply: false,
+    );
+  }
+
+  Future<PreparedEdit> _prepareEdit(
+    String package, {
+    required PatchRef? fromPatch,
+    required bool replaceExisting,
+    required bool preserveFailedPatchApply,
+  }) async {
     _checkPlainPackageName(package);
     final resolution = _readResolution();
     final resolved = resolution.resolvePackage(package);
@@ -216,6 +230,7 @@ final class Patchwork {
       '.$package@${resolved.version}.$pid.${DateTime.now().microsecondsSinceEpoch}',
     );
     _packageTree.deleteDirectory(tempEditPath);
+    var preservedFailedEdit = false;
     try {
       _packageTree.copy(resolved.rootPath, tempEditPath);
       _packageTree.copy(
@@ -229,17 +244,40 @@ final class Patchwork {
         editPath: tempEditPath,
       );
       if (continuedFromPatchContent != null) {
-        _patchFile.apply(
-          packagePath: tempEditPath,
-          patchContent: continuedFromPatchContent,
-        );
+        try {
+          _patchFile.apply(
+            packagePath: tempEditPath,
+            patchContent: continuedFromPatchContent,
+          );
+        } on PatchworkException catch (error) {
+          if (!preserveFailedPatchApply) {
+            rethrow;
+          }
+          if (editExists) {
+            _packageTree.deleteDirectory(editPath);
+          }
+          Directory(tempEditPath).renameSync(editPath);
+          preservedFailedEdit = true;
+          throw PatchworkException(
+            error.message,
+            code: error.code,
+            hint: _failedCarryHint(
+              package: package,
+              editPath: editPath,
+              originalHint: error.hint,
+            ),
+            location: editPath,
+          );
+        }
       }
       if (editExists) {
         _packageTree.deleteDirectory(editPath);
       }
       Directory(tempEditPath).renameSync(editPath);
     } catch (_) {
-      _packageTree.deleteDirectory(tempEditPath);
+      if (!preservedFailedEdit) {
+        _packageTree.deleteDirectory(tempEditPath);
+      }
       rethrow;
     }
 
@@ -250,6 +288,54 @@ final class Patchwork {
       sourcePath: resolved.rootPath,
       continuedFromPatchPath: continuedFromPatchPath,
     );
+  }
+
+  /// Carries a stale committed patch for [package] into the current resolution.
+  ///
+  /// When [fromVersion] is omitted, exactly one stale patch file must exist for
+  /// [package]. The result is an ordinary edit directory for the current resolved
+  /// package version; callers should review it and then run [commit].
+  Future<PreparedEdit> carry(String package, {String? fromVersion}) async {
+    _checkPlainPackageName(package);
+    if (fromVersion != null) {
+      _checkSafePatchVersionSegment(fromVersion);
+    }
+
+    final resolution = _readResolution();
+    final resolved = resolution.resolvePackage(package);
+    if (_isPackageApplied(package, resolved)) {
+      throw PatchworkException(
+        'Package "$package" already has an applied Patchwork patch.',
+        code: 'patch.package_applied',
+        hint:
+            'Run patchwork undo $package, then dart pub get, before carrying it forward.',
+      );
+    }
+    final selectedVersion = _carryPatchVersion(
+      package: package,
+      currentVersion: resolved.version,
+      fromVersion: fromVersion,
+    );
+    return _prepareEdit(
+      package,
+      fromPatch: PatchRef.version(selectedVersion),
+      replaceExisting: false,
+      preserveFailedPatchApply: true,
+    );
+  }
+
+  String _failedCarryHint({
+    required String package,
+    required String editPath,
+    required String? originalHint,
+  }) {
+    final repairHint =
+        'Created ${relativePath(editPath)} with the current source and baseline. '
+        'Fix the edit manually, then run patchwork commit $package.';
+    if (originalHint == null || originalHint.isEmpty) {
+      return repairHint;
+    }
+    return '$originalHint\n$repairHint';
   }
 
   bool _canReplaceEditDirectory({
@@ -881,6 +967,62 @@ final class Patchwork {
       );
     }
     return PatchworkState(packages: statuses);
+  }
+
+  String _carryPatchVersion({
+    required String package,
+    required String currentVersion,
+    required String? fromVersion,
+  }) {
+    if (fromVersion != null) {
+      final patchPath = _layout.patchPath(package, fromVersion);
+      final patchFile = File(patchPath);
+      if (!patchFile.existsSync()) {
+        throw PatchworkException(
+          'Patch file does not exist for "$package@$fromVersion".',
+          code: 'carry.patch_missing',
+          location: patchPath,
+        );
+      }
+      if (fromVersion == currentVersion) {
+        throw PatchworkException(
+          'Patch file for "$package@$fromVersion" already matches the current pub resolution.',
+          code: 'carry.patch_not_stale',
+          hint:
+              'Run patchwork patch $package --continue if you want to edit the current patch.',
+          location: patchPath,
+        );
+      }
+      return fromVersion;
+    }
+
+    final stalePatches = _layout
+        .patchFiles()
+        .where(
+          (patch) =>
+              patch.package == package && patch.version != currentVersion,
+        )
+        .toList();
+    if (stalePatches.isEmpty) {
+      final currentPatchPath = _layout.patchPath(package, currentVersion);
+      final hasCurrentPatch = File(currentPatchPath).existsSync();
+      throw PatchworkException(
+        'No stale patch exists for "$package".',
+        code: 'carry.patch_missing',
+        hint: hasCurrentPatch
+            ? 'Run patchwork patch $package --continue if you want to edit the current patch.'
+            : 'Create a patch for "$package" before carrying it forward.',
+      );
+    }
+    if (stalePatches.length > 1) {
+      final versions = stalePatches.map((patch) => patch.version).join(', ');
+      throw PatchworkException(
+        'More than one stale patch exists for "$package".',
+        code: 'carry.ambiguous_patch',
+        hint: 'Pass --from with one of: $versions.',
+      );
+    }
+    return stalePatches.single.version;
   }
 
   String _removeVersion(String package, String? version) {
@@ -1784,7 +1926,7 @@ final class Patchwork {
             message:
                 'Patch file ${relativePath(patch.path)} targets "$package@${patch.version}", but current pub resolution is "$package@${resolved.version}".',
             hint:
-                'Use patchwork patch $package --continue ${patch.version} to carry it forward, or patchwork remove $package ${patch.version} to remove it.',
+                'Use patchwork carry $package --from ${patch.version} to carry it forward, or patchwork remove $package ${patch.version} to remove it.',
             remediationVersion: patch.version,
           ),
         );

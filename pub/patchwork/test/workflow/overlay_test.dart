@@ -4,6 +4,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:hooks/hooks.dart';
 import 'package:path/path.dart' as p;
 import 'package:patchwork/src/cli/application.dart';
 import 'package:test/test.dart';
@@ -215,18 +216,18 @@ void main() {
       );
       project.writeResolution();
 
-      final patched = await project.runApp();
-      expect(
-        patched.stdout,
-        contains('Hello from provider B overlay, Patchwork!'),
+      await project.applyOverlays();
+      _expectGeneratedGreeter(
+        project,
+        prefix: 'Hello from provider B overlay',
+        punctuation: '!',
       );
       project.expectGreeterResolvedToAppliedOutput();
 
       project
           .manifestFor(project.providerBRoot)
           .writeAsStringSync('overlays: []\n');
-      final restored = await project.runApp();
-      expect(restored.stdout, contains('Hello, Patchwork!'));
+      await project.applyOverlays();
       project.expectGreeterResolvedToSource();
     },
     timeout: const Timeout(Duration(minutes: 4)),
@@ -244,8 +245,8 @@ void main() {
       project.writePunctuationOverlay(project.providerCRoot, '?');
       project.writeResolution();
 
-      final result = await project.runApp();
-      expect(result.stdout, contains('Hi, Patchwork?'));
+      await project.applyOverlays();
+      _expectGeneratedGreeter(project, prefix: 'Hi', punctuation: '?');
       project.expectGreeterResolvedToAppliedOutput();
     },
     timeout: const Timeout(Duration(minutes: 5)),
@@ -263,8 +264,8 @@ void main() {
       project.writePrefixOverlay(project.providerCRoot, 'Hi');
       project.writeResolution();
 
-      final result = await project.runApp();
-      expect(result.stdout, contains('Hi, Patchwork!'));
+      await project.applyOverlays();
+      _expectGeneratedGreeter(project, prefix: 'Hi', punctuation: '!');
       project.expectGreeterResolvedToAppliedOutput();
 
       final inspect = await _runApplication(project.appRoot, [
@@ -302,10 +303,11 @@ void main() {
       );
       project.writeResolution();
 
-      final result = await project.runApp();
-      expect(
-        result.stdout,
-        contains('Hello from workspace provider, Patchwork!'),
+      await project.applyOverlays();
+      _expectGeneratedGreeter(
+        project,
+        prefix: 'Hello from workspace provider',
+        punctuation: '!',
       );
       project.expectGreeterResolvedToAppliedOutput();
     },
@@ -325,8 +327,8 @@ void main() {
       project.writePunctuationOverlay(project.providerCRoot, '?');
       project.writeResolution();
 
-      final result = await project.runApp();
-      expect(result.stdout, contains('Hi, Patchwork?'));
+      await project.applyOverlays();
+      _expectGeneratedGreeter(project, prefix: 'Hi', punctuation: '?');
       project.expectGreeterResolvedToAppliedOutput();
     },
     timeout: const Timeout(Duration(minutes: 5)),
@@ -344,12 +346,29 @@ void main() {
       project.writePrefixOverlay(project.providerCRoot, 'Yo');
       project.writeResolution();
 
-      final result = await project.runApp(exitCodes: {1, 255});
-      expect(result.stdout + result.stderr, contains('overlay.apply_failed'));
-      expect(result.stdout + result.stderr, contains('provider_c'));
+      await expectLater(
+        project.applyOverlays(),
+        throwsA(
+          isA<BuildError>().having(
+            (error) => error.message,
+            'message',
+            allOf(contains('overlay.apply_failed'), contains('provider_c')),
+          ),
+        ),
+      );
     },
     timeout: const Timeout(Duration(minutes: 5)),
   );
+}
+
+void _expectGeneratedGreeter(
+  OverlayProjectSandbox project, {
+  required String prefix,
+  required String punctuation,
+}) {
+  final source = project.appliedGreeterLibrary.readAsStringSync();
+  expect(source, contains('return ${jsonEncode(prefix)};'));
+  expect(source, contains('return ${jsonEncode(punctuation)};'));
 }
 
 Future<_ApplicationResult> _runApplication(

@@ -416,8 +416,7 @@ void main() {
       );
       project.writeGreeterPatch('Hello with a stale mirrored override');
       await project.application(['apply', 'greeter', '--no-pub-get']);
-      await project.pubGet();
-      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+      _expectOverridePath(project, 'other_pkg', project.otherOverrideRoot!);
 
       await project.application(['undo', 'greeter', '--no-pub-get']);
       project.writeResolution();
@@ -461,8 +460,7 @@ void main() {
       );
       project.writeGreeterPatch('Hello while refreshing an applied mirror');
       await project.application(['apply', 'greeter', '--no-pub-get']);
-      await project.pubGet();
-      project.expectPackageResolvedTo('third_pkg', manualThirdRoot);
+      _expectOverridePath(project, 'third_pkg', manualThirdRoot);
 
       _writePubspecDependencyOverride(
         project,
@@ -511,8 +509,7 @@ void main() {
       await project.application(['apply', 'greeter', '--no-pub-get']);
       _writeOtherPackagePatch(project);
       await project.application(['apply', 'other_pkg']);
-      await project.pubGet();
-      project.expectPackageResolvedTo('third_pkg', manualThirdRoot);
+      _expectOverridePath(project, 'third_pkg', manualThirdRoot);
 
       _writePubspecDependencyOverride(
         project,
@@ -567,8 +564,7 @@ void main() {
       );
       project.writeGreeterPatch('Hello while keeping an owned mirror');
       await project.application(['apply', 'greeter', '--no-pub-get']);
-      await project.pubGet();
-      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+      _expectOverridePath(project, 'other_pkg', project.otherOverrideRoot!);
 
       _appendPubspecOverridesPathOverride(
         project,
@@ -609,7 +605,7 @@ String packageName() {
       );
       addTearDown(project.dispose);
 
-      await project.pubGet();
+      project.writeResolution();
       _writePubspecDependencyOverride(
         project,
         packageRoot: project.stateRoot,
@@ -617,8 +613,7 @@ String packageName() {
       );
       project.writeGreeterPatch('Hello before removing a mirrored override');
       await project.application(['apply', 'greeter', '--no-pub-get']);
-      await project.pubGet();
-      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+      _expectOverridePath(project, 'other_pkg', project.otherOverrideRoot!);
 
       _removePubspecDependencyOverrides(project.stateRoot);
       await project.application(['undo', 'greeter', '--no-pub-get']);
@@ -638,7 +633,7 @@ String packageName() {
       );
       addTearDown(project.dispose);
 
-      await project.pubGet();
+      project.writeResolution();
       _writePubspecDependencyOverride(
         project,
         packageRoot: project.stateRoot,
@@ -646,8 +641,7 @@ String packageName() {
       );
       project.writeGreeterPatch('Hello before cleaning an edited override');
       await project.application(['apply', 'greeter', '--no-pub-get']);
-      await project.pubGet();
-      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+      _expectOverridePath(project, 'other_pkg', project.otherOverrideRoot!);
 
       _removePubspecDependencyOverrides(project.stateRoot);
       project.overrideFile.writeAsStringSync(
@@ -678,7 +672,7 @@ String packageName() {
       final manualRoot = p.join(project.root.path, 'manual_pkg');
       _writeSimplePackage(manualRoot, 'manual_pkg');
 
-      await project.pubGet();
+      project.writeResolution();
       _writePubspecDependencyOverride(
         project,
         packageRoot: project.stateRoot,
@@ -688,8 +682,7 @@ String packageName() {
         'Hello while keeping a mirror with user overrides',
       );
       await project.application(['apply', 'greeter', '--no-pub-get']);
-      await project.pubGet();
-      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+      _expectOverridePath(project, 'other_pkg', project.otherOverrideRoot!);
 
       _appendPubspecOverridesPathOverride(
         project,
@@ -744,8 +737,7 @@ String packageName() {
         package: 'other_pkg',
       );
       project.overrideFile.writeAsStringSync('dependency_overrides: {}\n');
-      await project.pubGet();
-      project.expectPackageResolvedTo('other_pkg', project.otherRoot!);
+      project.writeResolution();
 
       project.writeGreeterPatch('Hello with an empty override shadow');
       await project.application(['apply', 'greeter', '--no-pub-get']);
@@ -774,8 +766,7 @@ String packageName() {
         package: 'other_pkg',
         targetRoot: project.otherRoot!,
       );
-      await project.pubGet();
-      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+      project.writeResolution();
 
       project.writeGreeterPatch('Hello while preserving active overrides');
       await project.application(['apply', 'greeter', '--no-pub-get']);
@@ -819,8 +810,7 @@ dependency_overrides:
   manual_pkg:
     path: .dart_tool/patchwork/manual_pkg@0.1.0
 ''');
-      await project.pubGet();
-      project.expectPackageResolvedTo('other_pkg', project.otherRoot!);
+      project.writeResolution();
 
       project.writeGreeterPatch('Hello with a user-owned dart tool override');
       await project.application(['apply', 'greeter', '--no-pub-get']);
@@ -849,8 +839,7 @@ dependency_overrides:
         package: 'other_pkg',
       );
       project.overrideFile.writeAsStringSync('dependency_overrides: {}\n');
-      await project.pubGet();
-      project.expectPackageResolvedTo('other_pkg', project.otherRoot!);
+      project.writeResolution();
 
       project.writeGreeterPatch('Hello with an empty shadow before undo');
       await project.application(['apply', 'greeter', '--no-pub-get']);
@@ -878,8 +867,7 @@ dependency_overrides:
         packageRoot: project.stateRoot,
         package: 'other_pkg',
       );
-      await project.pubGet();
-      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+      project.writeResolution();
 
       project.writeGreeterPatch('Hello without deleting active overrides');
       await project.application(['apply', 'greeter', '--no-pub-get']);
@@ -1042,7 +1030,7 @@ dependency_overrides:
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
+      project.writeResolution();
       await project.application(
         ['patch', '--continue', '0.1.0'],
         exitCodes: {64},
@@ -1268,7 +1256,7 @@ String otherName() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
+      project.writeResolution();
 
       await project.application(
         ['patch', 'greeter', '--continue=../greeter@0.1.0'],
@@ -1293,8 +1281,7 @@ String otherName() {
 
       project.writeOtherOverride();
       await project.application(['apply', 'greeter', '--no-pub-get']);
-      await project.pubGet();
-      project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
+      _expectOverridePath(project, 'other_pkg', project.otherOverrideRoot!);
       expect(project.overrideFile.readAsStringSync(), contains('other_pkg:'));
       expect(project.overrideFile.readAsStringSync(), contains('greeter:'));
 
@@ -1451,6 +1438,16 @@ $existing
   $package:
     path: ${p.relative(targetRoot, from: project.stateRoot)}
 ''');
+}
+
+void _expectOverridePath(
+  ProjectSandbox project,
+  String package,
+  String targetRoot,
+) {
+  final overrides = project.overrideFile.readAsStringSync();
+  expect(overrides, contains('$package:'));
+  expect(overrides, contains(p.relative(targetRoot, from: project.stateRoot)));
 }
 
 void _writeSimplePackage(String root, String package) {

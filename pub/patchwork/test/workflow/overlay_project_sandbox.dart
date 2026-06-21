@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
+import 'package:hooks/hooks.dart';
 import 'package:path/path.dart' as p;
 import 'package:patchwork/src/cli/application.dart';
 import 'package:patchwork/src/internal/package_tree.dart';
+import 'package:patchwork/src/overlay_hook.dart' as patchwork_hooks;
 import 'package:test/test.dart';
 
 final class OverlayProjectSandbox {
@@ -42,6 +44,10 @@ final class OverlayProjectSandbox {
     return Directory(
       p.join(stateRoot, '.dart_tool', 'patchwork', 'greeter@0.1.0'),
     );
+  }
+
+  File get appliedGreeterLibrary {
+    return File(p.join(appliedGreeterDirectory.path, 'lib', 'greeter.dart'));
   }
 
   static Future<OverlayProjectSandbox> create({
@@ -397,6 +403,14 @@ sdks:
       cwd: appRoot,
       exitCodes: exitCodes,
       environment: environment,
+    );
+  }
+
+  Future<void> applyOverlays() async {
+    final output = BuildOutputBuilder();
+    await patchwork_hooks.applyPackageOverlaysFromPackageConfig(
+      p.join(stateRoot, '.dart_tool', 'package_config.json'),
+      output,
     );
   }
 

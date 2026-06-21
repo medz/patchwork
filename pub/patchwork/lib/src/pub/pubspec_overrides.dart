@@ -20,6 +20,17 @@ final class PubspecOverrides {
   /// The writer used to persist overrides updates.
   final AtomicFileWriter fileWriter;
 
+  /// Reads the dependency overrides state from `pubspec_overrides.yaml`.
+  PubspecOverridesSnapshot readDependencyOverrides({
+    required String workspaceRootPath,
+  }) {
+    final overrides = _read(workspaceRootPath);
+    return PubspecOverridesSnapshot(
+      hasDependencyOverrides: overrides.containsKey('dependency_overrides'),
+      dependencyOverrides: _dependencyOverrides(overrides, workspaceRootPath),
+    );
+  }
+
   /// Inserts or replaces the path override for [package].
   ///
   /// The resulting override is written under `dependency_overrides` and points
@@ -106,21 +117,16 @@ final class PubspecOverrides {
     required String workspaceRootPath,
     required String package,
   }) {
-    final dependencyOverrides = _dependencyOverrides(
-      _read(workspaceRootPath),
-      workspaceRootPath,
-    );
-    return dependencyOverrides.containsKey(package);
+    return readDependencyOverrides(
+      workspaceRootPath: workspaceRootPath,
+    ).dependencyOverrides.containsKey(package);
   }
 
   /// Returns whether `pubspec_overrides.yaml` defines `dependency_overrides`.
   bool hasDependencyOverrides({required String workspaceRootPath}) {
-    final overrides = _read(workspaceRootPath);
-    if (!overrides.containsKey('dependency_overrides')) {
-      return false;
-    }
-    _dependencyOverrides(overrides, workspaceRootPath);
-    return true;
+    return readDependencyOverrides(
+      workspaceRootPath: workspaceRootPath,
+    ).hasDependencyOverrides;
   }
 
   /// Removes the override for [package] only if it still points at [path].
@@ -293,6 +299,21 @@ final class PubspecOverrides {
       );
     }
   }
+}
+
+/// Parsed dependency override state from one `pubspec_overrides.yaml`.
+final class PubspecOverridesSnapshot {
+  /// Creates parsed `pubspec_overrides.yaml` dependency override state.
+  const PubspecOverridesSnapshot({
+    required this.hasDependencyOverrides,
+    required this.dependencyOverrides,
+  });
+
+  /// Whether the file explicitly contains `dependency_overrides`.
+  final bool hasDependencyOverrides;
+
+  /// The parsed `dependency_overrides` map.
+  final Map<String, Object?> dependencyOverrides;
 }
 
 Map<String, Object?> _restoreMirroredPubspecDependencyOverrides({

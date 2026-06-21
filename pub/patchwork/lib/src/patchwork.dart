@@ -10,6 +10,7 @@ import 'edit_session.dart';
 import 'error.dart';
 import 'internal/applied_path_policy.dart';
 import 'internal/artifact_inventory.dart';
+import 'internal/dependency_override_state.dart';
 import 'internal/package_tree.dart';
 import 'internal/overlay_inspector.dart';
 import 'internal/path_layout.dart';
@@ -544,6 +545,7 @@ final class Patchwork {
     }
 
     final resolution = _readResolution();
+    final overrideState = _overrideState();
     final packages = <String>[];
     for (final patch in patches) {
       final package = patch.package;
@@ -587,7 +589,7 @@ final class Patchwork {
           location: applied.path,
         );
       }
-      if (_hasForeignOverride(package, applied)) {
+      if (overrideState.hasForeignOverride(package, applied)) {
         throw PatchworkException(
           'A project file already has a dependency override for "$package".',
           code: 'pub.override_conflict',
@@ -598,15 +600,17 @@ final class Patchwork {
       if (_resolvesToAppliedPath(package, patch.version, resolved)) {
         continue;
       }
-      if (_hasBlockingPendingOverride(
-        package: package,
-        version: patch.version,
-        applied: applied,
-      )) {
+      if (applied == null &&
+          overrideState.blockingConflict(
+                package: package,
+                targetPath: _layout.appliedPath(package, patch.version),
+              ) !=
+              null) {
         _rejectBlockingOverride(
           package: package,
           command: 'apply',
           targetPath: _layout.appliedPath(package, patch.version),
+          overrideState: overrideState,
         );
       }
       final patchBytes = File(patch.path).readAsBytesSync();
@@ -617,6 +621,7 @@ final class Patchwork {
         patchSha256: patchSha256,
         source: resolved.source,
         applied: applied,
+        overrideState: overrideState,
       )) {
         _patchFile.validate(
           sourcePath: resolved.rootPath,
@@ -679,11 +684,13 @@ final class Patchwork {
             code: 'apply.applied_path_not_deletable',
             message: _invalidAppliedPathMessage,
           );
+    final overrideState = _overrideState();
     _rejectBlockingOverride(
       package: package,
       command: 'apply',
       targetPath: appliedPath,
       replaceRootOverride: existingApplied != null,
+      overrideState: overrideState,
     );
     if (existingApplied == null && Directory(appliedPath).existsSync()) {
       throw PatchworkException(
@@ -716,14 +723,16 @@ final class Patchwork {
 
     final markers = _appliedMarkerStore.readAll();
     final previousMirroredPubspecDependencyOverrides =
-        _mirroredPubspecDependencyOverrides(markers);
+        DependencyOverrideState.mirroredPubspecDependencyOverrides(markers);
     final mirroredPubspecDependencyOverrides = _pubspecOverrides
         .upsertPathOverride(
           workspaceRootPath: _rootPath,
           package: package,
           path: appliedRecordPath,
-          ownedDependencyOverrides: _ownedPubspecDependencyOverrides(markers),
-          pubspecDependencyOverrides: _rootPubspecDependencyOverrides(package),
+          ownedDependencyOverrides:
+              DependencyOverrideState.ownedPubspecDependencyOverrides(markers),
+          pubspecDependencyOverrides: overrideState
+              .rootPubspecDependencyOverrides(skippedPackage: package),
           mirroredPubspecDependencyOverrides:
               previousMirroredPubspecDependencyOverrides,
         );
@@ -835,6 +844,7 @@ final class Patchwork {
 
     final marker = _appliedMarkerStore.read(package, selectedVersion);
     if (marker != null) {
+      final overrideState = _overrideState();
       if (!force) {
         throw PatchworkException(
           'Package "$package@$selectedVersion" has applied Patchwork state.',
@@ -847,8 +857,9 @@ final class Patchwork {
         marker,
         command: 'remove',
         code: 'remove.active_override',
+        overrideState: overrideState,
       );
-      _addAppliedCleanupChanges(changes, marker);
+      _addAppliedCleanupChanges(changes, marker, overrideState: overrideState);
       appliedMarkers.add(marker);
     }
 
@@ -886,6 +897,10 @@ final class Patchwork {
     final inventory = PatchworkArtifactInventory.read(_layout);
     final seen = <String>{};
     final resolution = _readResolution();
+    DependencyOverrideState? overrideState;
+    DependencyOverrideState readOverrideState() {
+      return overrideState ??= _overrideState();
+    }
 
     for (final patch in inventory.patchFiles) {
       if (_patchMatchesResolution(patch, resolution)) {
@@ -903,7 +918,11 @@ final class Patchwork {
 
       final marker = _appliedMarkerStore.read(patch.package, patch.version);
       final activeAppliedReference =
-          marker != null && _appliedOutputHasActiveOverride(marker);
+          marker != null &&
+          _appliedOutputHasActiveOverride(
+            marker,
+            overrideState: readOverrideState(),
+          );
       if (activeAppliedReference && !force) {
         throw PatchworkException(
           'Package "${patch.package}@${patch.version}" has applied Patchwork state.',
@@ -940,10 +959,16 @@ final class Patchwork {
           marker,
           command: 'prune',
           code: 'prune.active_override',
+          overrideState: readOverrideState(),
         );
       }
       if (marker != null && (force || !activeAppliedReference)) {
-        _addAppliedCleanupChanges(changes, marker, seen: seen);
+        _addAppliedCleanupChanges(
+          changes,
+          marker,
+          seen: seen,
+          overrideState: readOverrideState(),
+        );
         appliedMarkers.add(marker);
       }
     }
@@ -953,10 +978,18 @@ final class Patchwork {
       if (marker == null) {
         continue;
       }
-      if (_appliedOutputHasActiveOverride(marker)) {
+      if (_appliedOutputHasActiveOverride(
+        marker,
+        overrideState: readOverrideState(),
+      )) {
         continue;
       }
-      _addAppliedCleanupChanges(changes, marker, seen: seen);
+      _addAppliedCleanupChanges(
+        changes,
+        marker,
+        seen: seen,
+        overrideState: readOverrideState(),
+      );
       appliedMarkers.add(marker);
     }
 
@@ -1014,6 +1047,7 @@ final class Patchwork {
       resolutionError = error;
     }
 
+    final overrideState = _overrideState();
     for (final package in packages) {
       statuses.add(
         _inspectPackage(
@@ -1023,6 +1057,7 @@ final class Patchwork {
           appliedDirectories: inventory.appliedFor(package),
           resolution: resolution,
           resolutionError: resolutionError,
+          overrideState: overrideState,
         ),
       );
     }
@@ -1152,7 +1187,10 @@ final class Patchwork {
         error.code == 'pub.unsupported_source';
   }
 
-  bool _appliedOutputHasActiveOverride(AppliedMarker marker) {
+  bool _appliedOutputHasActiveOverride(
+    AppliedMarker marker, {
+    required DependencyOverrideState overrideState,
+  }) {
     final absoluteAppliedPath = _appliedPaths.patchworkAppliedPath(
       marker.package,
       marker.version,
@@ -1161,36 +1199,16 @@ final class Patchwork {
     if (absoluteAppliedPath == null) {
       return false;
     }
-
-    for (final overrideRootPath in _overrideRootPaths) {
-      final hasOverrideFileDependencyOverrides = _pubspecOverrides
-          .hasDependencyOverrides(workspaceRootPath: overrideRootPath);
-      if (_pubspecOverrides.pointsToPath(
-        workspaceRootPath: overrideRootPath,
-        package: marker.package,
-        path: absoluteAppliedPath,
-      )) {
-        return true;
-      }
-      if (hasOverrideFileDependencyOverrides) {
-        continue;
-      }
-
-      final dependencyOverrides = _pubspecDependencyOverrides
-          .dependencyOverrides(packageRootPath: overrideRootPath);
-      if (_overrideValuePointsToPath(
-        workspaceRootPath: overrideRootPath,
-        value: dependencyOverrides[marker.package],
-        path: absoluteAppliedPath,
-      )) {
-        return true;
-      }
-    }
-
-    return false;
+    return overrideState.hasActiveAppliedOverride(
+      marker,
+      absoluteAppliedPath: absoluteAppliedPath,
+    );
   }
 
-  _OverrideConflict? _userOwnedOverrideForAppliedOutput(AppliedMarker marker) {
+  DependencyOverrideConflict? _userOwnedOverrideForAppliedOutput(
+    AppliedMarker marker, {
+    required DependencyOverrideState overrideState,
+  }) {
     final absoluteAppliedPath = _appliedPaths.patchworkAppliedPath(
       marker.package,
       marker.version,
@@ -1199,43 +1217,22 @@ final class Patchwork {
     if (absoluteAppliedPath == null) {
       return null;
     }
-
-    for (final overrideRootPath in _overrideRootPaths) {
-      if (!p.equals(overrideRootPath, _rootPath) &&
-          _pubspecOverrides.pointsToPath(
-            workspaceRootPath: overrideRootPath,
-            package: marker.package,
-            path: absoluteAppliedPath,
-          )) {
-        return _OverrideConflict(
-          fileName: 'pubspec_overrides.yaml',
-          path: p.join(overrideRootPath, 'pubspec_overrides.yaml'),
-        );
-      }
-
-      final dependencyOverrides = _pubspecDependencyOverrides
-          .dependencyOverrides(packageRootPath: overrideRootPath);
-      if (_overrideValuePointsToPath(
-        workspaceRootPath: overrideRootPath,
-        value: dependencyOverrides[marker.package],
-        path: absoluteAppliedPath,
-      )) {
-        return _OverrideConflict(
-          fileName: 'pubspec.yaml',
-          path: p.join(overrideRootPath, 'pubspec.yaml'),
-        );
-      }
-    }
-
-    return null;
+    return overrideState.userOwnedAppliedOverride(
+      marker,
+      absoluteAppliedPath: absoluteAppliedPath,
+    );
   }
 
   void _rejectUserOwnedOverrideForAppliedCleanup(
     AppliedMarker marker, {
     required String command,
     required String code,
+    required DependencyOverrideState overrideState,
   }) {
-    final userOverride = _userOwnedOverrideForAppliedOutput(marker);
+    final userOverride = _userOwnedOverrideForAppliedOutput(
+      marker,
+      overrideState: overrideState,
+    );
     if (userOverride == null) {
       return;
     }
@@ -1246,26 +1243,6 @@ final class Patchwork {
           'Remove the dependency override that points at ${marker.path} before running patchwork $command --force.',
       location: userOverride.path,
     );
-  }
-
-  bool _overrideValuePointsToPath({
-    required String workspaceRootPath,
-    required Object? value,
-    required String path,
-  }) {
-    if (value is! Map<String, Object?>) {
-      return false;
-    }
-    final overridePath = value['path'];
-    if (overridePath is! String) {
-      return false;
-    }
-    final absoluteOverridePath = p.normalize(
-      p.isAbsolute(overridePath)
-          ? overridePath
-          : p.absolute(workspaceRootPath, overridePath),
-    );
-    return p.equals(absoluteOverridePath, p.normalize(path));
   }
 
   AppliedMarker? _tryReadAppliedMarker(PackageVersionPath appliedDirectory) {
@@ -1283,6 +1260,7 @@ final class Patchwork {
     List<CleanupChange> changes,
     AppliedMarker marker, {
     Set<String>? seen,
+    required DependencyOverrideState overrideState,
   }) {
     final appliedPath = _appliedPaths.requirePatchworkAppliedPath(
       marker.package,
@@ -1302,8 +1280,7 @@ final class Patchwork {
         path: appliedPath,
       ),
     );
-    if (_pubspecOverrides.pointsToPath(
-          workspaceRootPath: _rootPath,
+    if (overrideState.rootOverridePointsToPath(
           package: marker.package,
           path: marker.path,
         ) ||
@@ -1339,15 +1316,18 @@ final class Patchwork {
       message: _invalidAppliedPathMessage,
     );
     final markers = _appliedMarkerStore.readAll();
+    final overrideState = _overrideState();
     final mirroredPubspecDependencyOverrides =
-        _mirroredPubspecDependencyOverrides(markers);
+        DependencyOverrideState.mirroredPubspecDependencyOverrides(markers);
     final nextMirroredPubspecDependencyOverrides = _pubspecOverrides
         .removePathOverrideIfMatches(
           workspaceRootPath: _rootPath,
           package: marker.package,
           path: marker.path,
-          ownedDependencyOverrides: _ownedPubspecDependencyOverrides(markers),
-          pubspecDependencyOverrides: _rootPubspecDependencyOverrides(),
+          ownedDependencyOverrides:
+              DependencyOverrideState.ownedPubspecDependencyOverrides(markers),
+          pubspecDependencyOverrides: overrideState
+              .rootPubspecDependencyOverrides(),
           mirroredPubspecDependencyOverrides:
               mirroredPubspecDependencyOverrides,
         );
@@ -1365,6 +1345,15 @@ final class Patchwork {
 
   PubResolution _readResolution() {
     return _pubResolutionReader.readFromDirectory(_currentPackageRootPath);
+  }
+
+  DependencyOverrideState _overrideState() {
+    return DependencyOverrideState.read(
+      rootPath: _rootPath,
+      overrideRootPaths: _overrideRootPaths,
+      pubspecOverrides: _pubspecOverrides,
+      pubspecDependencyOverrides: _pubspecDependencyOverrides,
+    );
   }
 
   void _ensureCurrentPackageCanPublishOverlays() {
@@ -1462,8 +1451,9 @@ final class Patchwork {
     required String command,
     required String targetPath,
     bool replaceRootOverride = false,
+    DependencyOverrideState? overrideState,
   }) {
-    final conflict = _blockingOverrideConflict(
+    final conflict = (overrideState ?? _overrideState()).blockingConflict(
       package: package,
       targetPath: targetPath,
       replaceRootOverride: replaceRootOverride,
@@ -1477,43 +1467,6 @@ final class Patchwork {
         location: conflict.path,
       );
     }
-  }
-
-  _OverrideConflict? _blockingOverrideConflict({
-    required String package,
-    required String targetPath,
-    bool replaceRootOverride = false,
-  }) {
-    for (final overrideRootPath in _overrideRootPaths) {
-      final canReplaceHere =
-          replaceRootOverride && p.equals(overrideRootPath, _rootPath);
-      if (_pubspecOverrides.hasBlockingPathOverride(
-        workspaceRootPath: overrideRootPath,
-        package: package,
-        path: targetPath,
-        replaceExisting: canReplaceHere,
-      )) {
-        return _OverrideConflict(
-          fileName: 'pubspec_overrides.yaml',
-          path: p.join(overrideRootPath, 'pubspec_overrides.yaml'),
-        );
-      }
-      if (_pubspecOverrides.hasDependencyOverrides(
-        workspaceRootPath: overrideRootPath,
-      )) {
-        continue;
-      }
-      if (_pubspecDependencyOverrides.hasOverride(
-        packageRootPath: overrideRootPath,
-        package: package,
-      )) {
-        return _OverrideConflict(
-          fileName: 'pubspec.yaml',
-          path: p.join(overrideRootPath, 'pubspec.yaml'),
-        );
-      }
-    }
-    return null;
   }
 
   PackageVersionPath _singleEditDirectory(String package) {
@@ -1635,92 +1588,6 @@ final class Patchwork {
     );
   }
 
-  bool _hasBlockingPendingOverride({
-    required String package,
-    required String version,
-    required AppliedMarker? applied,
-  }) {
-    if (applied != null) {
-      return false;
-    }
-    return _blockingOverrideConflict(
-          package: package,
-          targetPath: _layout.appliedPath(package, version),
-        ) !=
-        null;
-  }
-
-  bool _hasForeignOverride(String package, AppliedMarker? applied) {
-    for (final overrideRootPath in _overrideRootPaths) {
-      final hasOverrideFileDependencyOverrides = _pubspecOverrides
-          .hasDependencyOverrides(workspaceRootPath: overrideRootPath);
-      if (_pubspecOverrides.hasOverride(
-        workspaceRootPath: overrideRootPath,
-        package: package,
-      )) {
-        if (p.equals(overrideRootPath, _rootPath) &&
-            applied != null &&
-            _pubspecOverrides.pointsToPath(
-              workspaceRootPath: overrideRootPath,
-              package: package,
-              path: applied.path,
-            )) {
-          continue;
-        }
-        return true;
-      }
-      if (hasOverrideFileDependencyOverrides) {
-        continue;
-      }
-      if (_pubspecDependencyOverrides.hasOverride(
-        packageRootPath: overrideRootPath,
-        package: package,
-      )) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  Map<String, Object?> _rootPubspecDependencyOverrides([
-    String? skippedPackage,
-  ]) {
-    final dependencyOverrides = <String, Object?>{};
-    // `pubspec_overrides.yaml` replaces only the state-root pubspec fields.
-    // Workspace member overrides remain active in their own pubspec files.
-    final rootOverrides = _pubspecDependencyOverrides.dependencyOverrides(
-      packageRootPath: _rootPath,
-    );
-    for (final entry in rootOverrides.entries) {
-      if (entry.key == skippedPackage) {
-        continue;
-      }
-      dependencyOverrides[entry.key] = _rootRelativePathOverride(entry.value);
-    }
-    return dependencyOverrides;
-  }
-
-  Map<String, Object?> _mirroredPubspecDependencyOverrides(
-    List<AppliedMarker> markers,
-  ) {
-    final dependencyOverrides = <String, Object?>{};
-    for (final marker in markers) {
-      dependencyOverrides.addAll(marker.mirroredPubspecDependencyOverrides);
-    }
-    return dependencyOverrides;
-  }
-
-  Map<String, Object?> _ownedPubspecDependencyOverrides(
-    List<AppliedMarker> markers,
-  ) {
-    final dependencyOverrides = <String, Object?>{};
-    for (final marker in markers) {
-      dependencyOverrides.addAll(marker.mirroredPubspecDependencyOverrides);
-      dependencyOverrides[marker.package] = {'path': marker.path};
-    }
-    return dependencyOverrides;
-  }
-
   void _setMirroredPubspecDependencyOverrides(
     List<AppliedMarker> markers,
     Map<String, Object?> dependencyOverrides,
@@ -1734,28 +1601,13 @@ final class Patchwork {
     }
   }
 
-  Object? _rootRelativePathOverride(Object? value) {
-    if (value is Map<String, Object?> && value['path'] is String) {
-      final path = value['path'] as String;
-      final absolutePath = p.normalize(
-        p.isAbsolute(path) ? path : p.absolute(_rootPath, path),
-      );
-      return {
-        ...value,
-        'path': p.posix.joinAll(
-          p.split(p.relative(absolutePath, from: _rootPath)),
-        ),
-      };
-    }
-    return value;
-  }
-
   bool _needsApply({
     required String package,
     required String version,
     required String patchSha256,
     required PackageSource source,
     required AppliedMarker? applied,
+    required DependencyOverrideState overrideState,
   }) {
     if (applied == null) {
       return true;
@@ -1770,8 +1622,7 @@ final class Patchwork {
     }
 
     return !Directory(appliedPath).existsSync() ||
-        !_pubspecOverrides.pointsToPath(
-          workspaceRootPath: _rootPath,
+        !overrideState.rootOverridePointsToPath(
           package: package,
           path: applied.path,
         ) ||
@@ -1786,6 +1637,7 @@ final class Patchwork {
     required List<PackageVersionPath> appliedDirectories,
     required PubResolution? resolution,
     required PatchworkException? resolutionError,
+    required DependencyOverrideState overrideState,
   }) {
     final problems = <PatchProblem>[];
     if (edit.length > 1) {
@@ -1876,8 +1728,7 @@ final class Patchwork {
         .toList();
     final markerlessOverridePointsToApplied =
         appliedForVersion.isNotEmpty &&
-        _pubspecOverrides.pointsToPath(
-          workspaceRootPath: _rootPath,
+        overrideState.rootOverridePointsToPath(
           package: package,
           path: _layout.relativeAppliedPath(package, version),
         );
@@ -1991,19 +1842,19 @@ final class Patchwork {
         Directory(appliedPathInProject).existsSync();
     final overridePointsToApplied =
         applied != null &&
-        _pubspecOverrides.pointsToPath(
-          workspaceRootPath: _rootPath,
+        overrideState.rootOverridePointsToPath(
           package: package,
           path: applied.path,
         );
     final hasBlockingOverride =
         hasPatchFile &&
-        (_hasBlockingPendingOverride(
-              package: package,
-              version: version,
-              applied: applied,
-            ) ||
-            _hasForeignOverride(package, applied));
+        ((applied == null &&
+                overrideState.blockingConflict(
+                      package: package,
+                      targetPath: _layout.appliedPath(package, version),
+                    ) !=
+                    null) ||
+            overrideState.hasForeignOverride(package, applied));
     final repairHint = pubResolutionMatchesSource
         ? 'Run patchwork apply $package.'
         : 'Run patchwork undo $package, dart pub get, then patchwork apply $package.';
@@ -2124,17 +1975,11 @@ final class Patchwork {
                     patchSha256: patchSha256,
                     source: resolved.source,
                     applied: applied,
+                    overrideState: overrideState,
                   ))),
       problems: problems,
     );
   }
-}
-
-final class _OverrideConflict {
-  const _OverrideConflict({required this.fileName, required this.path});
-
-  final String fileName;
-  final String path;
 }
 
 void _checkPlainPackageName(String package) {

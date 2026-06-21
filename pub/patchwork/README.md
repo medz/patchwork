@@ -8,24 +8,73 @@ Patchwork keeps Dart pub dependency fixes in reviewable patch files without
 editing your shared `.pub-cache`.
 
 Use it when you need a local dependency fix that should survive fresh
-checkouts, code review, and CI. Patchwork copies a resolved dependency into
-`.patchwork/<pkg>@<version>/`, commits the edit as
-`patches/<pkg>@<version>.patch`, and materializes the patch through generated
-pub path overrides.
+checkouts, code review, and CI. Patchwork copies a resolved dependency into an
+editable project-local directory, commits the edit as
+`patches/<pkg>@<version>.patch`, and applies committed patches through
+generated pub path overrides.
+
+## TL;DR
+
+Add Patchwork to the project that owns the patch files:
+
+```sh
+dart pub add dev:patchwork
+```
+
+Create, commit, and activate a dependency patch:
+
+```sh
+dart pub get
+dart run patchwork patch collection
+# edit .patchwork/collection@<version>/
+dart run patchwork commit collection
+dart run patchwork apply collection
+```
+
+Commit the generated patch file:
+
+```text
+patches/collection@<version>.patch
+```
+
+Do not commit Patchwork's local working or generated state:
+
+```text
+.patchwork/
+.dart_tool/patchwork/
+pubspec_overrides.yaml
+```
 
 ## Why Patchwork
 
 Manual `.pub-cache` edits are fast, but they are local to one machine and easy
 to lose. Patchwork keeps the durable part of the change in your project so the
-same patch can be reviewed, committed, and applied by teammates or CI.
+same dependency fix can be reviewed, committed, and applied by teammates or CI.
 
 Patchwork is a good fit for small dependency fixes while you wait for an
 upstream release. Prefer a fork or vendored dependency when the change is large,
 long-lived, security-sensitive, or needs its own release process.
 
+## How It Works
+
+Patchwork has one committed source of truth: patch files.
+
+| Path                                     | Purpose                                                                         |
+| ---------------------------------------- | ------------------------------------------------------------------------------- |
+| `patches/<pkg>@<version>.patch`          | The committed, reviewable patch file.                                           |
+| `.patchwork/<pkg>@<version>/`            | The editable work-in-progress copy created by `patchwork patch`.                |
+| `.patchwork/<pkg>@<version>/.patchwork/` | Hidden edit-session metadata and baseline snapshots used by `patchwork commit`. |
+| `.dart_tool/patchwork/<pkg>@<version>/`  | Generated applied output created by `patchwork apply`.                          |
+| `pubspec_overrides.yaml`                 | Generated pub wiring that points selected packages at applied output.           |
+
+Patchwork does not use a committed Patchwork state file. Historical and stale
+patch inventory is derived from safe `patches/<pkg>@<version>.patch`
+filenames. Generated output contains ownership markers so Patchwork can refresh
+or delete only directories it created.
+
 ## Install
 
-Add Patchwork as a dev dependency in the project that owns the patch files.
+For a normal project:
 
 ```sh
 dart pub add dev:patchwork
@@ -45,17 +94,20 @@ Run commands with `dart run`:
 dart run patchwork --help
 ```
 
-Global activation is optional for interactive use, but recommended for scripts,
-editors, and agents that use `--json` and need clean stdout:
+Global activation is optional for interactive use, but useful for scripts,
+editors, and agents that need JSON output without `dart run` hook progress on
+stdout:
 
 ```sh
 dart pub global activate patchwork
 patchwork status --json
 ```
 
-## Workflow
+## Basic Workflow
 
-Run Patchwork from the Dart package or workspace you want to patch.
+Run Patchwork from the Dart package or workspace that owns the patch files.
+
+### Create a patch
 
 ```sh
 dart pub get
@@ -63,21 +115,171 @@ dart run patchwork doctor
 dart run patchwork patch collection
 ```
 
-Edit the directory printed by `patchwork patch`, then commit it:
+`patchwork patch` creates a fresh edit directory for the package selected by
+the current pub resolution:
+
+```text
+.patchwork/collection@<version>/
+```
+
+Patchwork targets plain pub package names. It rejects target syntax such as
+`pub:collection`, `collection@1.19.1`, `path:collection`, git URLs,
+filesystem paths, the current project package, and workspace member packages.
+
+### Commit the edit
+
+Edit files inside `.patchwork/collection@<version>/`, then commit the edit into
+a patch file:
 
 ```sh
 dart run patchwork commit collection
 ```
 
-Apply committed patches:
+The patch file is written under `patches/` and should be committed to version
+control.
+
+### Apply committed patches
 
 ```sh
 dart run patchwork apply
 dart run patchwork status
 ```
 
-After a successful apply, Patchwork refreshes pub resolution through the
-generated overrides before the command exits.
+`patchwork apply` writes generated output under `.dart_tool/patchwork/`, updates
+Patchwork-owned entries in `pubspec_overrides.yaml`, and refreshes pub
+resolution before the command exits.
+
+### Deactivate a patch
+
+```sh
+dart run patchwork undo collection
+```
+
+`undo` removes Patchwork's generated activation state for one package and
+refreshes pub resolution. It does not delete the committed patch file.
+
+## Common Tasks
+
+### Apply patches after checkout
+
+After cloning a project that already has committed patch files:
+
+```sh
+dart pub get
+dart run patchwork apply
+dart run patchwork doctor
+```
+
+`apply` is the complete activation command. It recreates generated package
+output and pub override wiring from committed patch files and the current pub
+resolution.
+
+### Upgrade a patched dependency
+
+When an upstream release may contain your fix, first remove generated override
+state so pub resolves the real dependency source:
+
+```sh
+dart run patchwork undo collection
+dart pub upgrade collection
+dart pub get
+```
+
+If the upstream release already contains the fix, remove the stale patch when
+you are ready:
+
+```sh
+dart run patchwork remove collection 1.19.0 --dry-run
+dart run patchwork remove collection 1.19.0
+```
+
+If the upstream release still needs your fix, continue from the older patch
+file onto the currently resolved source:
+
+```sh
+dart run patchwork patch collection --continue 1.19.0
+# inspect and adjust .patchwork/collection@<newVersion>/
+dart run patchwork commit collection
+dart run patchwork apply collection
+```
+
+### Repair a patch that no longer applies
+
+Start with diagnostics:
+
+```sh
+dart run patchwork doctor --explain
+```
+
+For upgrade-related conflicts, use `patchwork undo`, upgrade the dependency,
+then try `patchwork patch <pkg> --continue <oldVersion>` to carry the older
+patch onto the current source. If the older patch no longer applies cleanly,
+create a fresh edit with `patchwork patch <pkg>` and port the relevant changes
+manually from the stale patch file.
+
+Patchwork keeps normal apply behavior atomic: a failed apply does not replace
+the committed patch file or pretend the generated output is healthy.
+
+### Remove stale state
+
+Use `remove` for a selected package or version:
+
+```sh
+dart run patchwork remove collection 1.19.0 --dry-run
+dart run patchwork remove collection 1.19.0
+```
+
+Use `prune` to inspect stale patch files and unreferenced generated output:
+
+```sh
+dart run patchwork prune --dry-run
+```
+
+`prune` only removes generated output when a valid Patchwork marker proves
+ownership and no active override points at it.
+
+### Troubleshoot local setup
+
+Use `doctor --setup` to validate repository setup without mutating files:
+
+```sh
+dart run patchwork doctor --setup
+```
+
+It checks that generated Patchwork state stays ignored, committed patch files
+remain visible to Git, hook setup is complete when `hook/build.dart` exists,
+and CI uses high-level Patchwork commands such as `apply` or `doctor`.
+
+A typical `.gitignore` should include:
+
+```gitignore
+.patchwork/
+.dart_tool/
+pubspec_overrides.yaml
+```
+
+Do not ignore `patches/` or `patches/*.patch`; those files are Patchwork's
+reviewable durable state.
+
+## CI
+
+Run Patchwork after dependencies are installed and before tests:
+
+```sh
+dart pub get
+dart run patchwork apply
+dart run patchwork doctor
+dart test
+```
+
+Use `patchwork doctor` when CI should fail on missing, stale, or unapplied patch
+state. Use `patchwork doctor --explain` when CI logs should include the next
+repair action for each diagnostic. Use `patchwork doctor --setup` when CI
+should verify repository configuration.
+
+Reserve `--no-pub-get` for low-level scripts that intentionally separate
+Patchwork filesystem changes from pub resolution refresh. Normal interactive
+and CI usage should let Patchwork run `dart pub get`.
 
 ## Automatic Apply Hooks
 
@@ -116,12 +318,12 @@ These helpers are for user-owned patches committed by the application or
 workspace. Dependency packages that publish their own patch contributions should
 use package-provided overlays instead.
 
-## Package-Provided Overlays
+## Provider Overlays
 
-Packages can also publish narrowly scoped patch contributions for their own
-dependencies. This is for package authors who know that their package needs a
-temporary fix in a dependency, while downstream applications should only depend
-on the package and run normally.
+Provider overlays are an advanced package-author workflow. Use them when a
+package needs to publish a narrowly scoped patch contribution for one of its own
+dependencies, while downstream applications should only depend on the provider
+package and run normally.
 
 The provider package must depend on Patchwork as a regular dependency, not a
 dev dependency, so Patchwork's build hook is present in downstream dependency
@@ -144,8 +346,7 @@ dart run patchwork overlay add collection --reason "Fix parser crash used here."
 
 ```yaml
 overlays:
-  -
-    package: "collection"
+  - package: "collection"
     version: "1.19.1"
     sha256: "<source-tree-sha>"
     patch: "patches/collection@1.19.1.patch"
@@ -159,18 +360,17 @@ Commit these provider-owned files:
 
 When an application depends on the provider package, Patchwork's package hook
 scans dependency packages for `patchwork.yaml`, selects overlays matching the
-currently resolved package version and source `sha256`, and composes all
-matching patch contributions into one generated output at
+currently resolved package version and source `sha256`, and composes matching
+patch contributions into generated output at
 `.dart_tool/patchwork/<pkg>@<version>/`.
 
 If multiple dependency packages provide overlays for the same target package,
 Patchwork applies provider overlays in deterministic order by provider package
 name and patch path. If the root application also owns a committed patch for
-that same target, the root patch is applied last. Conflicting patches fail the
-build with a deterministic diagnostic; Patchwork reports the conflict instead
-of trying to merge it.
+that same target, the root patch is applied last. Duplicate patch content is
+deduplicated, and conflicting patches fail with deterministic diagnostics.
 
-To inspect overlay discovery without mutating generated package output:
+Inspect overlay discovery without mutating generated package output:
 
 ```sh
 dart run patchwork overlay inspect
@@ -178,7 +378,49 @@ dart run patchwork overlay inspect --json
 ```
 
 Inspection reports provider manifests, matched and skipped entries, root patch
-contribution, deduplication, compose order, and conflict sources.
+contributions, deduplication, compose order, and conflict sources.
+
+## Automation And JSON
+
+Use `--json` when a script, editor, or agent needs structured Patchwork state
+instead of human-readable text:
+
+```sh
+patchwork status --json
+patchwork doctor --explain --json
+```
+
+JSON mode prints one JSON object on stdout and keeps normal exit-code rules.
+Patchwork and usage failures use an `error` object with a clear `code`. Problem
+entries expose codes and hints so tools can decide the next action without
+parsing prose. In JSON mode, `doctor --explain --json` includes diagnostic
+`suggestedActions`.
+
+State JSON is derived from committed patch files, open edit-session metadata,
+generated applied markers, pub resolution, and `pubspec_overrides.yaml`. It does
+not imply a committed Patchwork state file.
+
+The JSON output mirrors Patchwork's current product model. It is not a fixed
+public schema, and fields may evolve as commands and state concepts change.
+
+Prefer the standalone `patchwork` executable for JSON automation. `dart run`
+may print Dart build-hook progress before the Patchwork process starts when a
+package in the dependency graph provides a hook.
+
+## Command Reference
+
+| Command                                                                          | Description                                                                     |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `patchwork patch <pkg> [--continue [version]] [--force] [--json]`                | Create a source-based edit.                                                     |
+| `patchwork commit [pkg] [--json]`                                                | Commit open edits into patch files.                                             |
+| `patchwork apply [pkg] [--no-pub-get] [--json]`                                  | Apply committed patches and refresh pub resolution.                             |
+| `patchwork undo <pkg> [--no-pub-get] [--json]`                                   | Remove one applied patch and refresh pub resolution.                            |
+| `patchwork remove <pkg> [version] [--dry-run] [--force] [--no-pub-get] [--json]` | Remove selected Patchwork artifacts safely.                                     |
+| `patchwork prune [--dry-run] [--force] [--no-pub-get] [--json]`                  | Remove stale patch files and unreferenced generated output.                     |
+| `patchwork status [--json]`                                                      | Show patch and override state.                                                  |
+| `patchwork doctor [--setup] [--explain] [--json]`                                | Check local readiness, setup recommendations, and optional remediation actions. |
+| `patchwork overlay add <pkg> [--reason <text>] [--json]`                         | Register a committed provider patch in `patchwork.yaml`.                        |
+| `patchwork overlay inspect [--json]`                                             | Inspect provider overlays and composition diagnostics.                          |
 
 ## Library API
 
@@ -205,117 +447,7 @@ Future<void> main() async {
 Use `PatchRef.version('1.19.0')` with `patch` when carrying an older patch onto
 a newer dependency source.
 
-## What To Commit
-
-Commit these files in projects that use Patchwork:
-
-- `patches/*.patch`
-
-Patch files are the committed source of truth for your dependency patches.
-
-## State Model
-
-Patchwork uses three project-local locations:
-
-- `.patchwork/<pkg>@<version>/` is the editable work-in-progress copy.
-- `patches/<pkg>@<version>.patch` is the committed reviewable patch file.
-- `.dart_tool/patchwork/<pkg>@<version>/` is generated by `patchwork apply` and
-  wired into pub through `pubspec_overrides.yaml`.
-
-Open edit directories contain hidden session metadata under
-`.patchwork/<pkg>@<version>/.patchwork/`. Patchwork uses that baseline snapshot
-to commit edits even if pub resolution changes while the edit is open.
-Generated output contains a hidden ownership marker so Patchwork can refresh or
-delete only output it created.
-
-Patchwork derives historical and stale patch inventory from safe
-`patches/<pkg>@<version>.patch` filenames. Older patch files remain visible to
-`status` and `doctor` until you carry them forward or remove them.
-
-## What Stays Generated
-
-Do not commit Patchwork's generated integration state:
-
-- `.patchwork/`
-- `.dart_tool/patchwork/`
-- `pubspec_overrides.yaml`
-
-`patchwork apply` never mutates the primary `pubspec.yaml`; it writes
-`pubspec_overrides.yaml` so pub resolves patched packages through generated path
-overrides. `pubspec_overrides.yaml` is shared with other tools and local
-workflow, so Patchwork only manages its own patch override entries.
-
-## Commands
-
-| Command | Description |
-| --- | --- |
-| `patchwork patch <pkg> [--continue [version]] [--force] [--json]` | Create a source-based edit. |
-| `patchwork commit [pkg] [--json]` | Commit open edits into patch files. |
-| `patchwork overlay add <pkg> [--reason <text>] [--json]` | Register a committed patch in `patchwork.yaml`. |
-| `patchwork overlay inspect [--json]` | Inspect provider overlays and composition diagnostics. |
-| `patchwork apply [pkg] [--no-pub-get] [--json]` | Apply committed patches and refresh pub resolution. |
-| `patchwork undo <pkg> [--no-pub-get] [--json]` | Remove one applied patch and refresh pub resolution. |
-| `patchwork remove <pkg> [version] [--dry-run] [--force] [--no-pub-get] [--json]` | Remove selected Patchwork artifacts safely. |
-| `patchwork prune [--dry-run] [--force] [--no-pub-get] [--json]` | Remove stale patch files and unreferenced generated output. |
-| `patchwork status [--json]` | Show patch and override state. |
-| `patchwork doctor [--setup] [--explain] [--json]` | Check local readiness, setup recommendations, and optional remediation actions. |
-
-Packages are plain pub package names selected by the current pub resolution.
-Patchwork rejects target syntax such as `pub:collection`, `collection@1.19.1`,
-`path:collection`, git URLs, filesystem paths, the current project package, and
-workspace member packages.
-
-Use `--json` when a script, editor, or agent needs structured Patchwork state
-instead of human-readable text:
-
-```sh
-patchwork status --json
-```
-
-JSON mode prints one JSON object on stdout and keeps the normal exit-code
-rules. It is diagnostic output that mirrors Patchwork's current product model,
-not a fixed public schema. Fields may evolve as commands and state concepts
-change.
-
-Patchwork and usage failures use an `error` object with a clear `code`. Problem
-entries also expose codes and hints so tools can decide the next action without
-parsing prose. Path fields use the same values the command would show in human
-output, such as `.patchwork/collection@1.19.1` and
-`patches/collection@1.19.1.patch`.
-
-Use `patchwork doctor --explain` when you want remediation guidance attached to
-each diagnostic. In JSON mode, `doctor --explain --json` includes diagnostic
-`suggestedActions`; those actions are current CLI guidance, not a fixed
-compatibility schema.
-
-Use `patchwork doctor --setup` to validate repository setup without mutating
-files. It checks that generated Patchwork state stays ignored, committed patch
-files remain visible to Git, hook setup is complete when `hook/build.dart`
-exists, and CI uses the high-level `patchwork apply` or `patchwork doctor`
-commands. A typical `.gitignore` should include:
-
-```gitignore
-.patchwork/
-.dart_tool/
-pubspec_overrides.yaml
-```
-
-Do not ignore `patches/` or `patches/*.patch`; those files are Patchwork's
-reviewable durable state.
-
-State JSON is derived from committed patch files, open edit-session metadata,
-generated applied markers, pub resolution, and `pubspec_overrides.yaml`. It
-does not imply a committed Patchwork state file.
-
-Prefer the standalone `patchwork` executable for JSON automation. `dart run`
-may print Dart build-hook progress before the Patchwork process starts when a
-package in the dependency graph provides a hook.
-
-Use `--no-pub-get` with commands that change generated overrides only when a
-script needs to separate Patchwork's filesystem changes from pub resolution
-refresh. Normal interactive usage should let Patchwork run `dart pub get`.
-
-## Migrating From Cache Patches
+## Migration And Limits
 
 If you currently use a cache patch tool or manual `.pub-cache` edits, restore a
 clean dependency copy before creating a Patchwork edit. Patchwork should diff
@@ -326,58 +458,9 @@ Patchwork does not import other patch formats yet. Recreate the dependency edit
 with `patchwork patch <package>`, then commit it with
 `patchwork commit <package>`.
 
-## Carrying Patches Across Upgrades
-
-When an upstream release may contain your fix, undo the generated override
-before upgrading so pub resolves the real dependency source:
-
-```sh
-dart run patchwork undo collection
-dart pub upgrade collection
-dart pub get
-```
-
-If the upstream release contains the fix, create a fresh edit from that source
-and commit it unchanged. The older patch file remains in `patches/` until you
-remove it intentionally:
-
-```sh
-dart run patchwork patch collection
-dart run patchwork commit collection
-dart run patchwork remove collection 1.19.0
-```
-
-If the upstream release does not contain the fix, explicitly continue from the
-older patch file:
-
-```sh
-dart run patchwork patch collection --continue 1.19.0
-dart run patchwork commit collection
-dart run patchwork apply collection
-```
-
-Use `patchwork prune --dry-run` to inspect stale patch files and unreferenced
-generated output before cleanup. `prune` only removes generated output when a
-valid Patchwork marker proves ownership and no active override points at it.
-
-## CI Check
-
-Run Patchwork in CI after dependencies are installed:
-
-```sh
-dart run patchwork apply
-dart run patchwork status
-dart test
-```
-
-Run `dart run patchwork doctor --setup` when you want CI to verify repository
-configuration. Use plain `patchwork apply` in CI so Patchwork refreshes
-`pubspec_overrides.yaml` and pub resolution together. Reserve `--no-pub-get` for
-low-level scripts that run `dart pub get` themselves.
-
-Use `patchwork doctor` when CI should fail on missing, stale, or unapplied
-patch state. Use `patchwork doctor --explain` when CI logs should include the
-next repair action for each diagnostic.
+Patchwork is intentionally optimized for small, reviewable dependency fixes.
+Use a fork, vendored dependency, or upstream contribution for broad feature
+work, long-lived divergence, or changes that need their own release process.
 
 ## Example
 

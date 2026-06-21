@@ -284,6 +284,35 @@ void main() {
   );
 
   test(
+    'partial carry fails when git cannot produce reject repair material',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from a broken stale patch');
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      project.writeResolution(greeterVersion: '0.1.1');
+      File(
+        p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
+      ).writeAsStringSync('tampered\n');
+
+      final result = await project.applicationResult(
+        ['carry', 'greeter', '--partial'],
+        exitCodes: {1},
+      );
+      expect(result.stderr, contains('Could not apply patch'));
+      expect(result.stderr, contains('No valid patches in input'));
+      expect(project.editDirectoryFor('0.1.1').existsSync(), isFalse);
+      expect(project.appliedDirectoryFor('0.1.1').existsSync(), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'partially carries applicable hunks into a repairable edit',
     () async {
       final project = await ProjectSandbox.standalone();

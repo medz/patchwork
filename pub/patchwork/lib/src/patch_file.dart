@@ -219,13 +219,21 @@ final class PatchFile {
         existingRejectBackups: existingRejectBackups,
         rejectPaths: _gitRejectRelativePaths(gitOutput),
       );
+      final normalizedOutput = _normalizedGitOutput(
+        gitOutput,
+        workingDirectory: packagePath,
+        patchPath: patchFile.path,
+      );
+      if (result.exitCode != 0 && rejectPaths.isEmpty) {
+        throw PatchworkException(
+          'Could not apply patch to the package copy.',
+          code: 'patch.apply_failed',
+          hint: normalizedOutput,
+        );
+      }
       return PartialPatchApply(
         exitCode: result.exitCode,
-        output: _normalizedGitOutput(
-          gitOutput,
-          workingDirectory: packagePath,
-          patchPath: patchFile.path,
-        ),
+        output: normalizedOutput,
         rejectPaths: rejectPaths,
       );
     } finally {

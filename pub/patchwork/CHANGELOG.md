@@ -9,6 +9,8 @@
   `--no-pub-get` for scripts that need the lower-level filesystem step.
 - Added `patchwork remove` and `patchwork prune` for safe cleanup of stale patch
   files, open edit directories, and Patchwork-owned generated state.
+- Reorganized README guidance around task-oriented workflows, generated state,
+  CI, hooks, and provider overlays.
 
 ## 0.4.0 - 2026-06-20
 

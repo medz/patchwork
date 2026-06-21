@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.0 - 2026-06-21
+
 - Added `patchwork carry <pkg> [--from version]` to carry stale patch files into
   current-version edit sessions for dependency upgrades.
 - Removed `patchwork.lock` from root patch workflows. Patch files are now the
@@ -11,6 +13,14 @@
   `--no-pub-get` for scripts that need the lower-level filesystem step.
 - Added `patchwork remove` and `patchwork prune` for safe cleanup of stale patch
   files, open edit directories, and Patchwork-owned generated state.
+- Added doctor setup checks and explain-mode remediation details for project
+  setup, generated state, and next-step guidance.
+- Added overlay inspection for provider manifests, matched contributions,
+  deduplication, and conflict diagnostics.
+- Reduced build hook no-op noise when overlay manifests are absent.
+- Split Patchwork internals around edit preparation, patch commits, applied
+  output materialization/activation, dependency override state, status
+  inspection, and overlay publishing.
 - Reorganized README guidance around task-oriented workflows, generated state,
   CI, hooks, and provider overlays.
 

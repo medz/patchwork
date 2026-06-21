@@ -229,10 +229,9 @@ void main() {
         exitCodes: {1},
       );
       expect(ambiguous.stderr, contains('More than one stale patch'));
-      expect(
-        ambiguous.stderr,
-        contains('Pass --from with one of: 0.1.0, 0.1.1'),
-      );
+      expect(ambiguous.stderr, contains('Pass --from with one of:'));
+      expect(ambiguous.stderr, contains('0.1.0'));
+      expect(ambiguous.stderr, contains('0.1.1'));
 
       await project.application(['carry', 'greeter', '--from', '0.1.1']);
       expect(

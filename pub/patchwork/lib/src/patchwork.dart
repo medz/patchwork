@@ -1015,11 +1015,12 @@ final class Patchwork {
       );
     }
     if (stalePatches.length > 1) {
-      final versions = stalePatches.map((patch) => patch.version).join(', ');
+      final versions = stalePatches.map((patch) => patch.version).toList()
+        ..sort();
       throw PatchworkException(
         'More than one stale patch exists for "$package".',
         code: 'carry.ambiguous_patch',
-        hint: 'Pass --from with one of: $versions.',
+        hint: 'Pass --from with one of: ${versions.join(', ')}.',
       );
     }
     return stalePatches.single.version;

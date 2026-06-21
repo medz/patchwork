@@ -8,6 +8,7 @@ import 'package:yaml/yaml.dart';
 import 'applied_marker.dart';
 import 'edit_session.dart';
 import 'error.dart';
+import 'internal/artifact_inventory.dart';
 import 'internal/package_tree.dart';
 import 'internal/overlay_inspector.dart';
 import 'internal/path_layout.dart';
@@ -333,6 +334,7 @@ final class Patchwork {
 
     final resolution = _readResolution();
     final resolved = resolution.resolvePackage(package);
+    final inventory = PatchworkArtifactInventory.read(_layout);
     if (_isPackageApplied(package, resolved)) {
       throw PatchworkException(
         'Package "$package" already has an applied Patchwork patch.',
@@ -345,6 +347,7 @@ final class Patchwork {
       package: package,
       currentVersion: resolved.version,
       fromVersion: fromVersion,
+      inventory: inventory,
     );
     return _prepareEdit(
       package,
@@ -512,10 +515,7 @@ final class Patchwork {
   }
 
   List<String> _openEditPackages() {
-    final packages =
-        _layout.editDirectories().map((edit) => edit.package).toSet().toList()
-          ..sort();
-    return packages;
+    return PatchworkArtifactInventory.read(_layout).openEditPackages;
   }
 
   /// Applies every committed patch that needs generated output.
@@ -532,13 +532,12 @@ final class Patchwork {
   }
 
   Future<List<String>> _packagesNeedingApply() async {
-    final patches = _layout.patchFiles();
+    final inventory = PatchworkArtifactInventory.read(_layout);
+    final patches = inventory.patchFiles;
     if (patches.isEmpty) {
       return const [];
     }
 
-    final edits = _layout.editDirectories();
-    final openEditPackages = {for (final edit in edits) edit.package};
     final resolution = _readResolution();
     final packages = <String>[];
     for (final patch in patches) {
@@ -559,13 +558,13 @@ final class Patchwork {
         continue;
       }
 
-      if (openEditPackages.contains(package)) {
-        final edit = edits.firstWhere((edit) => edit.package == package);
+      final openEdits = inventory.editsFor(package);
+      if (openEdits.isNotEmpty) {
         throw PatchworkException(
           'Package "$package" has an open edit directory.',
           code: 'apply.open_edit',
           hint: 'Run patchwork commit $package before applying.',
-          location: edit.path,
+          location: openEdits.first.path,
         );
       }
 
@@ -627,10 +626,8 @@ final class Patchwork {
   /// run `dart pub get` afterwards so pub resolves the generated package.
   Future<AppliedPatch> apply(String package) async {
     _checkPlainPackageName(package);
-    final openEdits = _layout
-        .editDirectories()
-        .where((edit) => edit.package == package)
-        .toList();
+    final inventory = PatchworkArtifactInventory.read(_layout);
+    final openEdits = inventory.editsFor(package);
     if (openEdits.isNotEmpty) {
       throw PatchworkException(
         'Package "$package" has an open edit directory.',
@@ -789,7 +786,8 @@ final class Patchwork {
     bool force = false,
   }) async {
     _checkPlainPackageName(package);
-    final selectedVersion = _removeVersion(package, version);
+    final inventory = PatchworkArtifactInventory.read(_layout);
+    final selectedVersion = _removeVersion(package, version, inventory);
     final changes = <CleanupChange>[];
     final appliedMarkers = <AppliedMarker>[];
 
@@ -805,7 +803,7 @@ final class Patchwork {
       );
     }
 
-    final edit = _editDirectory(package, selectedVersion);
+    final edit = inventory.edit(package, selectedVersion);
     if (edit != null) {
       if (!force) {
         throw PatchworkException(
@@ -875,16 +873,15 @@ final class Patchwork {
   Future<CleanupResult> prune({bool dryRun = false, bool force = false}) async {
     final changes = <CleanupChange>[];
     final appliedMarkers = <AppliedMarker>[];
-    final edits = _layout.editDirectories();
-    final appliedDirectories = _layout.appliedDirectories();
+    final inventory = PatchworkArtifactInventory.read(_layout);
     final seen = <String>{};
     final resolution = _readResolution();
 
-    for (final patch in _layout.patchFiles()) {
+    for (final patch in inventory.patchFiles) {
       if (_patchMatchesResolution(patch, resolution)) {
         continue;
       }
-      final edit = _findPackageVersionPath(edits, patch.package, patch.version);
+      final edit = inventory.edit(patch.package, patch.version);
       if (edit != null && !force) {
         throw PatchworkException(
           'Package "${patch.package}@${patch.version}" has an open edit directory.',
@@ -941,7 +938,7 @@ final class Patchwork {
       }
     }
 
-    for (final appliedDirectory in appliedDirectories) {
+    for (final appliedDirectory in inventory.appliedDirectories) {
       final marker = _tryReadAppliedMarker(appliedDirectory);
       if (marker == null) {
         continue;
@@ -992,14 +989,8 @@ final class Patchwork {
   /// reported as [PatchProblem] entries when possible so `status` and `doctor`
   /// can still explain existing Patchwork state.
   Future<PatchworkState> inspect() async {
-    final edits = _layout.editDirectories();
-    final patchFiles = _layout.patchFiles();
-    final appliedDirectories = _layout.appliedDirectories();
-    final packages = <String>{
-      ...edits.map((edit) => edit.package),
-      ...patchFiles.map((patch) => patch.package),
-      ...appliedDirectories.map((applied) => applied.package),
-    };
+    final inventory = PatchworkArtifactInventory.read(_layout);
+    final packages = inventory.packages;
     if (packages.isEmpty) {
       return const PatchworkState(packages: []);
     }
@@ -1013,22 +1004,13 @@ final class Patchwork {
       resolutionError = error;
     }
 
-    for (final package in packages.toList()..sort()) {
-      final edit = edits
-          .where((candidate) => candidate.package == package)
-          .toList();
-      final patches = patchFiles
-          .where((candidate) => candidate.package == package)
-          .toList();
-      final applied = appliedDirectories
-          .where((candidate) => candidate.package == package)
-          .toList();
+    for (final package in packages) {
       statuses.add(
         _inspectPackage(
           package: package,
-          edit: edit,
-          patchFiles: patches,
-          appliedDirectories: applied,
+          edit: inventory.editsFor(package),
+          patchFiles: inventory.patchesFor(package),
+          appliedDirectories: inventory.appliedFor(package),
           resolution: resolution,
           resolutionError: resolutionError,
         ),
@@ -1041,6 +1023,7 @@ final class Patchwork {
     required String package,
     required String currentVersion,
     required String? fromVersion,
+    required PatchworkArtifactInventory inventory,
   }) {
     if (fromVersion != null) {
       final patchPath = _layout.patchPath(package, fromVersion);
@@ -1064,12 +1047,9 @@ final class Patchwork {
       return fromVersion;
     }
 
-    final stalePatches = _layout
-        .patchFiles()
-        .where(
-          (patch) =>
-              patch.package == package && patch.version != currentVersion,
-        )
+    final stalePatches = inventory
+        .patchesFor(package)
+        .where((patch) => patch.version != currentVersion)
         .toList();
     if (stalePatches.isEmpty) {
       final currentPatchPath = _layout.patchPath(package, currentVersion);
@@ -1094,20 +1074,17 @@ final class Patchwork {
     return stalePatches.single.version;
   }
 
-  String _removeVersion(String package, String? version) {
+  String _removeVersion(
+    String package,
+    String? version,
+    PatchworkArtifactInventory inventory,
+  ) {
     if (version != null) {
       _checkSafeRemoveVersionSegment(version);
       return version;
     }
 
-    final versions = <String>{
-      for (final patch in _layout.patchFiles())
-        if (patch.package == package) patch.version,
-      for (final edit in _layout.editDirectories())
-        if (edit.package == package) edit.version,
-      for (final applied in _layout.appliedDirectories())
-        if (applied.package == package) applied.version,
-    };
+    final versions = inventory.versionsFor(package);
     if (versions.isEmpty) {
       throw PatchworkException(
         'No Patchwork artifacts exist for "$package".',
@@ -1139,23 +1116,6 @@ final class Patchwork {
       hint:
           'Pass the version to remove, for example patchwork remove $package ${sortedVersions.first}.',
     );
-  }
-
-  PackageVersionPath? _editDirectory(String package, String version) {
-    return _findPackageVersionPath(_layout.editDirectories(), package, version);
-  }
-
-  PackageVersionPath? _findPackageVersionPath(
-    List<PackageVersionPath> paths,
-    String package,
-    String version,
-  ) {
-    for (final path in paths) {
-      if (path.package == package && path.version == version) {
-        return path;
-      }
-    }
-    return null;
   }
 
   bool _patchMatchesResolution(
@@ -1547,10 +1507,8 @@ final class Patchwork {
   }
 
   PackageVersionPath _singleEditDirectory(String package) {
-    final edits = _layout
-        .editDirectories()
-        .where((edit) => edit.package == package)
-        .toList();
+    final inventory = PatchworkArtifactInventory.read(_layout);
+    final edits = inventory.editsFor(package);
     if (edits.isEmpty) {
       throw PatchworkException(
         'No edit directory exists for "$package".',

@@ -193,6 +193,7 @@ final class PatchFile {
     }
 
     final existingRejectBackups = _rejectFileBackups(packagePath);
+    final patchTouchedPaths = _patchTouchedRelativePaths(patchContent);
     final patchFile = File(
       p.join(
         Directory.systemTemp.path,
@@ -226,16 +227,18 @@ final class PatchFile {
           hint: normalizedOutput,
         );
       }
-      final rejectPaths = _moveReportedRejectFiles(
+      final rejectPaths = _gitRejectRelativePaths(gitOutput);
+      final movedRejectPaths = _moveReportedRejectFiles(
         packagePath: packagePath,
         existingRejectBackups: existingRejectBackups,
-        rejectPaths: _gitRejectRelativePaths(gitOutput),
+        rejectPaths: rejectPaths,
+        patchTouchedPaths: patchTouchedPaths,
         failureHint: normalizedOutput,
       );
       return PartialPatchApply(
         exitCode: result.exitCode,
         output: normalizedOutput,
-        rejectPaths: rejectPaths,
+        rejectPaths: movedRejectPaths,
       );
     } finally {
       if (patchFile.existsSync()) {
@@ -467,6 +470,36 @@ Set<String> _gitRejectRelativePaths(String output) {
   return paths;
 }
 
+Set<String> _patchTouchedRelativePaths(String patchContent) {
+  final paths = <String>{};
+  final normalized = patchContent.replaceAll('\r\n', '\n');
+  for (final line in normalized.split('\n')) {
+    if (line.startsWith('--- ')) {
+      final path = _patchHeaderRelativePath(line.substring(4));
+      if (path != null) {
+        paths.add(path);
+      }
+    } else if (line.startsWith('+++ ')) {
+      final path = _patchHeaderRelativePath(line.substring(4));
+      if (path != null) {
+        paths.add(path);
+      }
+    }
+  }
+  return paths;
+}
+
+String? _patchHeaderRelativePath(String rawPath) {
+  final decodedPath = _decodeGitPath(rawPath.trimRight());
+  if (decodedPath == '/dev/null') {
+    return null;
+  }
+  if (decodedPath.startsWith('a/') || decodedPath.startsWith('b/')) {
+    return decodedPath.substring(2).replaceAll('\\', '/');
+  }
+  return null;
+}
+
 String _decodeGitPath(String path) {
   if (path.length < 2 || !path.startsWith('"') || !path.endsWith('"')) {
     return path;
@@ -523,11 +556,19 @@ List<String> _moveReportedRejectFiles({
   required String packagePath,
   required Map<String, _RejectEntryBackup> existingRejectBackups,
   required Set<String> rejectPaths,
+  required Set<String> patchTouchedPaths,
   required String failureHint,
 }) {
   _validateReportedRejectFiles(
     packagePath: packagePath,
     rejectPaths: rejectPaths,
+    failureHint: failureHint,
+  );
+  _validateNoRejectPathCollisions(
+    packagePath: packagePath,
+    existingRejectBackups: existingRejectBackups,
+    rejectPaths: rejectPaths,
+    patchTouchedPaths: patchTouchedPaths,
     failureHint: failureHint,
   );
 
@@ -554,6 +595,39 @@ List<String> _moveReportedRejectFiles({
   }
   movedPaths.sort();
   return movedPaths;
+}
+
+void _validateNoRejectPathCollisions({
+  required String packagePath,
+  required Map<String, _RejectEntryBackup> existingRejectBackups,
+  required Set<String> rejectPaths,
+  required Set<String> patchTouchedPaths,
+  required String failureHint,
+}) {
+  final collisions = rejectPaths.where(patchTouchedPaths.contains).toList()
+    ..sort();
+  if (collisions.isEmpty) {
+    return;
+  }
+
+  for (final relativePath in collisions) {
+    final path = p.joinAll([packagePath, ...relativePath.split('/')]);
+    final backup = existingRejectBackups[relativePath];
+    if (backup == null) {
+      _deleteExistingPath(path);
+    } else {
+      backup.restore(path);
+    }
+  }
+
+  final relativePath = collisions.first;
+  throw PatchworkException(
+    'Could not safely create partial repair because a rejected hunk '
+    'collides with a patched .rej file.',
+    code: 'patch.reject_collision',
+    hint: failureHint,
+    location: p.joinAll([packagePath, ...relativePath.split('/')]),
+  );
 }
 
 void _validateReportedRejectFiles({

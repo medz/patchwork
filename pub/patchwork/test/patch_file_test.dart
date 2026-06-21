@@ -55,4 +55,51 @@ void main() {
       ),
     );
   });
+
+  test('partial apply fails when reject output collides with a patch file', () {
+    final root = Directory.systemTemp.createTempSync('patchwork_patch_file_');
+    addTearDown(() => root.deleteSync(recursive: true));
+
+    final existingRejectFile = File(p.join(root.path, 'lib', 'foo.dart.rej'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('original source file\n');
+    final patchFile = PatchFile(
+      gitRunner: (arguments, {workingDirectory, environment}) {
+        File(
+          p.join(workingDirectory!, 'lib', 'foo.dart.rej'),
+        ).writeAsStringSync('ambiguous reject output\n');
+        return ProcessResult(
+          1,
+          1,
+          '',
+          'Applying patch lib/foo.dart with 1 reject...\n',
+        );
+      },
+    );
+
+    expect(
+      () => patchFile.applyPartial(
+        packagePath: root.path,
+        patchContent: '''
+diff --git a/lib/foo.dart.rej b/lib/foo.dart.rej
+--- a/lib/foo.dart.rej
++++ b/lib/foo.dart.rej
+@@ -1 +1 @@
+-original source file
++patched source file
+''',
+      ),
+      throwsA(
+        isA<PatchworkException>()
+            .having((error) => error.code, 'code', 'patch.reject_collision')
+            .having(
+              (error) => error.location,
+              'location',
+              p.join(root.path, 'lib', 'foo.dart.rej'),
+            ),
+      ),
+    );
+    expect(existingRejectFile.readAsStringSync(), 'original source file\n');
+    expect(Directory(p.join(root.path, '.patchwork')).existsSync(), isFalse);
+  });
 }

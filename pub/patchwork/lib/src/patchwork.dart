@@ -160,6 +160,7 @@ final class Patchwork {
       fromPatch: fromPatch,
       replaceExisting: replaceExisting,
       preserveFailedPatchApply: false,
+      partialPatchApply: false,
     );
   }
 
@@ -168,6 +169,7 @@ final class Patchwork {
     required PatchRef? fromPatch,
     required bool replaceExisting,
     required bool preserveFailedPatchApply,
+    required bool partialPatchApply,
   }) async {
     _checkPlainPackageName(package);
     final resolution = _readResolution();
@@ -231,6 +233,8 @@ final class Patchwork {
     );
     _packageTree.deleteDirectory(tempEditPath);
     var preservedFailedEdit = false;
+    var wrotePartialRepairLog = false;
+    var partialRejectPaths = const <String>[];
     try {
       _packageTree.copy(resolved.rootPath, tempEditPath);
       _packageTree.copy(
@@ -244,30 +248,48 @@ final class Patchwork {
         editPath: tempEditPath,
       );
       if (continuedFromPatchContent != null) {
-        try {
-          _patchFile.apply(
+        if (partialPatchApply) {
+          final partialApply = _patchFile.applyPartial(
             packagePath: tempEditPath,
             patchContent: continuedFromPatchContent,
           );
-        } on PatchworkException catch (error) {
-          if (!preserveFailedPatchApply) {
-            rethrow;
-          }
-          if (editExists) {
-            _packageTree.deleteDirectory(editPath);
-          }
-          Directory(tempEditPath).renameSync(editPath);
-          preservedFailedEdit = true;
-          throw PatchworkException(
-            error.message,
-            code: error.code,
-            hint: _failedCarryHint(
+          if (!partialApply.appliedCleanly) {
+            wrotePartialRepairLog = true;
+            partialRejectPaths = partialApply.rejectPaths;
+            _writePartialRepairLog(
+              editPath: tempEditPath,
               package: package,
-              editPath: editPath,
-              originalHint: error.hint,
-            ),
-            location: editPath,
-          );
+              version: resolved.version,
+              patchPath: continuedFromPatchPath!,
+              partialApply: partialApply,
+            );
+          }
+        } else {
+          try {
+            _patchFile.apply(
+              packagePath: tempEditPath,
+              patchContent: continuedFromPatchContent,
+            );
+          } on PatchworkException catch (error) {
+            if (!preserveFailedPatchApply) {
+              rethrow;
+            }
+            if (editExists) {
+              _packageTree.deleteDirectory(editPath);
+            }
+            Directory(tempEditPath).renameSync(editPath);
+            preservedFailedEdit = true;
+            throw PatchworkException(
+              error.message,
+              code: error.code,
+              hint: _failedCarryHint(
+                package: package,
+                editPath: editPath,
+                originalHint: error.hint,
+              ),
+              location: editPath,
+            );
+          }
         }
       }
       if (editExists) {
@@ -287,6 +309,10 @@ final class Patchwork {
       path: editPath,
       sourcePath: resolved.rootPath,
       continuedFromPatchPath: continuedFromPatchPath,
+      partialRepairLogPath: wrotePartialRepairLog
+          ? p.join(editPath, '.patchwork', 'partial-repair.log')
+          : null,
+      partialRejectPaths: partialRejectPaths,
     );
   }
 
@@ -295,7 +321,11 @@ final class Patchwork {
   /// When [fromVersion] is omitted, exactly one stale patch file must exist for
   /// [package]. The result is an ordinary edit directory for the current resolved
   /// package version; callers should review it and then run [commit].
-  Future<PreparedEdit> carry(String package, {String? fromVersion}) async {
+  Future<PreparedEdit> carry(
+    String package, {
+    String? fromVersion,
+    bool partial = false,
+  }) async {
     _checkPlainPackageName(package);
     if (fromVersion != null) {
       _checkSafePatchVersionSegment(fromVersion);
@@ -321,6 +351,7 @@ final class Patchwork {
       fromPatch: PatchRef.version(selectedVersion),
       replaceExisting: false,
       preserveFailedPatchApply: true,
+      partialPatchApply: partial,
     );
   }
 
@@ -336,6 +367,43 @@ final class Patchwork {
       return repairHint;
     }
     return '$originalHint\n$repairHint';
+  }
+
+  void _writePartialRepairLog({
+    required String editPath,
+    required String package,
+    required String version,
+    required String patchPath,
+    required PartialPatchApply partialApply,
+  }) {
+    final metadataPath = p.join(editPath, '.patchwork');
+    Directory(metadataPath).createSync(recursive: true);
+    final log = StringBuffer()
+      ..writeln('Patchwork partial repair')
+      ..writeln('package: $package')
+      ..writeln('version: $version')
+      ..writeln('patch: ${relativePath(patchPath)}')
+      ..writeln('gitExitCode: ${partialApply.exitCode}');
+
+    if (partialApply.rejectPaths.isEmpty) {
+      log.writeln('rejects: none');
+    } else {
+      log.writeln('rejects:');
+      for (final rejectPath in partialApply.rejectPaths) {
+        log.writeln('- $rejectPath');
+      }
+    }
+
+    if (partialApply.output.isNotEmpty) {
+      log
+        ..writeln()
+        ..writeln('git apply --reject output:')
+        ..writeln(partialApply.output);
+    }
+
+    File(
+      p.join(metadataPath, 'partial-repair.log'),
+    ).writeAsStringSync(log.toString(), flush: true);
   }
 
   bool _canReplaceEditDirectory({

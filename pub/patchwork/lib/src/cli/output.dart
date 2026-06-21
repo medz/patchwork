@@ -160,6 +160,12 @@ void printEditJson(
       'continuedFromPatchPath': edit.continuedFromPatchPath == null
           ? null
           : patchwork.relativePath(edit.continuedFromPatchPath!),
+      if (edit.partialRepairLogPath != null)
+        'partialRepairLogPath': patchwork.relativePath(
+          edit.partialRepairLogPath!,
+        ),
+      if (edit.partialRejectPaths.isNotEmpty)
+        'partialRejectPaths': edit.partialRejectPaths,
     },
   });
 }

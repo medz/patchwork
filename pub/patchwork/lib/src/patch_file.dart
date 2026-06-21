@@ -172,6 +172,63 @@ final class PatchFile {
     }
   }
 
+  /// Applies as much of [patchContent] as Git can apply to [packagePath].
+  ///
+  /// Unlike [apply], this method keeps Git's `--reject` output as repair
+  /// material instead of treating rejected hunks as an exception. Newly written
+  /// `.rej` files are moved under `.patchwork/rejects/` so they stay out of
+  /// future committed patch diffs.
+  PartialPatchApply applyPartial({
+    required String packagePath,
+    required String patchContent,
+  }) {
+    final packageRoot = Directory(packagePath);
+    if (!packageRoot.existsSync()) {
+      throw PatchworkException(
+        'Could not apply patch to a missing package copy.',
+        code: 'patch.apply_missing_package',
+        location: packagePath,
+      );
+    }
+
+    final existingRejects = _rejectRelativePaths(packagePath).toSet();
+    final patchFile = File(
+      p.join(
+        Directory.systemTemp.path,
+        'patchwork_partial_apply_$pid'
+        '_${DateTime.now().microsecondsSinceEpoch}.patch',
+      ),
+    );
+
+    try {
+      patchFile.writeAsStringSync(patchContent, flush: true);
+      final result = _runGitAllowingRejects([
+        'apply',
+        '--reject',
+        '--binary',
+        '--whitespace=nowarn',
+        patchFile.path,
+      ], workingDirectory: packagePath);
+      final rejectPaths = _moveNewRejectFiles(
+        packagePath: packagePath,
+        existingRejects: existingRejects,
+      );
+      return PartialPatchApply(
+        exitCode: result.exitCode,
+        output: _normalizedGitOutput(
+          result,
+          workingDirectory: packagePath,
+          patchPath: patchFile.path,
+        ),
+        rejectPaths: rejectPaths,
+      );
+    } finally {
+      if (patchFile.existsSync()) {
+        patchFile.deleteSync();
+      }
+    }
+  }
+
   ProcessResult _runGit(
     List<String> arguments, {
     required String workingDirectory,
@@ -213,10 +270,123 @@ final class PatchFile {
     }
     return result;
   }
+
+  ProcessResult _runGitAllowingRejects(
+    List<String> arguments, {
+    required String workingDirectory,
+  }) {
+    try {
+      return _gitRunner(
+        arguments,
+        workingDirectory: workingDirectory,
+        environment: {
+          'GIT_CEILING_DIRECTORIES': p.dirname(
+            p.normalize(p.absolute(workingDirectory)),
+          ),
+        },
+      );
+    } on ProcessException catch (error) {
+      throw PatchworkException(
+        'Git is required for patch operations.',
+        code: 'patch.git_missing',
+        hint: error.message,
+      );
+    }
+  }
+}
+
+/// Result from a best-effort partial patch application.
+final class PartialPatchApply {
+  /// Creates a partial apply result.
+  const PartialPatchApply({
+    required this.exitCode,
+    required this.output,
+    required this.rejectPaths,
+  });
+
+  /// Exit code returned by `git apply --reject`.
+  final int exitCode;
+
+  /// Combined Git output with process-local paths removed.
+  final String output;
+
+  /// Reject files moved under `.patchwork/rejects/`, relative to the edit root.
+  final List<String> rejectPaths;
+
+  /// Whether Git applied the patch without rejected or failed hunks.
+  bool get appliedCleanly => exitCode == 0 && rejectPaths.isEmpty;
 }
 
 String _gitArgumentPath(String path) {
   return p.absolute(path).replaceAll('\\', '/');
+}
+
+String _normalizedGitOutput(
+  ProcessResult result, {
+  required String workingDirectory,
+  required String patchPath,
+}) {
+  return '${result.stderr}${result.stdout}'
+      .replaceAll('\r\n', '\n')
+      .replaceAll(_gitArgumentPath(patchPath), '<patch>')
+      .replaceAll(patchPath, '<patch>')
+      .replaceAll(_gitArgumentPath(workingDirectory), '.')
+      .replaceAll(workingDirectory, '.')
+      .trim();
+}
+
+List<String> _rejectRelativePaths(String packagePath) {
+  final root = Directory(packagePath);
+  if (!root.existsSync()) {
+    return const [];
+  }
+  final paths = <String>[];
+  void collect(Directory directory) {
+    for (final entity in directory.listSync(followLinks: false)) {
+      final relativePath = p.split(p.relative(entity.path, from: packagePath));
+      if (relativePath.isNotEmpty && relativePath.first == '.patchwork') {
+        continue;
+      }
+      final type = FileSystemEntity.typeSync(entity.path, followLinks: false);
+      if (type == FileSystemEntityType.directory) {
+        collect(Directory(entity.path));
+      } else if (type == FileSystemEntityType.file &&
+          entity.path.endsWith('.rej')) {
+        paths.add(relativePath.join('/'));
+      }
+    }
+  }
+
+  collect(root);
+  paths.sort();
+  return paths;
+}
+
+List<String> _moveNewRejectFiles({
+  required String packagePath,
+  required Set<String> existingRejects,
+}) {
+  final movedPaths = <String>[];
+  for (final relativePath in _rejectRelativePaths(packagePath)) {
+    if (existingRejects.contains(relativePath)) {
+      continue;
+    }
+    final source = File(p.joinAll([packagePath, ...relativePath.split('/')]));
+    final movedRelativePath = p
+        .joinAll(['.patchwork', 'rejects', ...relativePath.split('/')])
+        .replaceAll('\\', '/');
+    final destination = File(
+      p.joinAll([packagePath, ...movedRelativePath.split('/')]),
+    );
+    destination.parent.createSync(recursive: true);
+    if (destination.existsSync()) {
+      destination.deleteSync();
+    }
+    source.renameSync(destination.path);
+    movedPaths.add(movedRelativePath);
+  }
+  movedPaths.sort();
+  return movedPaths;
 }
 
 String _gitDiffPathPrefix(String path) {

@@ -284,6 +284,133 @@ void main() {
   );
 
   test(
+    'partially carries applicable hunks into a repairable edit',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      File(
+        p.join(project.greeterRoot, 'lib', 'extra.dart'),
+      ).writeAsStringSync("const extra = 'old';\n");
+      project.writeResolution();
+      final stalePatch = File(
+        p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
+      );
+      stalePatch.parent.createSync(recursive: true);
+      stalePatch.writeAsStringSync(r'''
+diff --git a/lib/extra.dart b/lib/extra.dart
+--- a/lib/extra.dart
++++ b/lib/extra.dart
+@@ -1 +1 @@
+-const extra = 'old';
++const extra = 'carried';
+diff --git a/lib/greeter.dart b/lib/greeter.dart
+--- a/lib/greeter.dart
++++ b/lib/greeter.dart
+@@ -1,3 +1,3 @@
+ String greeting(String name) {
+-  return 'Hello, $name!';
++  return 'Hello from partial stale patch, $name!';
+ }
+''');
+
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello from upstream, \$name!',
+      );
+      project.writeResolution(greeterVersion: '0.1.1');
+
+      final result = await project.applicationResult([
+        'carry',
+        'greeter',
+        '--partial',
+      ]);
+      expect(result.stdout, contains('Created partial carry edit'));
+      expect(
+        result.stdout,
+        contains(
+          'Wrote conflict log .patchwork/greeter@0.1.1/.patchwork/partial-repair.log.',
+        ),
+      );
+      expect(
+        result.stdout,
+        contains('Moved rejects under .patchwork/rejects/.'),
+      );
+      expect(
+        project.editFileFor('0.1.1').readAsStringSync(),
+        contains('Hello from upstream, \$name!'),
+      );
+      expect(
+        File(
+          p.join(project.editDirectoryFor('0.1.1').path, 'lib', 'extra.dart'),
+        ).readAsStringSync(),
+        contains("const extra = 'carried';"),
+      );
+
+      final repairLog = File(
+        p.join(
+          project.editDirectoryFor('0.1.1').path,
+          '.patchwork',
+          'partial-repair.log',
+        ),
+      );
+      expect(repairLog.existsSync(), isTrue);
+      final logContent = repairLog.readAsStringSync();
+      expect(logContent, contains('patch: patches/greeter@0.1.0.patch'));
+      expect(logContent, contains('gitExitCode: 1'));
+      expect(logContent, contains('- .patchwork/rejects/lib/greeter.dart.rej'));
+      expect(logContent, isNot(contains(project.root.path)));
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            '.patchwork',
+            'rejects',
+            'lib',
+            'greeter.dart.rej',
+          ),
+        ).existsSync(),
+        isTrue,
+      );
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            'lib',
+            'greeter.dart.rej',
+          ),
+        ).existsSync(),
+        isFalse,
+      );
+      expect(
+        File(
+          p.join(project.stateRoot, 'patches', 'greeter@0.1.1.patch'),
+        ).existsSync(),
+        isFalse,
+      );
+      expect(project.appliedDirectoryFor('0.1.1').existsSync(), isFalse);
+
+      project.editFileFor('0.1.1').writeAsStringSync('''
+String greeting(String name) {
+  return 'Hello from partial stale patch, \$name!';
+}
+''');
+      await project.application([
+        'commit',
+        'greeter',
+      ], stdoutContains: 'Wrote patches/greeter@0.1.1.patch.');
+      final committedPatch = File(
+        p.join(project.stateRoot, 'patches', 'greeter@0.1.1.patch'),
+      ).readAsStringSync();
+      expect(committedPatch, contains('lib/extra.dart'));
+      expect(committedPatch, contains('Hello from partial stale patch'));
+      expect(committedPatch, isNot(contains('partial-repair.log')));
+      expect(committedPatch, isNot(contains('.rej')));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'can continue a same-version patch after the dependency source changes',
     () async {
       final project = await ProjectSandbox.standalone();

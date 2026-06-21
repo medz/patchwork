@@ -10,5 +10,10 @@ environment:
 workspace:
   - pub/*
 
+dependencies:
+  hooks: ^2.0.2
+  patchwork: ^0.4.0
+  path: ^1.9.1
+
 dev_dependencies:
   lints: ^6.1.0

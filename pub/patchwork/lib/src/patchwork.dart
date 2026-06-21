@@ -11,6 +11,7 @@ import 'error.dart';
 import 'internal/applied_path_policy.dart';
 import 'internal/artifact_inventory.dart';
 import 'internal/dependency_override_state.dart';
+import 'internal/edit_preparer.dart';
 import 'internal/package_tree.dart';
 import 'internal/overlay_inspector.dart';
 import 'internal/path_layout.dart';
@@ -52,6 +53,7 @@ final class Patchwork {
     required this._pubResolutionReader,
     required this._editSessionStore,
     required this._appliedMarkerStore,
+    required this._editPreparer,
     required this._packageTree,
     required this._patchFile,
     required this._pubspecDependencyOverrides,
@@ -77,6 +79,9 @@ final class Patchwork {
     };
     final workspace = const PubWorkspaceLocator().locate(rootPath);
     final layout = PathLayout(workspace.rootPath);
+    final editSessionStore = EditSessionStore(layout: layout);
+    const packageTree = PackageTree();
+    const patchFile = PatchFile();
     return Patchwork._(
       rootPath: workspace.rootPath,
       currentPackageRootPath: workspace.currentPackageRootPath,
@@ -88,10 +93,17 @@ final class Patchwork {
         protectedRootPaths: workspace.rootPackageRootPaths,
       ),
       pubResolutionReader: const PubResolutionReader(),
-      editSessionStore: EditSessionStore(layout: layout),
+      editSessionStore: editSessionStore,
       appliedMarkerStore: AppliedMarkerStore(layout: layout),
-      packageTree: const PackageTree(),
-      patchFile: const PatchFile(),
+      editPreparer: EditPreparer(
+        rootPath: workspace.rootPath,
+        layout: layout,
+        packageTree: packageTree,
+        patchFile: patchFile,
+        editSessionStore: editSessionStore,
+      ),
+      packageTree: packageTree,
+      patchFile: patchFile,
       pubspecDependencyOverrides: const PubspecDependencyOverrides(),
       pubspecOverrides: const PubspecOverrides(),
     );
@@ -105,6 +117,7 @@ final class Patchwork {
   final PubResolutionReader _pubResolutionReader;
   final EditSessionStore _editSessionStore;
   final AppliedMarkerStore _appliedMarkerStore;
+  final EditPreparer _editPreparer;
   final PackageTree _packageTree;
   final PatchFile _patchFile;
   final PubspecDependencyOverrides _pubspecDependencyOverrides;
@@ -181,7 +194,6 @@ final class Patchwork {
     _checkPlainPackageName(package);
     final resolution = _readResolution();
     final resolved = resolution.resolvePackage(package);
-    final editPath = _layout.editPath(package, resolved.version);
     if (_isPackageApplied(package, resolved)) {
       throw PatchworkException(
         'Package "$package" already has an applied Patchwork patch.',
@@ -216,110 +228,14 @@ final class Patchwork {
       continuedFromPatchPath = patchPath;
     }
 
-    final editExists = Directory(editPath).existsSync();
-    if (editExists) {
-      if (!replaceExisting &&
-          !_canReplaceEditDirectory(
-            package: package,
-            editPath: editPath,
-            version: resolved.version,
-          )) {
-        throw PatchworkException(
-          'Edit directory has uncommitted changes for "$package".',
-          code: 'patch.edit_exists',
-          hint:
-              'Run patchwork commit $package, delete $editPath, or pass --force.',
-          location: editPath,
-        );
-      }
-    }
-
-    final tempEditPath = p.join(
-      _layout.editRootPath,
-      '.$package@${resolved.version}.$pid.${DateTime.now().microsecondsSinceEpoch}',
-    );
-    _packageTree.deleteDirectory(tempEditPath);
-    var preservedFailedEdit = false;
-    var wrotePartialRepairLog = false;
-    var partialRejectPaths = const <String>[];
-    try {
-      _packageTree.copy(resolved.rootPath, tempEditPath);
-      _packageTree.copy(
-        resolved.rootPath,
-        p.join(tempEditPath, '.patchwork', 'source'),
-      );
-      _editSessionStore.write(
-        package: package,
-        version: resolved.version,
-        source: resolved.source,
-        editPath: tempEditPath,
-      );
-      if (continuedFromPatchContent != null) {
-        if (partialPatchApply) {
-          final partialApply = _patchFile.applyPartial(
-            packagePath: tempEditPath,
-            patchContent: continuedFromPatchContent,
-          );
-          if (!partialApply.appliedCleanly) {
-            wrotePartialRepairLog = true;
-            partialRejectPaths = partialApply.rejectPaths;
-            _writePartialRepairLog(
-              editPath: tempEditPath,
-              package: package,
-              version: resolved.version,
-              patchPath: continuedFromPatchPath!,
-              partialApply: partialApply,
-            );
-          }
-        } else {
-          try {
-            _patchFile.apply(
-              packagePath: tempEditPath,
-              patchContent: continuedFromPatchContent,
-            );
-          } on PatchworkException catch (error) {
-            if (!preserveFailedPatchApply) {
-              rethrow;
-            }
-            if (editExists) {
-              _packageTree.deleteDirectory(editPath);
-            }
-            Directory(tempEditPath).renameSync(editPath);
-            preservedFailedEdit = true;
-            throw PatchworkException(
-              error.message,
-              code: error.code,
-              hint: _failedCarryHint(
-                package: package,
-                editPath: editPath,
-                originalHint: error.hint,
-              ),
-              location: editPath,
-            );
-          }
-        }
-      }
-      if (editExists) {
-        _packageTree.deleteDirectory(editPath);
-      }
-      Directory(tempEditPath).renameSync(editPath);
-    } catch (_) {
-      if (!preservedFailedEdit) {
-        _packageTree.deleteDirectory(tempEditPath);
-      }
-      rethrow;
-    }
-
-    return PreparedEdit(
+    return _editPreparer.prepare(
       package: package,
-      version: resolved.version,
-      path: editPath,
-      sourcePath: resolved.rootPath,
+      resolved: resolved,
       continuedFromPatchPath: continuedFromPatchPath,
-      partialRepairLogPath: wrotePartialRepairLog
-          ? p.join(editPath, '.patchwork', 'partial-repair.log')
-          : null,
-      partialRejectPaths: partialRejectPaths,
+      continuedFromPatchContent: continuedFromPatchContent,
+      replaceExisting: replaceExisting,
+      preserveFailedPatchApply: preserveFailedPatchApply,
+      partialPatchApply: partialPatchApply,
     );
   }
 
@@ -362,81 +278,6 @@ final class Patchwork {
       preserveFailedPatchApply: true,
       partialPatchApply: partial,
     );
-  }
-
-  String _failedCarryHint({
-    required String package,
-    required String editPath,
-    required String? originalHint,
-  }) {
-    final repairHint =
-        'Created ${relativePath(editPath)} with the current source and baseline. '
-        'Fix the edit manually, then run patchwork commit $package.';
-    if (originalHint == null || originalHint.isEmpty) {
-      return repairHint;
-    }
-    return '$originalHint\n$repairHint';
-  }
-
-  void _writePartialRepairLog({
-    required String editPath,
-    required String package,
-    required String version,
-    required String patchPath,
-    required PartialPatchApply partialApply,
-  }) {
-    final metadataPath = p.join(editPath, '.patchwork');
-    Directory(metadataPath).createSync(recursive: true);
-    final log = StringBuffer()
-      ..writeln('Patchwork partial repair')
-      ..writeln('package: $package')
-      ..writeln('version: $version')
-      ..writeln('patch: ${relativePath(patchPath)}')
-      ..writeln('gitExitCode: ${partialApply.exitCode}');
-
-    if (partialApply.rejectPaths.isEmpty) {
-      log.writeln('rejects: none');
-    } else {
-      log.writeln('rejects:');
-      for (final rejectPath in partialApply.rejectPaths) {
-        log.writeln('- $rejectPath');
-      }
-    }
-
-    if (partialApply.output.isNotEmpty) {
-      log
-        ..writeln()
-        ..writeln('git apply --reject output:')
-        ..writeln(partialApply.output);
-    }
-
-    File(
-      p.join(metadataPath, 'partial-repair.log'),
-    ).writeAsStringSync(log.toString(), flush: true);
-  }
-
-  bool _canReplaceEditDirectory({
-    required String package,
-    required String editPath,
-    required String version,
-  }) {
-    final session = _tryReadEditSession(
-      PackageVersionPath(package: package, version: version, path: editPath),
-    );
-    if (session == null) {
-      return false;
-    }
-
-    final patchFile = File(_layout.patchPath(package, version));
-    final content = _patchFile.build(
-      sourcePath: session.baselinePath,
-      editPath: editPath,
-    );
-    if (content.isEmpty) {
-      return true;
-    }
-    return patchFile.existsSync() &&
-        _sha256(utf8.encode(content)) == _sha256(patchFile.readAsBytesSync());
   }
 
   /// Commits the open edit directory for [package] into `patches/`.
@@ -1488,14 +1329,6 @@ final class Patchwork {
       );
     }
     return edits.single;
-  }
-
-  EditSession? _tryReadEditSession(PackageVersionPath edit) {
-    try {
-      return _editSessionStore.read(edit);
-    } on PatchworkException {
-      return null;
-    }
   }
 
   bool _isPackageApplied(String package, ResolvedPubPackage resolved) {

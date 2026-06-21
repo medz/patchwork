@@ -392,6 +392,68 @@ new file mode 100644
   );
 
   test(
+    'partial carry keeps log-only file conflicts without rejects',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      project.writeResolution();
+      final stalePatch = File(
+        p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
+      );
+      stalePatch.parent.createSync(recursive: true);
+      stalePatch.writeAsStringSync(r'''
+diff --git a/lib/upstream_added.dart b/lib/upstream_added.dart
+new file mode 100644
+--- /dev/null
++++ b/lib/upstream_added.dart
+@@ -0,0 +1 @@
++const added = 'carried';
+''');
+
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      File(
+        p.join(project.greeterRoot, 'lib', 'upstream_added.dart'),
+      ).writeAsStringSync("const added = 'upstream';\n");
+      project.writeResolution(greeterVersion: '0.1.1');
+
+      final result = await project.applicationResult([
+        'carry',
+        'greeter',
+        '--partial',
+      ]);
+      expect(result.stdout, contains('Created partial carry edit'));
+      expect(result.stdout, contains('Prepared partial repair'));
+      expect(result.stdout, isNot(contains('Moved rejects')));
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            'lib',
+            'upstream_added.dart',
+          ),
+        ).readAsStringSync(),
+        "const added = 'upstream';\n",
+      );
+
+      final repairLog = File(
+        p.join(
+          project.editDirectoryFor('0.1.1').path,
+          '.patchwork',
+          'partial-repair.log',
+        ),
+      ).readAsStringSync();
+      expect(repairLog, contains('gitExitCode: 1'));
+      expect(repairLog, contains('rejects: none'));
+      expect(repairLog, contains('already exists'));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'partially carries applicable hunks into a repairable edit',
     () async {
       final project = await ProjectSandbox.standalone();

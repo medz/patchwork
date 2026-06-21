@@ -192,7 +192,6 @@ final class PatchFile {
       );
     }
 
-    final originalPackageHash = _packageTree.sha256Of(packagePath);
     final existingRejectBackups = _rejectFileBackups(packagePath);
     final patchFile = File(
       p.join(
@@ -225,16 +224,7 @@ final class PatchFile {
         workingDirectory: packagePath,
         patchPath: patchFile.path,
       );
-      if (result.exitCode != 0 && rejectPaths.isEmpty) {
-        final packageChanged =
-            _packageTree.sha256Of(packagePath) != originalPackageHash;
-        if (packageChanged) {
-          return PartialPatchApply(
-            exitCode: result.exitCode,
-            output: normalizedOutput,
-            rejectPaths: rejectPaths,
-          );
-        }
+      if (result.exitCode != 0 && rejectPaths.isEmpty && result.exitCode != 1) {
         throw PatchworkException(
           'Could not apply patch to the package copy.',
           code: 'patch.apply_failed',

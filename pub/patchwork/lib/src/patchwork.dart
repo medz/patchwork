@@ -9,6 +9,7 @@ import 'applied_marker.dart';
 import 'edit_session.dart';
 import 'error.dart';
 import 'internal/applied_patch_freshness.dart';
+import 'internal/applied_patch_activation.dart';
 import 'internal/applied_path_policy.dart';
 import 'internal/artifact_inventory.dart';
 import 'internal/dependency_override_state.dart';
@@ -565,35 +566,13 @@ final class Patchwork {
       rethrow;
     }
 
-    final markers = _appliedMarkerStore.readAll();
-    final previousMirroredPubspecDependencyOverrides =
-        DependencyOverrideState.mirroredPubspecDependencyOverrides(markers);
-    final mirroredPubspecDependencyOverrides = _pubspecOverrides
-        .upsertPathOverride(
-          workspaceRootPath: _rootPath,
-          package: package,
-          path: appliedRecordPath,
-          ownedDependencyOverrides:
-              DependencyOverrideState.ownedPubspecDependencyOverrides(markers),
-          pubspecDependencyOverrides: overrideState
-              .rootPubspecDependencyOverrides(skippedPackage: package),
-          mirroredPubspecDependencyOverrides:
-              previousMirroredPubspecDependencyOverrides,
-        );
-    final nextMarker = AppliedMarker(
+    _appliedActivation().activate(
       package: package,
       version: resolved.version,
       patchSha256: patchSha256,
       path: appliedRecordPath,
       source: resolved.source,
-      mirroredPubspecDependencyOverrides: mirroredPubspecDependencyOverrides,
     );
-    _setMirroredPubspecDependencyOverrides([
-      for (final marker in markers)
-        if (!(marker.package == package && marker.version == resolved.version))
-          marker,
-      nextMarker,
-    ], mirroredPubspecDependencyOverrides);
 
     return AppliedPatch(
       package: package,
@@ -624,7 +603,7 @@ final class Patchwork {
     }
     final marker = applied.single;
 
-    final absoluteAppliedPath = _removeAppliedMarker(
+    final absoluteAppliedPath = _appliedActivation().remove(
       marker,
       code: 'undo.applied_path_not_deletable',
     );
@@ -709,7 +688,10 @@ final class Patchwork {
 
     if (!dryRun) {
       for (final marker in appliedMarkers) {
-        _removeAppliedMarker(marker, code: 'remove.applied_path_not_deletable');
+        _appliedActivation().remove(
+          marker,
+          code: 'remove.applied_path_not_deletable',
+        );
       }
       if (edit != null) {
         _packageTree.deleteDirectory(edit.path);
@@ -844,7 +826,10 @@ final class Patchwork {
         if (!removedMarkers.add(key)) {
           continue;
         }
-        _removeAppliedMarker(marker, code: 'prune.applied_path_not_deletable');
+        _appliedActivation().remove(
+          marker,
+          code: 'prune.applied_path_not_deletable',
+        );
       }
       for (final change in changes) {
         switch (change.kind) {
@@ -1131,42 +1116,6 @@ final class Patchwork {
     }
   }
 
-  String _removeAppliedMarker(AppliedMarker marker, {required String code}) {
-    final absoluteAppliedPath = _appliedPaths.requirePatchworkAppliedPath(
-      marker.package,
-      marker.version,
-      marker.path,
-      code: code,
-      message: _invalidAppliedPathMessage,
-    );
-    final markers = _appliedMarkerStore.readAll();
-    final overrideState = _overrideState();
-    final mirroredPubspecDependencyOverrides =
-        DependencyOverrideState.mirroredPubspecDependencyOverrides(markers);
-    final nextMirroredPubspecDependencyOverrides = _pubspecOverrides
-        .removePathOverrideIfMatches(
-          workspaceRootPath: _rootPath,
-          package: marker.package,
-          path: marker.path,
-          ownedDependencyOverrides:
-              DependencyOverrideState.ownedPubspecDependencyOverrides(markers),
-          pubspecDependencyOverrides: overrideState
-              .rootPubspecDependencyOverrides(),
-          mirroredPubspecDependencyOverrides:
-              mirroredPubspecDependencyOverrides,
-        );
-    _packageTree.deleteDirectory(absoluteAppliedPath);
-
-    _setMirroredPubspecDependencyOverrides([
-      for (final existing in markers)
-        if (!(existing.package == marker.package &&
-            existing.version == marker.version))
-          existing,
-    ], nextMirroredPubspecDependencyOverrides);
-
-    return absoluteAppliedPath;
-  }
-
   PubResolution _readResolution() {
     return _pubResolutionReader.readFromDirectory(_currentPackageRootPath);
   }
@@ -1177,6 +1126,18 @@ final class Patchwork {
       overrideRootPaths: _overrideRootPaths,
       pubspecOverrides: _pubspecOverrides,
       pubspecDependencyOverrides: _pubspecDependencyOverrides,
+    );
+  }
+
+  AppliedPatchActivation _appliedActivation() {
+    return AppliedPatchActivation(
+      rootPath: _rootPath,
+      appliedPaths: _appliedPaths,
+      appliedMarkerStore: _appliedMarkerStore,
+      pubspecOverrides: _pubspecOverrides,
+      packageTree: _packageTree,
+      readOverrideState: _overrideState,
+      invalidAppliedPathMessage: _invalidAppliedPathMessage,
     );
   }
 
@@ -1330,19 +1291,6 @@ final class Patchwork {
         .readAll()
         .where((marker) => marker.package == package)
         .toList();
-  }
-
-  void _setMirroredPubspecDependencyOverrides(
-    List<AppliedMarker> markers,
-    Map<String, Object?> dependencyOverrides,
-  ) {
-    for (final marker in markers) {
-      _appliedMarkerStore.write(
-        marker.copyWith(
-          mirroredPubspecDependencyOverrides: dependencyOverrides,
-        ),
-      );
-    }
   }
 }
 

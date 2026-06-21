@@ -19,16 +19,16 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from an app-local patch');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
 
-      await project.patchwork(
+      await project.application(
         ['overlay', 'add', 'greeter', '--reason='],
         exitCodes: {64},
         stderrContains: 'expects a value',
       );
-      await project.patchwork(
+      await project.application(
         ['overlay', 'add', 'greeter'],
         exitCodes: {1},
         stderrContains: 'must depend on patchwork',
@@ -73,11 +73,11 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet(project.providerBRoot);
-      await project.patchwork(project.providerBRoot, ['patch', 'greeter']);
+      await project.application(project.providerBRoot, ['patch', 'greeter']);
       project.writePrefixEdit(project.providerBRoot, 'Hello from workspace');
-      await project.patchwork(project.providerBRoot, ['commit', 'greeter']);
+      await project.application(project.providerBRoot, ['commit', 'greeter']);
       // Compatibility for the original `patchwork overlay <pkg>` command.
-      await project.patchwork(project.providerBRoot, ['overlay', 'greeter']);
+      await project.application(project.providerBRoot, ['overlay', 'greeter']);
 
       expect(
         File(

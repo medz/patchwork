@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
+import 'package:patchwork/src/cli/application.dart';
 import 'package:test/test.dart';
 
 final class OverlayProjectSandbox {
@@ -204,6 +205,79 @@ final class OverlayProjectSandbox {
     );
   }
 
+  Future<void> application(
+    String root,
+    List<String> arguments, {
+    Set<int> exitCodes = const {0},
+    String? stdoutContains,
+    String? stderrContains,
+  }) async {
+    final result = await applicationResult(
+      root,
+      arguments,
+      exitCodes: exitCodes,
+    );
+    if (stdoutContains != null) {
+      expect(
+        result.stdout,
+        contains(stdoutContains),
+        reason: 'stderr:\n${result.stderr}',
+      );
+    }
+    if (stderrContains != null) {
+      expect(
+        result.stderr,
+        contains(stderrContains),
+        reason: 'stdout:\n${result.stdout}',
+      );
+    }
+  }
+
+  Future<CommandResult> applicationResult(
+    String root,
+    List<String> arguments, {
+    Set<int> exitCodes = const {0},
+  }) async {
+    final stdoutFile = File(
+      p.join(
+        this.root.path,
+        '.patchwork_stdout_${DateTime.now().microsecondsSinceEpoch}.txt',
+      ),
+    );
+    final stderrFile = File(
+      p.join(
+        this.root.path,
+        '.patchwork_stderr_${DateTime.now().microsecondsSinceEpoch}.txt',
+      ),
+    );
+    final stdout = stdoutFile.openWrite();
+    final stderr = stderrFile.openWrite();
+    final exitCode = await Application(
+      stdout: stdout,
+      stderr: stderr,
+      workingDirectory: root,
+    ).run(arguments);
+    await stdout.close();
+    await stderr.close();
+    final result = CommandResult(
+      exitCode: exitCode,
+      stdout: stdoutFile.readAsStringSync(),
+      stderr: stderrFile.readAsStringSync(),
+    );
+    if (!exitCodes.contains(result.exitCode)) {
+      fail(
+        [
+          'Application failed in $root',
+          '\$ patchwork ${arguments.join(' ')}',
+          'exit code: ${result.exitCode}, expected: ${exitCodes.join(', ')}',
+          if (result.stdout.isNotEmpty) 'stdout:\n${result.stdout}',
+          if (result.stderr.isNotEmpty) 'stderr:\n${result.stderr}',
+        ].join('\n'),
+      );
+    }
+    return result;
+  }
+
   Future<CommandResult> runApp({Set<int> exitCodes = const {0}}) {
     return _run(
       'dart',
@@ -262,10 +336,10 @@ final class OverlayProjectSandbox {
     String reason = 'Test overlay',
   }) async {
     await pubGet(providerRoot);
-    await patchwork(providerRoot, ['patch', 'greeter']);
+    await application(providerRoot, ['patch', 'greeter']);
     writePrefixEdit(providerRoot, prefix);
-    await patchwork(providerRoot, ['commit', 'greeter']);
-    await patchwork(providerRoot, [
+    await application(providerRoot, ['commit', 'greeter']);
+    await application(providerRoot, [
       'overlay',
       'add',
       'greeter',
@@ -280,10 +354,10 @@ final class OverlayProjectSandbox {
     String reason = 'Test overlay',
   }) async {
     await pubGet(providerRoot);
-    await patchwork(providerRoot, ['patch', 'greeter']);
+    await application(providerRoot, ['patch', 'greeter']);
     writePunctuationEdit(providerRoot, punctuation);
-    await patchwork(providerRoot, ['commit', 'greeter']);
-    await patchwork(providerRoot, [
+    await application(providerRoot, ['commit', 'greeter']);
+    await application(providerRoot, [
       'overlay',
       'add',
       'greeter',

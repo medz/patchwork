@@ -16,7 +16,7 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      final emptyStatus = await project.patchworkResult(['status', '--json']);
+      final emptyStatus = await project.applicationResult(['status', '--json']);
       expect(emptyStatus.stdout, isNot(contains('No patchwork packages.')));
       expect(_decodeObject(emptyStatus.stdout), {
         'packages': [],
@@ -24,7 +24,7 @@ void main() {
         'problems': [],
       });
 
-      final patchResult = await project.patchworkResult([
+      final patchResult = await project.applicationResult([
         'patch',
         'greeter',
         '--json',
@@ -40,7 +40,7 @@ void main() {
       expect(editJson['continuedFromPatchPath'], isNull);
 
       project.writeEdit('Hello from JSON output');
-      final commitResult = await project.patchworkResult([
+      final commitResult = await project.applicationResult([
         'commit',
         '--json',
         'greeter',
@@ -55,7 +55,7 @@ void main() {
       expect(writeJson['editPath'], '.patchwork/greeter@0.1.0');
       expect(writeJson['patchPath'], 'patches/greeter@0.1.0.patch');
 
-      final needsApplyDoctor = await project.patchworkResult(
+      final needsApplyDoctor = await project.applicationResult(
         ['doctor', '--json'],
         exitCodes: {1},
       );
@@ -70,7 +70,7 @@ void main() {
         'version': '0.1.0',
       });
 
-      final applyResult = await project.patchworkResult(['apply', '--json']);
+      final applyResult = await project.applicationResult(['apply', '--json']);
       expect(applyResult.stdout, isNot(contains('Run dart pub get.')));
       final applyJson = _decodeObject(applyResult.stdout);
       expect(applyJson['command'], 'apply');
@@ -81,7 +81,7 @@ void main() {
       expect(appliedJson['path'], '.dart_tool/patchwork/greeter@0.1.0');
       expect(appliedJson['patchPath'], 'patches/greeter@0.1.0.patch');
 
-      final readyDoctor = await project.patchworkResult(['doctor', '--json']);
+      final readyDoctor = await project.applicationResult(['doctor', '--json']);
       expect(readyDoctor.exitCode, 0);
       final readyPackage = _objects(
         _decodeObject(readyDoctor.stdout)['packages'],
@@ -89,14 +89,14 @@ void main() {
       expect(readyPackage['appliedPath'], '.dart_tool/patchwork/greeter@0.1.0');
       expect(readyPackage['problems'], isEmpty);
 
-      final noOpApply = await project.patchworkResult(['apply', '--json']);
+      final noOpApply = await project.applicationResult(['apply', '--json']);
       expect(noOpApply.stdout, isNot(contains('No patches need apply.')));
       final noOpApplyJson = _decodeObject(noOpApply.stdout);
       expect(noOpApplyJson['applied'], isEmpty);
       expect(noOpApplyJson['pubGetRan'], isFalse);
       expect(noOpApplyJson['needsPubGet'], isFalse);
 
-      final undoResult = await project.patchworkResult([
+      final undoResult = await project.applicationResult([
         'undo',
         'greeter',
         '--json',
@@ -121,11 +121,11 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from low-level JSON output');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
 
-      final applyResult = await project.patchworkResult([
+      final applyResult = await project.applicationResult([
         'apply',
         '--no-pub-get',
         '--json',
@@ -134,14 +134,14 @@ void main() {
       expect(applyJson['pubGetRan'], isFalse);
       expect(applyJson['needsPubGet'], isTrue);
 
-      final finishApply = await project.patchworkResult(['apply', '--json']);
+      final finishApply = await project.applicationResult(['apply', '--json']);
       final finishApplyJson = _decodeObject(finishApply.stdout);
       expect(finishApplyJson['applied'], isEmpty);
       expect(finishApplyJson['pubGetRan'], isTrue);
       expect(finishApplyJson['needsPubGet'], isFalse);
       await project.runApp('Hello from low-level JSON output, Patchwork!');
 
-      final undoResult = await project.patchworkResult([
+      final undoResult = await project.applicationResult([
         'undo',
         'greeter',
         '--no-pub-get',
@@ -165,12 +165,15 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a JSON problem case');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
       project.writeManualOverride();
 
-      final statusResult = await project.patchworkResult(['status', '--json']);
+      final statusResult = await project.applicationResult([
+        'status',
+        '--json',
+      ]);
       expect(statusResult.exitCode, 0);
       expect(statusResult.stdout.trimLeft(), startsWith('{'));
       final statusJson = _decodeObject(statusResult.stdout);
@@ -181,7 +184,7 @@ void main() {
       );
       expect(_objects(statusJson['problems']).single['package'], 'greeter');
 
-      final applyResult = await project.patchworkResult(
+      final applyResult = await project.applicationResult(
         ['apply', 'greeter', '--json'],
         exitCodes: {1},
       );
@@ -194,7 +197,7 @@ void main() {
       );
       expect(errorJson['hint'], contains('patchwork apply greeter'));
 
-      final doctorResult = await project.patchworkResult(
+      final doctorResult = await project.applicationResult(
         ['doctor', '--json'],
         exitCodes: {1},
       );
@@ -204,7 +207,7 @@ void main() {
       final plainProblem = _objects(doctorJson['problems']).single;
       expect(plainProblem, isNot(contains('suggestedActions')));
 
-      final explainResult = await project.patchworkResult(
+      final explainResult = await project.applicationResult(
         ['doctor', '--explain', '--json'],
         exitCodes: {1},
       );
@@ -228,9 +231,9 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a stale JSON patch');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
 
       project.updateGreeterPackage(
         version: '0.1.1',
@@ -238,7 +241,7 @@ void main() {
       );
       await project.pubGet();
 
-      final result = await project.patchworkResult(
+      final result = await project.applicationResult(
         ['doctor', '--explain', '--json'],
         exitCodes: {1},
       );
@@ -267,7 +270,7 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
 
       project.updateGreeterPackage(
         version: '0.1.1',
@@ -275,7 +278,7 @@ void main() {
       );
       await project.pubGet();
 
-      final result = await project.patchworkResult(
+      final result = await project.applicationResult(
         ['doctor', '--explain', '--json'],
         exitCodes: {1},
       );
@@ -304,10 +307,10 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a stale patch with an open edit');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['patch', 'greeter', '--continue']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['patch', 'greeter', '--continue']);
 
       project.updateGreeterPackage(
         version: '0.1.1',
@@ -315,7 +318,7 @@ void main() {
       );
       await project.pubGet();
 
-      final result = await project.patchworkResult(
+      final result = await project.applicationResult(
         ['doctor', '--explain', '--json'],
         exitCodes: {1},
       );
@@ -343,10 +346,10 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a stale applied JSON patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
 
       final marker = project.appliedMarkerFor('0.1.0');
       final decoded =
@@ -354,7 +357,7 @@ void main() {
       decoded['patchSha256'] = 'stale';
       marker.writeAsStringSync('${jsonEncode(decoded)}\n');
 
-      final result = await project.patchworkResult(
+      final result = await project.applicationResult(
         ['doctor', '--explain', '--json'],
         exitCodes: {1},
       );
@@ -385,13 +388,13 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a committed JSON patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['patch', 'greeter', '--continue']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['patch', 'greeter', '--continue']);
       project.editManifestFor('0.1.0').deleteSync();
 
-      final result = await project.patchworkResult(
+      final result = await project.applicationResult(
         ['doctor', '--explain', '--json'],
         exitCodes: {1},
       );
@@ -423,13 +426,13 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a marker-missing JSON patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       project.appliedMarkerFor('0.1.0').deleteSync();
 
-      final result = await project.patchworkResult(
+      final result = await project.applicationResult(
         ['doctor', '--explain', '--json'],
         exitCodes: {1},
       );
@@ -460,14 +463,14 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a missing marker and patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       project.appliedMarkerFor('0.1.0').deleteSync();
       File('${project.stateRoot}/patches/greeter@0.1.0.patch').deleteSync();
 
-      final result = await project.patchworkResult(
+      final result = await project.applicationResult(
         ['doctor', '--explain', '--json'],
         exitCodes: {1},
       );
@@ -497,10 +500,10 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from unowned stale applied output');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       project.overrideFile.deleteSync();
       project.updateGreeterPackage(
         version: '0.1.1',
@@ -509,7 +512,7 @@ void main() {
       await project.pubGet();
       project.appliedMarkerFor('0.1.0').deleteSync();
 
-      final result = await project.patchworkResult(
+      final result = await project.applicationResult(
         ['doctor', '--explain', '--json'],
         exitCodes: {1},
       );
@@ -538,10 +541,10 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a stale broken edit JSON patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['patch', 'greeter', '--continue']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['patch', 'greeter', '--continue']);
       project.updateGreeterPackage(
         version: '0.1.1',
         greeting: 'Hello, \$name!',
@@ -549,7 +552,7 @@ void main() {
       await project.pubGet();
       project.editManifestFor('0.1.0').deleteSync();
 
-      final result = await project.patchworkResult(
+      final result = await project.applicationResult(
         ['doctor', '--explain', '--json'],
         exitCodes: {1},
       );
@@ -575,10 +578,10 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a missing package JSON patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       project.overrideFile.deleteSync();
       project.replaceAppPubspecText('''
   greeter:
@@ -586,7 +589,7 @@ void main() {
 ''', '');
       await project.pubGet();
 
-      final result = await project.patchworkResult(
+      final result = await project.applicationResult(
         ['doctor', '--explain', '--json'],
         exitCodes: {1},
       );

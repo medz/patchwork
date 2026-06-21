@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
+import 'package:patchwork/src/cli/application.dart';
 import 'package:test/test.dart';
 
 final class ProjectSandbox {
@@ -253,6 +254,79 @@ final class ProjectSandbox {
       exitCodes: exitCodes,
       environment: environment,
     );
+  }
+
+  Future<void> application(
+    List<String> arguments, {
+    String? workingDirectory,
+    Set<int> exitCodes = const {0},
+    String? stdoutContains,
+    String? stderrContains,
+  }) async {
+    final result = await applicationResult(
+      arguments,
+      workingDirectory: workingDirectory,
+      exitCodes: exitCodes,
+    );
+    if (stdoutContains != null) {
+      expect(
+        result.stdout,
+        contains(stdoutContains),
+        reason: 'stderr:\n${result.stderr}',
+      );
+    }
+    if (stderrContains != null) {
+      expect(
+        result.stderr,
+        contains(stderrContains),
+        reason: 'stdout:\n${result.stdout}',
+      );
+    }
+  }
+
+  Future<CommandResult> applicationResult(
+    List<String> arguments, {
+    String? workingDirectory,
+    Set<int> exitCodes = const {0},
+  }) async {
+    final stdoutFile = File(
+      p.join(
+        root.path,
+        '.patchwork_stdout_${DateTime.now().microsecondsSinceEpoch}.txt',
+      ),
+    );
+    final stderrFile = File(
+      p.join(
+        root.path,
+        '.patchwork_stderr_${DateTime.now().microsecondsSinceEpoch}.txt',
+      ),
+    );
+    final stdout = stdoutFile.openWrite();
+    final stderr = stderrFile.openWrite();
+    final exitCode = await Application(
+      stdout: stdout,
+      stderr: stderr,
+      workingDirectory: workingDirectory ?? commandRoot,
+    ).run(arguments);
+    await stdout.close();
+    await stderr.close();
+    final result = CommandResult(
+      exitCode: exitCode,
+      stdout: stdoutFile.readAsStringSync(),
+      stderr: stderrFile.readAsStringSync(),
+    );
+    if (!exitCodes.contains(result.exitCode)) {
+      fail(
+        [
+          'Application failed in ${workingDirectory ?? commandRoot}',
+          '\$ patchwork ${arguments.join(' ')}',
+          'exit code: ${result.exitCode}, expected: ${exitCodes.join(', ')}',
+          if (result.stdout.isNotEmpty) 'stdout:\n${result.stdout}',
+          if (result.stderr.isNotEmpty) 'stderr:\n${result.stderr}',
+        ].join('\n'),
+      );
+    }
+    return result;
   }
 
   Future<void> runApp(String expectedOutput) async {

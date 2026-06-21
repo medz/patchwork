@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -28,6 +29,25 @@ void main() {
     expect(stderrText, contains('Unknown command "bogus"'));
     expect(stderrText, isNot(contains('pub project')));
   });
+
+  test(
+    'unknown JSON commands are reported on stdout before discovery',
+    () async {
+      final root = Directory.systemTemp.createTempSync('patchwork_cli_');
+      addTearDown(() => root.deleteSync(recursive: true));
+
+      final result = await _runApplication(root, ['bogus', '--json']);
+
+      expect(result.exitCode, 64);
+      expect(result.stderr, isEmpty);
+      final decoded = jsonDecode(result.stdout) as Map<String, Object?>;
+      final error = decoded['error'] as Map<String, Object?>;
+      expect(error['code'], 'usage.unknown_command');
+      expect(error['message'], 'Unknown command "bogus".');
+      expect(error['hint'], contains('patchwork --help'));
+      expect(error['location'], isNull);
+    },
+  );
 
   test('help documents JSON output options', () async {
     final root = Directory.systemTemp.createTempSync('patchwork_cli_');

@@ -4,6 +4,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:patchwork/patchwork.dart';
 import 'package:test/test.dart';
 
 import 'project_sandbox.dart';
@@ -164,10 +165,8 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
-      await project.application(['patch', 'greeter']);
-      project.writeEdit('Hello from a JSON problem case');
-      await project.application(['commit', 'greeter']);
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from a JSON problem case');
       project.writeManualOverride();
 
       final statusResult = await project.applicationResult([
@@ -230,16 +229,14 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
-      await project.application(['patch', 'greeter']);
-      project.writeEdit('Hello from a stale JSON patch');
-      await project.application(['commit', 'greeter']);
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from a stale JSON patch');
 
       project.updateGreeterPackage(
         version: '0.1.1',
         greeting: 'Hello, \$name!',
       );
-      await project.pubGet();
+      project.writeResolution(greeterVersion: '0.1.1');
 
       final result = await project.applicationResult(
         ['doctor', '--explain', '--json'],
@@ -269,14 +266,14 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
-      await project.application(['patch', 'greeter']);
+      project.writeResolution();
+      await (await Patchwork.open(project.commandRoot)).patch('greeter');
 
       project.updateGreeterPackage(
         version: '0.1.1',
         greeting: 'Hello, \$name!',
       );
-      await project.pubGet();
+      project.writeResolution(greeterVersion: '0.1.1');
 
       final result = await project.applicationResult(
         ['doctor', '--explain', '--json'],
@@ -306,17 +303,17 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
-      await project.application(['patch', 'greeter']);
-      project.writeEdit('Hello from a stale patch with an open edit');
-      await project.application(['commit', 'greeter']);
-      await project.application(['patch', 'greeter', '--continue']);
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from a stale patch with an open edit');
+      await (await Patchwork.open(
+        project.commandRoot,
+      )).patch('greeter', fromPatch: const PatchRef.current());
 
       project.updateGreeterPackage(
         version: '0.1.1',
         greeting: 'Hello, \$name!',
       );
-      await project.pubGet();
+      project.writeResolution(greeterVersion: '0.1.1');
 
       final result = await project.applicationResult(
         ['doctor', '--explain', '--json'],
@@ -345,10 +342,8 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
-      await project.application(['patch', 'greeter']);
-      project.writeEdit('Hello from a stale applied JSON patch');
-      await project.application(['commit', 'greeter']);
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from a stale applied JSON patch');
       await project.application(['apply', 'greeter']);
 
       final marker = project.appliedMarkerFor('0.1.0');
@@ -387,11 +382,11 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
-      await project.application(['patch', 'greeter']);
-      project.writeEdit('Hello from a committed JSON patch');
-      await project.application(['commit', 'greeter']);
-      await project.application(['patch', 'greeter', '--continue']);
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from a committed JSON patch');
+      await (await Patchwork.open(
+        project.commandRoot,
+      )).patch('greeter', fromPatch: const PatchRef.current());
       project.editManifestFor('0.1.0').deleteSync();
 
       final result = await project.applicationResult(
@@ -425,10 +420,8 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
-      await project.application(['patch', 'greeter']);
-      project.writeEdit('Hello from a marker-missing JSON patch');
-      await project.application(['commit', 'greeter']);
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from a marker-missing JSON patch');
       await project.application(['apply', 'greeter']);
       project.appliedMarkerFor('0.1.0').deleteSync();
 
@@ -462,10 +455,8 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
-      await project.application(['patch', 'greeter']);
-      project.writeEdit('Hello from a missing marker and patch');
-      await project.application(['commit', 'greeter']);
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from a missing marker and patch');
       await project.application(['apply', 'greeter']);
       project.appliedMarkerFor('0.1.0').deleteSync();
       File('${project.stateRoot}/patches/greeter@0.1.0.patch').deleteSync();
@@ -499,17 +490,15 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
-      await project.application(['patch', 'greeter']);
-      project.writeEdit('Hello from unowned stale applied output');
-      await project.application(['commit', 'greeter']);
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from unowned stale applied output');
       await project.application(['apply', 'greeter']);
       project.overrideFile.deleteSync();
       project.updateGreeterPackage(
         version: '0.1.1',
         greeting: 'Hello, \$name!',
       );
-      await project.pubGet();
+      project.writeResolution(greeterVersion: '0.1.1');
       project.appliedMarkerFor('0.1.0').deleteSync();
 
       final result = await project.applicationResult(
@@ -540,16 +529,16 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
-      await project.application(['patch', 'greeter']);
-      project.writeEdit('Hello from a stale broken edit JSON patch');
-      await project.application(['commit', 'greeter']);
-      await project.application(['patch', 'greeter', '--continue']);
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from a stale broken edit JSON patch');
+      await (await Patchwork.open(
+        project.commandRoot,
+      )).patch('greeter', fromPatch: const PatchRef.current());
       project.updateGreeterPackage(
         version: '0.1.1',
         greeting: 'Hello, \$name!',
       );
-      await project.pubGet();
+      project.writeResolution(greeterVersion: '0.1.1');
       project.editManifestFor('0.1.0').deleteSync();
 
       final result = await project.applicationResult(
@@ -577,10 +566,8 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
-      await project.application(['patch', 'greeter']);
-      project.writeEdit('Hello from a missing package JSON patch');
-      await project.application(['commit', 'greeter']);
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from a missing package JSON patch');
       await project.application(['apply', 'greeter']);
       project.overrideFile.deleteSync();
       project.replaceAppPubspecText('''

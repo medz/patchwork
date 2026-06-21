@@ -214,7 +214,7 @@ final class ProjectSandbox {
     );
   }
 
-  void writeResolution() {
+  void writeResolution({String greeterVersion = '0.1.0'}) {
     final dartTool = Directory(p.join(stateRoot, '.dart_tool'))
       ..createSync(recursive: true);
     final otherRootPath = otherRoot;
@@ -266,7 +266,7 @@ packages:
       path: ${p.relative(greeterRoot, from: stateRoot)}
       relative: true
     source: path
-    version: "0.1.0"
+    version: "$greeterVersion"
 ${otherRootPath == null ? '' : '''  other_pkg:
     dependency: "direct main"
     description:

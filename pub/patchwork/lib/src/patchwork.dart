@@ -3,18 +3,25 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
-import 'package:yaml/yaml.dart';
 
 import 'applied_marker.dart';
 import 'edit_session.dart';
 import 'error.dart';
+import 'internal/applied_patch_freshness.dart';
+import 'internal/applied_patch_activation.dart';
+import 'internal/applied_patch_materializer.dart';
+import 'internal/applied_path_policy.dart';
+import 'internal/artifact_inventory.dart';
+import 'internal/dependency_override_state.dart';
+import 'internal/edit_preparer.dart';
 import 'internal/package_tree.dart';
 import 'internal/overlay_inspector.dart';
+import 'internal/overlay_publisher.dart';
 import 'internal/path_layout.dart';
+import 'internal/patch_committer.dart';
 import 'internal/setup_inspector.dart';
-import 'io/atomic_file_writer.dart';
+import 'internal/state_inspector.dart';
 import 'model.dart';
-import 'overlay_manifest.dart';
 import 'patch_file.dart';
 import 'pub/package_resolution.dart';
 import 'pub/pubspec_dependency_overrides.dart';
@@ -44,11 +51,14 @@ final class Patchwork {
     required this._rootPath,
     required this._currentPackageRootPath,
     required this._overrideRootPaths,
-    required this._protectedRootPaths,
     required this._layout,
+    required this._appliedPaths,
     required this._pubResolutionReader,
     required this._editSessionStore,
     required this._appliedMarkerStore,
+    required this._editPreparer,
+    required this._committer,
+    required this._appliedMaterializer,
     required this._packageTree,
     required this._patchFile,
     required this._pubspecDependencyOverrides,
@@ -74,17 +84,42 @@ final class Patchwork {
     };
     final workspace = const PubWorkspaceLocator().locate(rootPath);
     final layout = PathLayout(workspace.rootPath);
+    final editSessionStore = EditSessionStore(layout: layout);
+    const packageTree = PackageTree();
+    const patchFile = PatchFile();
     return Patchwork._(
       rootPath: workspace.rootPath,
       currentPackageRootPath: workspace.currentPackageRootPath,
       overrideRootPaths: workspace.rootPackageRootPaths,
-      protectedRootPaths: workspace.rootPackageRootPaths,
       layout: layout,
+      appliedPaths: AppliedPathPolicy(
+        rootPath: workspace.rootPath,
+        layout: layout,
+        protectedRootPaths: workspace.rootPackageRootPaths,
+      ),
       pubResolutionReader: const PubResolutionReader(),
-      editSessionStore: EditSessionStore(layout: layout),
+      editSessionStore: editSessionStore,
       appliedMarkerStore: AppliedMarkerStore(layout: layout),
-      packageTree: const PackageTree(),
-      patchFile: const PatchFile(),
+      editPreparer: EditPreparer(
+        rootPath: workspace.rootPath,
+        layout: layout,
+        packageTree: packageTree,
+        patchFile: patchFile,
+        editSessionStore: editSessionStore,
+      ),
+      committer: PatchCommitter(
+        layout: layout,
+        editSessionStore: editSessionStore,
+        packageTree: packageTree,
+        patchFile: patchFile,
+      ),
+      appliedMaterializer: AppliedPatchMaterializer(
+        layout: layout,
+        packageTree: packageTree,
+        patchFile: patchFile,
+      ),
+      packageTree: packageTree,
+      patchFile: patchFile,
       pubspecDependencyOverrides: const PubspecDependencyOverrides(),
       pubspecOverrides: const PubspecOverrides(),
     );
@@ -93,11 +128,14 @@ final class Patchwork {
   final String _rootPath;
   final String _currentPackageRootPath;
   final Set<String> _overrideRootPaths;
-  final Set<String> _protectedRootPaths;
   final PathLayout _layout;
+  final AppliedPathPolicy _appliedPaths;
   final PubResolutionReader _pubResolutionReader;
   final EditSessionStore _editSessionStore;
   final AppliedMarkerStore _appliedMarkerStore;
+  final EditPreparer _editPreparer;
+  final PatchCommitter _committer;
+  final AppliedPatchMaterializer _appliedMaterializer;
   final PackageTree _packageTree;
   final PatchFile _patchFile;
   final PubspecDependencyOverrides _pubspecDependencyOverrides;
@@ -174,7 +212,6 @@ final class Patchwork {
     _checkPlainPackageName(package);
     final resolution = _readResolution();
     final resolved = resolution.resolvePackage(package);
-    final editPath = _layout.editPath(package, resolved.version);
     if (_isPackageApplied(package, resolved)) {
       throw PatchworkException(
         'Package "$package" already has an applied Patchwork patch.',
@@ -209,110 +246,14 @@ final class Patchwork {
       continuedFromPatchPath = patchPath;
     }
 
-    final editExists = Directory(editPath).existsSync();
-    if (editExists) {
-      if (!replaceExisting &&
-          !_canReplaceEditDirectory(
-            package: package,
-            editPath: editPath,
-            version: resolved.version,
-          )) {
-        throw PatchworkException(
-          'Edit directory has uncommitted changes for "$package".',
-          code: 'patch.edit_exists',
-          hint:
-              'Run patchwork commit $package, delete $editPath, or pass --force.',
-          location: editPath,
-        );
-      }
-    }
-
-    final tempEditPath = p.join(
-      _layout.editRootPath,
-      '.$package@${resolved.version}.$pid.${DateTime.now().microsecondsSinceEpoch}',
-    );
-    _packageTree.deleteDirectory(tempEditPath);
-    var preservedFailedEdit = false;
-    var wrotePartialRepairLog = false;
-    var partialRejectPaths = const <String>[];
-    try {
-      _packageTree.copy(resolved.rootPath, tempEditPath);
-      _packageTree.copy(
-        resolved.rootPath,
-        p.join(tempEditPath, '.patchwork', 'source'),
-      );
-      _editSessionStore.write(
-        package: package,
-        version: resolved.version,
-        source: resolved.source,
-        editPath: tempEditPath,
-      );
-      if (continuedFromPatchContent != null) {
-        if (partialPatchApply) {
-          final partialApply = _patchFile.applyPartial(
-            packagePath: tempEditPath,
-            patchContent: continuedFromPatchContent,
-          );
-          if (!partialApply.appliedCleanly) {
-            wrotePartialRepairLog = true;
-            partialRejectPaths = partialApply.rejectPaths;
-            _writePartialRepairLog(
-              editPath: tempEditPath,
-              package: package,
-              version: resolved.version,
-              patchPath: continuedFromPatchPath!,
-              partialApply: partialApply,
-            );
-          }
-        } else {
-          try {
-            _patchFile.apply(
-              packagePath: tempEditPath,
-              patchContent: continuedFromPatchContent,
-            );
-          } on PatchworkException catch (error) {
-            if (!preserveFailedPatchApply) {
-              rethrow;
-            }
-            if (editExists) {
-              _packageTree.deleteDirectory(editPath);
-            }
-            Directory(tempEditPath).renameSync(editPath);
-            preservedFailedEdit = true;
-            throw PatchworkException(
-              error.message,
-              code: error.code,
-              hint: _failedCarryHint(
-                package: package,
-                editPath: editPath,
-                originalHint: error.hint,
-              ),
-              location: editPath,
-            );
-          }
-        }
-      }
-      if (editExists) {
-        _packageTree.deleteDirectory(editPath);
-      }
-      Directory(tempEditPath).renameSync(editPath);
-    } catch (_) {
-      if (!preservedFailedEdit) {
-        _packageTree.deleteDirectory(tempEditPath);
-      }
-      rethrow;
-    }
-
-    return PreparedEdit(
+    return _editPreparer.prepare(
       package: package,
-      version: resolved.version,
-      path: editPath,
-      sourcePath: resolved.rootPath,
+      resolved: resolved,
       continuedFromPatchPath: continuedFromPatchPath,
-      partialRepairLogPath: wrotePartialRepairLog
-          ? p.join(editPath, '.patchwork', 'partial-repair.log')
-          : null,
-      partialRejectPaths: partialRejectPaths,
+      continuedFromPatchContent: continuedFromPatchContent,
+      replaceExisting: replaceExisting,
+      preserveFailedPatchApply: preserveFailedPatchApply,
+      partialPatchApply: partialPatchApply,
     );
   }
 
@@ -333,6 +274,7 @@ final class Patchwork {
 
     final resolution = _readResolution();
     final resolved = resolution.resolvePackage(package);
+    final inventory = PatchworkArtifactInventory.read(_layout);
     if (_isPackageApplied(package, resolved)) {
       throw PatchworkException(
         'Package "$package" already has an applied Patchwork patch.',
@@ -345,6 +287,7 @@ final class Patchwork {
       package: package,
       currentVersion: resolved.version,
       fromVersion: fromVersion,
+      inventory: inventory,
     );
     return _prepareEdit(
       package,
@@ -355,81 +298,6 @@ final class Patchwork {
     );
   }
 
-  String _failedCarryHint({
-    required String package,
-    required String editPath,
-    required String? originalHint,
-  }) {
-    final repairHint =
-        'Created ${relativePath(editPath)} with the current source and baseline. '
-        'Fix the edit manually, then run patchwork commit $package.';
-    if (originalHint == null || originalHint.isEmpty) {
-      return repairHint;
-    }
-    return '$originalHint\n$repairHint';
-  }
-
-  void _writePartialRepairLog({
-    required String editPath,
-    required String package,
-    required String version,
-    required String patchPath,
-    required PartialPatchApply partialApply,
-  }) {
-    final metadataPath = p.join(editPath, '.patchwork');
-    Directory(metadataPath).createSync(recursive: true);
-    final log = StringBuffer()
-      ..writeln('Patchwork partial repair')
-      ..writeln('package: $package')
-      ..writeln('version: $version')
-      ..writeln('patch: ${relativePath(patchPath)}')
-      ..writeln('gitExitCode: ${partialApply.exitCode}');
-
-    if (partialApply.rejectPaths.isEmpty) {
-      log.writeln('rejects: none');
-    } else {
-      log.writeln('rejects:');
-      for (final rejectPath in partialApply.rejectPaths) {
-        log.writeln('- $rejectPath');
-      }
-    }
-
-    if (partialApply.output.isNotEmpty) {
-      log
-        ..writeln()
-        ..writeln('git apply --reject output:')
-        ..writeln(partialApply.output);
-    }
-
-    File(
-      p.join(metadataPath, 'partial-repair.log'),
-    ).writeAsStringSync(log.toString(), flush: true);
-  }
-
-  bool _canReplaceEditDirectory({
-    required String package,
-    required String editPath,
-    required String version,
-  }) {
-    final session = _tryReadEditSession(
-      PackageVersionPath(package: package, version: version, path: editPath),
-    );
-    if (session == null) {
-      return false;
-    }
-
-    final patchFile = File(_layout.patchPath(package, version));
-    final content = _patchFile.build(
-      sourcePath: session.baselinePath,
-      editPath: editPath,
-    );
-    if (content.isEmpty) {
-      return true;
-    }
-    return patchFile.existsSync() &&
-        _sha256(utf8.encode(content)) == _sha256(patchFile.readAsBytesSync());
-  }
-
   /// Commits the open edit directory for [package] into `patches/`.
   ///
   /// The edit is diffed against its hidden baseline snapshot. Empty diffs
@@ -437,19 +305,14 @@ final class Patchwork {
   /// changes are validated before the patch file is written.
   Future<PatchWrite> commit(String package) async {
     _checkPlainPackageName(package);
-    final edit = _singleEditDirectory(package);
-    return _commitEdit(edit);
+    return _committer.commit(package);
   }
 
   /// Commits every open edit directory in package-name order.
   ///
   /// Returns an empty list when there are no open edits.
   Future<List<PatchWrite>> commitAll() async {
-    final writes = <PatchWrite>[];
-    for (final package in _openEditPackages()) {
-      writes.add(await commit(package));
-    }
-    return writes;
+    return _committer.commitAll();
   }
 
   /// Registers the committed patch for [package] in the current package's
@@ -460,62 +323,11 @@ final class Patchwork {
   /// dependency so downstream consumers receive Patchwork's hook.
   Future<RegisteredOverlay> overlay(String package, {String? reason}) async {
     _checkPlainPackageName(package);
-    _ensureCurrentPackageCanPublishOverlays();
-
-    final resolution = _readResolution();
-    final resolved = resolution.resolvePackage(package);
-    final patchPath = _layout.patchPath(package, resolved.version);
-    final patchFile = File(patchPath);
-    if (!patchFile.existsSync()) {
-      throw PatchworkException(
-        'No committed patch file exists for "$package".',
-        code: 'overlay.patch_file_missing',
-        hint: 'Run patchwork commit $package first.',
-        location: patchPath,
-      );
-    }
-    final patchBytes = patchFile.readAsBytesSync();
-
-    final manifestPath = p.join(_currentPackageRootPath, 'patchwork.yaml');
-    final overlayPatchPath = _publishableOverlayPatchPath(
-      package: package,
-      version: resolved.version,
-      patchPath: patchPath,
-      patchBytes: patchBytes,
-    );
-    final patchManifestPath = _currentPackageRelativePath(
-      overlayPatchPath,
-      code: 'overlay.patch_outside_package',
-      message:
-          'Overlay patch files must live inside the current package before they can be published.',
-    );
-    final store = OverlayManifestStore(path: manifestPath);
-    final nextManifest = store.read().upsert(
-      OverlayManifestEntry(
-        package: package,
-        version: resolved.version,
-        sha256: resolved.source.sha256,
-        patch: patchManifestPath,
-        reason: reason,
-      ),
-    );
-    store.write(nextManifest);
-
-    return RegisteredOverlay(
-      package: package,
-      version: resolved.version,
-      sha256: resolved.source.sha256,
-      patchPath: patchManifestPath,
-      manifestPath: manifestPath,
-      reason: reason,
-    );
-  }
-
-  List<String> _openEditPackages() {
-    final packages =
-        _layout.editDirectories().map((edit) => edit.package).toSet().toList()
-          ..sort();
-    return packages;
+    return OverlayPublisher(
+      currentPackageRootPath: _currentPackageRootPath,
+      layout: _layout,
+      pubResolutionReader: _pubResolutionReader,
+    ).overlay(package, reason: reason);
   }
 
   /// Applies every committed patch that needs generated output.
@@ -532,14 +344,14 @@ final class Patchwork {
   }
 
   Future<List<String>> _packagesNeedingApply() async {
-    final patches = _layout.patchFiles();
+    final inventory = PatchworkArtifactInventory.read(_layout);
+    final patches = inventory.patchFiles;
     if (patches.isEmpty) {
       return const [];
     }
 
-    final edits = _layout.editDirectories();
-    final openEditPackages = {for (final edit in edits) edit.package};
     final resolution = _readResolution();
+    final overrideState = _overrideState();
     final packages = <String>[];
     for (final patch in patches) {
       final package = patch.package;
@@ -559,26 +371,31 @@ final class Patchwork {
         continue;
       }
 
-      if (openEditPackages.contains(package)) {
-        final edit = edits.firstWhere((edit) => edit.package == package);
+      final openEdits = inventory.editsFor(package);
+      if (openEdits.isNotEmpty) {
         throw PatchworkException(
           'Package "$package" has an open edit directory.',
           code: 'apply.open_edit',
           hint: 'Run patchwork commit $package before applying.',
-          location: edit.path,
+          location: openEdits.first.path,
         );
       }
 
       final applied = _appliedMarkerStore.read(package, patch.version);
       if (applied != null &&
-          _patchworkAppliedPath(package, patch.version, applied.path) == null) {
+          _appliedPaths.patchworkAppliedPath(
+                package,
+                patch.version,
+                applied.path,
+              ) ==
+              null) {
         throw PatchworkException(
           _invalidAppliedPathMessage,
           code: 'apply.applied_path_not_deletable',
           location: applied.path,
         );
       }
-      if (_hasForeignOverride(package, applied)) {
+      if (overrideState.hasForeignOverride(package, applied)) {
         throw PatchworkException(
           'A project file already has a dependency override for "$package".',
           code: 'pub.override_conflict',
@@ -589,25 +406,29 @@ final class Patchwork {
       if (_resolvesToAppliedPath(package, patch.version, resolved)) {
         continue;
       }
-      if (_hasBlockingPendingOverride(
-        package: package,
-        version: patch.version,
-        applied: applied,
-      )) {
+      if (applied == null &&
+          overrideState.blockingConflict(
+                package: package,
+                targetPath: _layout.appliedPath(package, patch.version),
+              ) !=
+              null) {
         _rejectBlockingOverride(
           package: package,
           command: 'apply',
           targetPath: _layout.appliedPath(package, patch.version),
+          overrideState: overrideState,
         );
       }
       final patchBytes = File(patch.path).readAsBytesSync();
       final patchSha256 = _sha256(patchBytes);
-      if (_needsApply(
+      if (appliedPatchNeedsRefresh(
         package: package,
         version: patch.version,
         patchSha256: patchSha256,
         source: resolved.source,
         applied: applied,
+        appliedPaths: _appliedPaths,
+        overrideState: overrideState,
       )) {
         _patchFile.validate(
           sourcePath: resolved.rootPath,
@@ -627,10 +448,8 @@ final class Patchwork {
   /// run `dart pub get` afterwards so pub resolves the generated package.
   Future<AppliedPatch> apply(String package) async {
     _checkPlainPackageName(package);
-    final openEdits = _layout
-        .editDirectories()
-        .where((edit) => edit.package == package)
-        .toList();
+    final inventory = PatchworkArtifactInventory.read(_layout);
+    final openEdits = inventory.editsFor(package);
     if (openEdits.isNotEmpty) {
       throw PatchworkException(
         'Package "$package" has an open edit directory.',
@@ -665,18 +484,20 @@ final class Patchwork {
     );
     final appliedPath = existingApplied == null
         ? _layout.appliedPath(package, resolved.version)
-        : _requirePatchworkAppliedPath(
+        : _appliedPaths.requirePatchworkAppliedPath(
             package,
             resolved.version,
             existingApplied.path,
             code: 'apply.applied_path_not_deletable',
             message: _invalidAppliedPathMessage,
           );
+    final overrideState = _overrideState();
     _rejectBlockingOverride(
       package: package,
       command: 'apply',
       targetPath: appliedPath,
       replaceRootOverride: existingApplied != null,
+      overrideState: overrideState,
     );
     if (existingApplied == null && Directory(appliedPath).existsSync()) {
       throw PatchworkException(
@@ -687,53 +508,21 @@ final class Patchwork {
         location: appliedPath,
       );
     }
-    final tempPath = p.join(
-      _layout.appliedRootPath,
-      '.$package@${resolved.version}.$pid.${DateTime.now().microsecondsSinceEpoch}',
+    _appliedMaterializer.materialize(
+      package: package,
+      version: resolved.version,
+      sourcePath: resolved.rootPath,
+      appliedPath: appliedPath,
+      patchContent: utf8.decode(patchBytes),
     );
-    _packageTree.deleteDirectory(tempPath);
-    Directory(tempPath).createSync(recursive: true);
-    try {
-      _packageTree.copy(resolved.rootPath, tempPath);
-      _patchFile.apply(
-        packagePath: tempPath,
-        patchContent: utf8.decode(patchBytes),
-      );
-      _packageTree.deleteDirectory(appliedPath);
-      Directory(p.dirname(appliedPath)).createSync(recursive: true);
-      Directory(tempPath).renameSync(appliedPath);
-    } catch (_) {
-      _packageTree.deleteDirectory(tempPath);
-      rethrow;
-    }
 
-    final markers = _appliedMarkerStore.readAll();
-    final previousMirroredPubspecDependencyOverrides =
-        _mirroredPubspecDependencyOverrides(markers);
-    final mirroredPubspecDependencyOverrides = _pubspecOverrides
-        .upsertPathOverride(
-          workspaceRootPath: _rootPath,
-          package: package,
-          path: appliedRecordPath,
-          ownedDependencyOverrides: _ownedPubspecDependencyOverrides(markers),
-          pubspecDependencyOverrides: _rootPubspecDependencyOverrides(package),
-          mirroredPubspecDependencyOverrides:
-              previousMirroredPubspecDependencyOverrides,
-        );
-    final nextMarker = AppliedMarker(
+    _appliedActivation().activate(
       package: package,
       version: resolved.version,
       patchSha256: patchSha256,
       path: appliedRecordPath,
       source: resolved.source,
-      mirroredPubspecDependencyOverrides: mirroredPubspecDependencyOverrides,
     );
-    _setMirroredPubspecDependencyOverrides([
-      for (final marker in markers)
-        if (!(marker.package == package && marker.version == resolved.version))
-          marker,
-      nextMarker,
-    ], mirroredPubspecDependencyOverrides);
 
     return AppliedPatch(
       package: package,
@@ -764,7 +553,7 @@ final class Patchwork {
     }
     final marker = applied.single;
 
-    final absoluteAppliedPath = _removeAppliedMarker(
+    final absoluteAppliedPath = _appliedActivation().remove(
       marker,
       code: 'undo.applied_path_not_deletable',
     );
@@ -789,7 +578,8 @@ final class Patchwork {
     bool force = false,
   }) async {
     _checkPlainPackageName(package);
-    final selectedVersion = _removeVersion(package, version);
+    final inventory = PatchworkArtifactInventory.read(_layout);
+    final selectedVersion = _removeVersion(package, version, inventory);
     final changes = <CleanupChange>[];
     final appliedMarkers = <AppliedMarker>[];
 
@@ -805,7 +595,7 @@ final class Patchwork {
       );
     }
 
-    final edit = _editDirectory(package, selectedVersion);
+    final edit = inventory.edit(package, selectedVersion);
     if (edit != null) {
       if (!force) {
         throw PatchworkException(
@@ -827,6 +617,7 @@ final class Patchwork {
 
     final marker = _appliedMarkerStore.read(package, selectedVersion);
     if (marker != null) {
+      final overrideState = _overrideState();
       if (!force) {
         throw PatchworkException(
           'Package "$package@$selectedVersion" has applied Patchwork state.',
@@ -839,14 +630,18 @@ final class Patchwork {
         marker,
         command: 'remove',
         code: 'remove.active_override',
+        overrideState: overrideState,
       );
-      _addAppliedCleanupChanges(changes, marker);
+      _addAppliedCleanupChanges(changes, marker, overrideState: overrideState);
       appliedMarkers.add(marker);
     }
 
     if (!dryRun) {
       for (final marker in appliedMarkers) {
-        _removeAppliedMarker(marker, code: 'remove.applied_path_not_deletable');
+        _appliedActivation().remove(
+          marker,
+          code: 'remove.applied_path_not_deletable',
+        );
       }
       if (edit != null) {
         _packageTree.deleteDirectory(edit.path);
@@ -875,16 +670,19 @@ final class Patchwork {
   Future<CleanupResult> prune({bool dryRun = false, bool force = false}) async {
     final changes = <CleanupChange>[];
     final appliedMarkers = <AppliedMarker>[];
-    final edits = _layout.editDirectories();
-    final appliedDirectories = _layout.appliedDirectories();
+    final inventory = PatchworkArtifactInventory.read(_layout);
     final seen = <String>{};
     final resolution = _readResolution();
+    DependencyOverrideState? overrideState;
+    DependencyOverrideState readOverrideState() {
+      return overrideState ??= _overrideState();
+    }
 
-    for (final patch in _layout.patchFiles()) {
+    for (final patch in inventory.patchFiles) {
       if (_patchMatchesResolution(patch, resolution)) {
         continue;
       }
-      final edit = _findPackageVersionPath(edits, patch.package, patch.version);
+      final edit = inventory.edit(patch.package, patch.version);
       if (edit != null && !force) {
         throw PatchworkException(
           'Package "${patch.package}@${patch.version}" has an open edit directory.',
@@ -896,7 +694,11 @@ final class Patchwork {
 
       final marker = _appliedMarkerStore.read(patch.package, patch.version);
       final activeAppliedReference =
-          marker != null && _appliedOutputHasActiveOverride(marker);
+          marker != null &&
+          _appliedOutputHasActiveOverride(
+            marker,
+            overrideState: readOverrideState(),
+          );
       if (activeAppliedReference && !force) {
         throw PatchworkException(
           'Package "${patch.package}@${patch.version}" has applied Patchwork state.',
@@ -933,23 +735,37 @@ final class Patchwork {
           marker,
           command: 'prune',
           code: 'prune.active_override',
+          overrideState: readOverrideState(),
         );
       }
       if (marker != null && (force || !activeAppliedReference)) {
-        _addAppliedCleanupChanges(changes, marker, seen: seen);
+        _addAppliedCleanupChanges(
+          changes,
+          marker,
+          seen: seen,
+          overrideState: readOverrideState(),
+        );
         appliedMarkers.add(marker);
       }
     }
 
-    for (final appliedDirectory in appliedDirectories) {
+    for (final appliedDirectory in inventory.appliedDirectories) {
       final marker = _tryReadAppliedMarker(appliedDirectory);
       if (marker == null) {
         continue;
       }
-      if (_appliedOutputHasActiveOverride(marker)) {
+      if (_appliedOutputHasActiveOverride(
+        marker,
+        overrideState: readOverrideState(),
+      )) {
         continue;
       }
-      _addAppliedCleanupChanges(changes, marker, seen: seen);
+      _addAppliedCleanupChanges(
+        changes,
+        marker,
+        seen: seen,
+        overrideState: readOverrideState(),
+      );
       appliedMarkers.add(marker);
     }
 
@@ -960,7 +776,10 @@ final class Patchwork {
         if (!removedMarkers.add(key)) {
           continue;
         }
-        _removeAppliedMarker(marker, code: 'prune.applied_path_not_deletable');
+        _appliedActivation().remove(
+          marker,
+          code: 'prune.applied_path_not_deletable',
+        );
       }
       for (final change in changes) {
         switch (change.kind) {
@@ -992,55 +811,23 @@ final class Patchwork {
   /// reported as [PatchProblem] entries when possible so `status` and `doctor`
   /// can still explain existing Patchwork state.
   Future<PatchworkState> inspect() async {
-    final edits = _layout.editDirectories();
-    final patchFiles = _layout.patchFiles();
-    final appliedDirectories = _layout.appliedDirectories();
-    final packages = <String>{
-      ...edits.map((edit) => edit.package),
-      ...patchFiles.map((patch) => patch.package),
-      ...appliedDirectories.map((applied) => applied.package),
-    };
-    if (packages.isEmpty) {
-      return const PatchworkState(packages: []);
-    }
-
-    final statuses = <PatchStatus>[];
-    PubResolution? resolution;
-    PatchworkException? resolutionError;
-    try {
-      resolution = _readResolution();
-    } on PatchworkException catch (error) {
-      resolutionError = error;
-    }
-
-    for (final package in packages.toList()..sort()) {
-      final edit = edits
-          .where((candidate) => candidate.package == package)
-          .toList();
-      final patches = patchFiles
-          .where((candidate) => candidate.package == package)
-          .toList();
-      final applied = appliedDirectories
-          .where((candidate) => candidate.package == package)
-          .toList();
-      statuses.add(
-        _inspectPackage(
-          package: package,
-          edit: edit,
-          patchFiles: patches,
-          appliedDirectories: applied,
-          resolution: resolution,
-          resolutionError: resolutionError,
-        ),
-      );
-    }
-    return PatchworkState(packages: statuses);
+    return PatchworkStateInspector(
+      rootPath: _rootPath,
+      currentPackageRootPath: _currentPackageRootPath,
+      layout: _layout,
+      pubResolutionReader: _pubResolutionReader,
+      editSessionStore: _editSessionStore,
+      appliedMarkerStore: _appliedMarkerStore,
+      appliedPaths: _appliedPaths,
+      readOverrideState: _overrideState,
+    ).inspect();
   }
 
   String _carryPatchVersion({
     required String package,
     required String currentVersion,
     required String? fromVersion,
+    required PatchworkArtifactInventory inventory,
   }) {
     if (fromVersion != null) {
       final patchPath = _layout.patchPath(package, fromVersion);
@@ -1064,12 +851,9 @@ final class Patchwork {
       return fromVersion;
     }
 
-    final stalePatches = _layout
-        .patchFiles()
-        .where(
-          (patch) =>
-              patch.package == package && patch.version != currentVersion,
-        )
+    final stalePatches = inventory
+        .patchesFor(package)
+        .where((patch) => patch.version != currentVersion)
         .toList();
     if (stalePatches.isEmpty) {
       final currentPatchPath = _layout.patchPath(package, currentVersion);
@@ -1094,20 +878,17 @@ final class Patchwork {
     return stalePatches.single.version;
   }
 
-  String _removeVersion(String package, String? version) {
+  String _removeVersion(
+    String package,
+    String? version,
+    PatchworkArtifactInventory inventory,
+  ) {
     if (version != null) {
       _checkSafeRemoveVersionSegment(version);
       return version;
     }
 
-    final versions = <String>{
-      for (final patch in _layout.patchFiles())
-        if (patch.package == package) patch.version,
-      for (final edit in _layout.editDirectories())
-        if (edit.package == package) edit.version,
-      for (final applied in _layout.appliedDirectories())
-        if (applied.package == package) applied.version,
-    };
+    final versions = inventory.versionsFor(package);
     if (versions.isEmpty) {
       throw PatchworkException(
         'No Patchwork artifacts exist for "$package".',
@@ -1141,23 +922,6 @@ final class Patchwork {
     );
   }
 
-  PackageVersionPath? _editDirectory(String package, String version) {
-    return _findPackageVersionPath(_layout.editDirectories(), package, version);
-  }
-
-  PackageVersionPath? _findPackageVersionPath(
-    List<PackageVersionPath> paths,
-    String package,
-    String version,
-  ) {
-    for (final path in paths) {
-      if (path.package == package && path.version == version) {
-        return path;
-      }
-    }
-    return null;
-  }
-
   bool _patchMatchesResolution(
     PackageVersionPath patch,
     PubResolution resolution,
@@ -1182,8 +946,11 @@ final class Patchwork {
         error.code == 'pub.unsupported_source';
   }
 
-  bool _appliedOutputHasActiveOverride(AppliedMarker marker) {
-    final absoluteAppliedPath = _patchworkAppliedPath(
+  bool _appliedOutputHasActiveOverride(
+    AppliedMarker marker, {
+    required DependencyOverrideState overrideState,
+  }) {
+    final absoluteAppliedPath = _appliedPaths.patchworkAppliedPath(
       marker.package,
       marker.version,
       marker.path,
@@ -1191,37 +958,17 @@ final class Patchwork {
     if (absoluteAppliedPath == null) {
       return false;
     }
-
-    for (final overrideRootPath in _overrideRootPaths) {
-      final hasOverrideFileDependencyOverrides = _pubspecOverrides
-          .hasDependencyOverrides(workspaceRootPath: overrideRootPath);
-      if (_pubspecOverrides.pointsToPath(
-        workspaceRootPath: overrideRootPath,
-        package: marker.package,
-        path: absoluteAppliedPath,
-      )) {
-        return true;
-      }
-      if (hasOverrideFileDependencyOverrides) {
-        continue;
-      }
-
-      final dependencyOverrides = _pubspecDependencyOverrides
-          .dependencyOverrides(packageRootPath: overrideRootPath);
-      if (_overrideValuePointsToPath(
-        workspaceRootPath: overrideRootPath,
-        value: dependencyOverrides[marker.package],
-        path: absoluteAppliedPath,
-      )) {
-        return true;
-      }
-    }
-
-    return false;
+    return overrideState.hasActiveAppliedOverride(
+      marker,
+      absoluteAppliedPath: absoluteAppliedPath,
+    );
   }
 
-  _OverrideConflict? _userOwnedOverrideForAppliedOutput(AppliedMarker marker) {
-    final absoluteAppliedPath = _patchworkAppliedPath(
+  DependencyOverrideConflict? _userOwnedOverrideForAppliedOutput(
+    AppliedMarker marker, {
+    required DependencyOverrideState overrideState,
+  }) {
+    final absoluteAppliedPath = _appliedPaths.patchworkAppliedPath(
       marker.package,
       marker.version,
       marker.path,
@@ -1229,43 +976,22 @@ final class Patchwork {
     if (absoluteAppliedPath == null) {
       return null;
     }
-
-    for (final overrideRootPath in _overrideRootPaths) {
-      if (!p.equals(overrideRootPath, _rootPath) &&
-          _pubspecOverrides.pointsToPath(
-            workspaceRootPath: overrideRootPath,
-            package: marker.package,
-            path: absoluteAppliedPath,
-          )) {
-        return _OverrideConflict(
-          fileName: 'pubspec_overrides.yaml',
-          path: p.join(overrideRootPath, 'pubspec_overrides.yaml'),
-        );
-      }
-
-      final dependencyOverrides = _pubspecDependencyOverrides
-          .dependencyOverrides(packageRootPath: overrideRootPath);
-      if (_overrideValuePointsToPath(
-        workspaceRootPath: overrideRootPath,
-        value: dependencyOverrides[marker.package],
-        path: absoluteAppliedPath,
-      )) {
-        return _OverrideConflict(
-          fileName: 'pubspec.yaml',
-          path: p.join(overrideRootPath, 'pubspec.yaml'),
-        );
-      }
-    }
-
-    return null;
+    return overrideState.userOwnedAppliedOverride(
+      marker,
+      absoluteAppliedPath: absoluteAppliedPath,
+    );
   }
 
   void _rejectUserOwnedOverrideForAppliedCleanup(
     AppliedMarker marker, {
     required String command,
     required String code,
+    required DependencyOverrideState overrideState,
   }) {
-    final userOverride = _userOwnedOverrideForAppliedOutput(marker);
+    final userOverride = _userOwnedOverrideForAppliedOutput(
+      marker,
+      overrideState: overrideState,
+    );
     if (userOverride == null) {
       return;
     }
@@ -1276,26 +1002,6 @@ final class Patchwork {
           'Remove the dependency override that points at ${marker.path} before running patchwork $command --force.',
       location: userOverride.path,
     );
-  }
-
-  bool _overrideValuePointsToPath({
-    required String workspaceRootPath,
-    required Object? value,
-    required String path,
-  }) {
-    if (value is! Map<String, Object?>) {
-      return false;
-    }
-    final overridePath = value['path'];
-    if (overridePath is! String) {
-      return false;
-    }
-    final absoluteOverridePath = p.normalize(
-      p.isAbsolute(overridePath)
-          ? overridePath
-          : p.absolute(workspaceRootPath, overridePath),
-    );
-    return p.equals(absoluteOverridePath, p.normalize(path));
   }
 
   AppliedMarker? _tryReadAppliedMarker(PackageVersionPath appliedDirectory) {
@@ -1313,8 +1019,9 @@ final class Patchwork {
     List<CleanupChange> changes,
     AppliedMarker marker, {
     Set<String>? seen,
+    required DependencyOverrideState overrideState,
   }) {
-    final appliedPath = _requirePatchworkAppliedPath(
+    final appliedPath = _appliedPaths.requirePatchworkAppliedPath(
       marker.package,
       marker.version,
       marker.path,
@@ -1332,8 +1039,7 @@ final class Patchwork {
         path: appliedPath,
       ),
     );
-    if (_pubspecOverrides.pointsToPath(
-          workspaceRootPath: _rootPath,
+    if (overrideState.rootOverridePointsToPath(
           package: marker.package,
           path: marker.path,
         ) ||
@@ -1360,116 +1066,29 @@ final class Patchwork {
     }
   }
 
-  String _removeAppliedMarker(AppliedMarker marker, {required String code}) {
-    final absoluteAppliedPath = _requirePatchworkAppliedPath(
-      marker.package,
-      marker.version,
-      marker.path,
-      code: code,
-      message: _invalidAppliedPathMessage,
-    );
-    final markers = _appliedMarkerStore.readAll();
-    final mirroredPubspecDependencyOverrides =
-        _mirroredPubspecDependencyOverrides(markers);
-    final nextMirroredPubspecDependencyOverrides = _pubspecOverrides
-        .removePathOverrideIfMatches(
-          workspaceRootPath: _rootPath,
-          package: marker.package,
-          path: marker.path,
-          ownedDependencyOverrides: _ownedPubspecDependencyOverrides(markers),
-          pubspecDependencyOverrides: _rootPubspecDependencyOverrides(),
-          mirroredPubspecDependencyOverrides:
-              mirroredPubspecDependencyOverrides,
-        );
-    _packageTree.deleteDirectory(absoluteAppliedPath);
-
-    _setMirroredPubspecDependencyOverrides([
-      for (final existing in markers)
-        if (!(existing.package == marker.package &&
-            existing.version == marker.version))
-          existing,
-    ], nextMirroredPubspecDependencyOverrides);
-
-    return absoluteAppliedPath;
-  }
-
   PubResolution _readResolution() {
     return _pubResolutionReader.readFromDirectory(_currentPackageRootPath);
   }
 
-  void _ensureCurrentPackageCanPublishOverlays() {
-    final pubspecPath = p.join(_currentPackageRootPath, 'pubspec.yaml');
-    try {
-      final decoded = loadYaml(File(pubspecPath).readAsStringSync());
-      if (decoded is! YamlMap) {
-        throw PatchworkException(
-          'pubspec.yaml must contain a YAML object.',
-          code: 'overlay.malformed_pubspec',
-          location: pubspecPath,
-        );
-      }
-      final dependencies = decoded['dependencies'];
-      if (dependencies is YamlMap && dependencies.containsKey('patchwork')) {
-        return;
-      }
-      throw PatchworkException(
-        'The current package must depend on patchwork before publishing overlays.',
-        code: 'overlay.patchwork_dependency_missing',
-        hint: 'Add patchwork under dependencies, not dev_dependencies.',
-        location: pubspecPath,
-      );
-    } on YamlException catch (error) {
-      throw PatchworkException(
-        'Malformed pubspec.yaml.',
-        code: 'overlay.malformed_pubspec',
-        hint: error.message,
-        location: pubspecPath,
-      );
-    } on FileSystemException catch (error) {
-      throw PatchworkException(
-        'Could not read pubspec.yaml.',
-        code: 'overlay.pubspec_not_readable',
-        hint: error.message,
-        location: pubspecPath,
-      );
-    }
-  }
-
-  String _currentPackageRelativePath(
-    String path, {
-    required String code,
-    required String message,
-    String? hint,
-  }) {
-    final absolutePath = p.normalize(p.absolute(path));
-    final currentRoot = p.normalize(p.absolute(_currentPackageRootPath));
-    if (!p.equals(absolutePath, currentRoot) &&
-        !p.isWithin(currentRoot, absolutePath)) {
-      throw PatchworkException(message, code: code, hint: hint, location: path);
-    }
-    return p.posix.joinAll(
-      p.split(p.relative(absolutePath, from: currentRoot)),
+  DependencyOverrideState _overrideState() {
+    return DependencyOverrideState.read(
+      rootPath: _rootPath,
+      overrideRootPaths: _overrideRootPaths,
+      pubspecOverrides: _pubspecOverrides,
+      pubspecDependencyOverrides: _pubspecDependencyOverrides,
     );
   }
 
-  String _publishableOverlayPatchPath({
-    required String package,
-    required String version,
-    required String patchPath,
-    required List<int> patchBytes,
-  }) {
-    final absolutePath = p.normalize(p.absolute(patchPath));
-    final currentRoot = p.normalize(p.absolute(_currentPackageRootPath));
-    if (p.equals(absolutePath, currentRoot) ||
-        p.isWithin(currentRoot, absolutePath)) {
-      return patchPath;
-    }
-
-    final packagePatchPath = PathLayout(
-      _currentPackageRootPath,
-    ).patchPath(package, version);
-    writeBytesFileAtomically(packagePatchPath, patchBytes);
-    return packagePatchPath;
+  AppliedPatchActivation _appliedActivation() {
+    return AppliedPatchActivation(
+      rootPath: _rootPath,
+      appliedPaths: _appliedPaths,
+      appliedMarkerStore: _appliedMarkerStore,
+      pubspecOverrides: _pubspecOverrides,
+      packageTree: _packageTree,
+      readOverrideState: _overrideState,
+      invalidAppliedPathMessage: _invalidAppliedPathMessage,
+    );
   }
 
   List<int> _readCommittedPatchBytes(String package, String version) {
@@ -1492,8 +1111,9 @@ final class Patchwork {
     required String command,
     required String targetPath,
     bool replaceRootOverride = false,
+    DependencyOverrideState? overrideState,
   }) {
-    final conflict = _blockingOverrideConflict(
+    final conflict = (overrideState ?? _overrideState()).blockingConflict(
       package: package,
       targetPath: targetPath,
       replaceRootOverride: replaceRootOverride,
@@ -1506,74 +1126,6 @@ final class Patchwork {
             'Remove or resolve the existing override before running patchwork $command $package.',
         location: conflict.path,
       );
-    }
-  }
-
-  _OverrideConflict? _blockingOverrideConflict({
-    required String package,
-    required String targetPath,
-    bool replaceRootOverride = false,
-  }) {
-    for (final overrideRootPath in _overrideRootPaths) {
-      final canReplaceHere =
-          replaceRootOverride && p.equals(overrideRootPath, _rootPath);
-      if (_pubspecOverrides.hasBlockingPathOverride(
-        workspaceRootPath: overrideRootPath,
-        package: package,
-        path: targetPath,
-        replaceExisting: canReplaceHere,
-      )) {
-        return _OverrideConflict(
-          fileName: 'pubspec_overrides.yaml',
-          path: p.join(overrideRootPath, 'pubspec_overrides.yaml'),
-        );
-      }
-      if (_pubspecOverrides.hasDependencyOverrides(
-        workspaceRootPath: overrideRootPath,
-      )) {
-        continue;
-      }
-      if (_pubspecDependencyOverrides.hasOverride(
-        packageRootPath: overrideRootPath,
-        package: package,
-      )) {
-        return _OverrideConflict(
-          fileName: 'pubspec.yaml',
-          path: p.join(overrideRootPath, 'pubspec.yaml'),
-        );
-      }
-    }
-    return null;
-  }
-
-  PackageVersionPath _singleEditDirectory(String package) {
-    final edits = _layout
-        .editDirectories()
-        .where((edit) => edit.package == package)
-        .toList();
-    if (edits.isEmpty) {
-      throw PatchworkException(
-        'No edit directory exists for "$package".',
-        code: 'commit.edit_missing',
-        hint: 'Run patchwork patch $package first.',
-      );
-    }
-    if (edits.length > 1) {
-      throw PatchworkException(
-        'More than one edit directory exists for "$package".',
-        code: 'commit.ambiguous_edit',
-        hint:
-            'Commit or delete the extra .patchwork/$package@<version> directories.',
-      );
-    }
-    return edits.single;
-  }
-
-  EditSession? _tryReadEditSession(PackageVersionPath edit) {
-    try {
-      return _editSessionStore.read(edit);
-    } on PatchworkException {
-      return null;
     }
   }
 
@@ -1597,7 +1149,7 @@ final class Patchwork {
     if (marker == null) {
       return false;
     }
-    final absoluteAppliedPath = _patchworkAppliedPath(
+    final absoluteAppliedPath = _appliedPaths.patchworkAppliedPath(
       package,
       version,
       marker.path,
@@ -1615,670 +1167,6 @@ final class Patchwork {
         .where((marker) => marker.package == package)
         .toList();
   }
-
-  Future<PatchWrite> _commitEdit(PackageVersionPath edit) async {
-    final session = _editSessionStore.read(edit);
-    final patchPath = _layout.patchPath(edit.package, edit.version);
-    final existingPatchFile = File(patchPath);
-    final content = _patchFile.build(
-      sourcePath: session.baselinePath,
-      editPath: edit.path,
-    );
-    if (content.isEmpty) {
-      if (existingPatchFile.existsSync()) {
-        existingPatchFile.deleteSync();
-      }
-      _packageTree.deleteDirectory(edit.path);
-      return PatchWrite(
-        package: edit.package,
-        version: edit.version,
-        status: PatchWriteStatus.removed,
-        editPath: edit.path,
-        patchPath: patchPath,
-      );
-    }
-
-    final patchBytes = utf8.encode(content);
-    if (existingPatchFile.existsSync() &&
-        _sha256(existingPatchFile.readAsBytesSync()) == _sha256(patchBytes)) {
-      _packageTree.deleteDirectory(edit.path);
-      return PatchWrite(
-        package: edit.package,
-        version: edit.version,
-        status: PatchWriteStatus.unchanged,
-        editPath: edit.path,
-        patchPath: patchPath,
-      );
-    }
-
-    _patchFile.validate(
-      sourcePath: session.baselinePath,
-      patchContent: content,
-    );
-    writeBytesFileAtomically(patchPath, patchBytes);
-    _packageTree.deleteDirectory(edit.path);
-
-    return PatchWrite(
-      package: edit.package,
-      version: edit.version,
-      status: PatchWriteStatus.written,
-      editPath: edit.path,
-      patchPath: patchPath,
-    );
-  }
-
-  bool _hasBlockingPendingOverride({
-    required String package,
-    required String version,
-    required AppliedMarker? applied,
-  }) {
-    if (applied != null) {
-      return false;
-    }
-    return _blockingOverrideConflict(
-          package: package,
-          targetPath: _layout.appliedPath(package, version),
-        ) !=
-        null;
-  }
-
-  bool _hasForeignOverride(String package, AppliedMarker? applied) {
-    for (final overrideRootPath in _overrideRootPaths) {
-      final hasOverrideFileDependencyOverrides = _pubspecOverrides
-          .hasDependencyOverrides(workspaceRootPath: overrideRootPath);
-      if (_pubspecOverrides.hasOverride(
-        workspaceRootPath: overrideRootPath,
-        package: package,
-      )) {
-        if (p.equals(overrideRootPath, _rootPath) &&
-            applied != null &&
-            _pubspecOverrides.pointsToPath(
-              workspaceRootPath: overrideRootPath,
-              package: package,
-              path: applied.path,
-            )) {
-          continue;
-        }
-        return true;
-      }
-      if (hasOverrideFileDependencyOverrides) {
-        continue;
-      }
-      if (_pubspecDependencyOverrides.hasOverride(
-        packageRootPath: overrideRootPath,
-        package: package,
-      )) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  Map<String, Object?> _rootPubspecDependencyOverrides([
-    String? skippedPackage,
-  ]) {
-    final dependencyOverrides = <String, Object?>{};
-    // `pubspec_overrides.yaml` replaces only the state-root pubspec fields.
-    // Workspace member overrides remain active in their own pubspec files.
-    final rootOverrides = _pubspecDependencyOverrides.dependencyOverrides(
-      packageRootPath: _rootPath,
-    );
-    for (final entry in rootOverrides.entries) {
-      if (entry.key == skippedPackage) {
-        continue;
-      }
-      dependencyOverrides[entry.key] = _rootRelativePathOverride(entry.value);
-    }
-    return dependencyOverrides;
-  }
-
-  Map<String, Object?> _mirroredPubspecDependencyOverrides(
-    List<AppliedMarker> markers,
-  ) {
-    final dependencyOverrides = <String, Object?>{};
-    for (final marker in markers) {
-      dependencyOverrides.addAll(marker.mirroredPubspecDependencyOverrides);
-    }
-    return dependencyOverrides;
-  }
-
-  Map<String, Object?> _ownedPubspecDependencyOverrides(
-    List<AppliedMarker> markers,
-  ) {
-    final dependencyOverrides = <String, Object?>{};
-    for (final marker in markers) {
-      dependencyOverrides.addAll(marker.mirroredPubspecDependencyOverrides);
-      dependencyOverrides[marker.package] = {'path': marker.path};
-    }
-    return dependencyOverrides;
-  }
-
-  void _setMirroredPubspecDependencyOverrides(
-    List<AppliedMarker> markers,
-    Map<String, Object?> dependencyOverrides,
-  ) {
-    for (final marker in markers) {
-      _appliedMarkerStore.write(
-        marker.copyWith(
-          mirroredPubspecDependencyOverrides: dependencyOverrides,
-        ),
-      );
-    }
-  }
-
-  Object? _rootRelativePathOverride(Object? value) {
-    if (value is Map<String, Object?> && value['path'] is String) {
-      final path = value['path'] as String;
-      final absolutePath = p.normalize(
-        p.isAbsolute(path) ? path : p.absolute(_rootPath, path),
-      );
-      return {
-        ...value,
-        'path': p.posix.joinAll(
-          p.split(p.relative(absolutePath, from: _rootPath)),
-        ),
-      };
-    }
-    return value;
-  }
-
-  bool _needsApply({
-    required String package,
-    required String version,
-    required String patchSha256,
-    required PackageSource source,
-    required AppliedMarker? applied,
-  }) {
-    if (applied == null) {
-      return true;
-    }
-    final appliedPath = _patchworkAppliedPath(package, version, applied.path);
-    if (appliedPath == null) {
-      return false;
-    }
-
-    return !Directory(appliedPath).existsSync() ||
-        !_pubspecOverrides.pointsToPath(
-          workspaceRootPath: _rootPath,
-          package: package,
-          path: applied.path,
-        ) ||
-        applied.patchSha256 != patchSha256 ||
-        (applied.source != null && applied.source != source);
-  }
-
-  PatchStatus _inspectPackage({
-    required String package,
-    required List<PackageVersionPath> edit,
-    required List<PackageVersionPath> patchFiles,
-    required List<PackageVersionPath> appliedDirectories,
-    required PubResolution? resolution,
-    required PatchworkException? resolutionError,
-  }) {
-    final problems = <PatchProblem>[];
-    if (edit.length > 1) {
-      problems.add(
-        PatchProblem(
-          code: 'commit.ambiguous_edit',
-          message: 'More than one edit directory exists for "$package".',
-          hint:
-              'Commit or delete the extra .patchwork/$package@<version> directories.',
-        ),
-      );
-    }
-
-    ResolvedPubPackage? resolved;
-    var pubResolutionPointsToApplied = false;
-    var pubResolutionMatchesSource = false;
-
-    if (resolutionError != null) {
-      problems.add(
-        PatchProblem(
-          code: resolutionError.code,
-          message: resolutionError.message,
-          hint: resolutionError.hint,
-        ),
-      );
-    } else if (resolution != null) {
-      try {
-        resolved = resolution.resolvePackage(
-          package,
-          requireDirectDependency: false,
-        );
-        pubResolutionPointsToApplied = _resolvesToAppliedPath(
-          package,
-          resolved.version,
-          resolved,
-        );
-        pubResolutionMatchesSource = !pubResolutionPointsToApplied;
-      } on PatchworkException catch (error) {
-        problems.add(
-          PatchProblem(
-            code: error.code,
-            message: error.message,
-            hint: error.hint,
-          ),
-        );
-      }
-    }
-
-    final version =
-        resolved?.version ??
-        (edit.isNotEmpty
-            ? edit.first.version
-            : patchFiles.isNotEmpty
-            ? patchFiles.first.version
-            : appliedDirectories.isNotEmpty
-            ? appliedDirectories.first.version
-            : 'unknown');
-    final patchPath = _layout.patchPath(package, version);
-    final hasPatchFile = patchFiles.any(
-      (patch) => patch.version == version && p.equals(patch.path, patchPath),
-    );
-    final patchSha256 = hasPatchFile
-        ? _sha256(File(patchPath).readAsBytesSync())
-        : null;
-
-    if (edit.length == 1) {
-      final editHasPatchFile = patchFiles.any(
-        (patch) => patch.version == edit.single.version,
-      );
-      try {
-        _editSessionStore.read(edit.single);
-      } on PatchworkException catch (error) {
-        problems.add(
-          PatchProblem(
-            code: error.code,
-            message: error.message,
-            hint: error.hint,
-            remediationVersion: edit.single.version,
-            remediationCanContinuePatch: editHasPatchFile,
-          ),
-        );
-      }
-    }
-
-    AppliedMarker? applied;
-    final appliedForVersion = appliedDirectories
-        .where((candidate) => candidate.version == version)
-        .toList();
-    final markerlessOverridePointsToApplied =
-        appliedForVersion.isNotEmpty &&
-        _pubspecOverrides.pointsToPath(
-          workspaceRootPath: _rootPath,
-          package: package,
-          path: _layout.relativeAppliedPath(package, version),
-        );
-    if (appliedForVersion.isNotEmpty) {
-      try {
-        applied = _appliedMarkerStore.read(package, version);
-      } on PatchworkException catch (error) {
-        problems.add(
-          PatchProblem(
-            code: error.code,
-            message: error.message,
-            hint: error.hint,
-            remediationRequiresOverrideCleanup:
-                markerlessOverridePointsToApplied,
-          ),
-        );
-      }
-      if (applied == null) {
-        problems.add(
-          PatchProblem(
-            code: 'applied.marker_missing',
-            message:
-                'Generated Patchwork output exists without an ownership marker.',
-            hint:
-                'Remove ${relativePath(_layout.appliedPath(package, version))} before applying again if it is safe.',
-            remediationRequiresOverrideCleanup:
-                markerlessOverridePointsToApplied,
-          ),
-        );
-      }
-    }
-    for (final appliedDirectory in appliedDirectories) {
-      if (appliedDirectory.version == version) {
-        continue;
-      }
-      final staleAppliedMarker = _tryReadAppliedMarker(appliedDirectory);
-      final staleAppliedCanPrune =
-          staleAppliedMarker != null &&
-          _patchworkAppliedPath(
-                package,
-                appliedDirectory.version,
-                staleAppliedMarker.path,
-              ) !=
-              null;
-      problems.add(
-        PatchProblem(
-          code: 'applied.stale',
-          message:
-              'Generated output ${relativePath(appliedDirectory.path)} targets "$package@${appliedDirectory.version}", but current state is "$package@$version".',
-          hint: 'Run patchwork prune to remove unreferenced generated output.',
-          remediationVersion: appliedDirectory.version,
-          remediationRequiresManualCleanup: !staleAppliedCanPrune,
-        ),
-      );
-    }
-
-    final editVersion = edit.length == 1 ? edit.single.version : null;
-    if (!hasPatchFile && edit.isNotEmpty) {
-      problems.add(
-        PatchProblem(
-          code: 'commit.open_edit',
-          message: 'Package "$package" has an uncommitted edit directory.',
-          hint: editVersion == null
-              ? 'Run patchwork commit $package after removing any extra edit directories.'
-              : 'Run patchwork commit $package, or patchwork remove $package $editVersion --force to discard it.',
-          remediationVersion: editVersion,
-        ),
-      );
-    } else if (edit.isNotEmpty) {
-      problems.add(
-        PatchProblem(
-          code: 'apply.open_edit',
-          message: 'Package "$package" has an open edit directory.',
-          hint: 'Run patchwork commit $package before applying this patch.',
-          remediationVersion: editVersion,
-        ),
-      );
-    }
-    if (resolved != null) {
-      for (final patch in patchFiles) {
-        if (patch.version == resolved.version) {
-          continue;
-        }
-        problems.add(
-          PatchProblem(
-            code: 'patch.stale',
-            message:
-                'Patch file ${relativePath(patch.path)} targets "$package@${patch.version}", but current pub resolution is "$package@${resolved.version}".',
-            hint:
-                'Use patchwork carry $package --from ${patch.version} to carry it forward, or patchwork remove $package ${patch.version} to remove it.',
-            remediationVersion: patch.version,
-          ),
-        );
-      }
-    }
-
-    final appliedPathInProject = applied == null
-        ? (appliedForVersion.isEmpty
-              ? null
-              : _patchworkAppliedPath(
-                  package,
-                  version,
-                  _layout.relativeAppliedPath(package, version),
-                ))
-        : _patchworkAppliedPath(package, version, applied.path);
-    final appliedAbsolutePath = applied == null
-        ? appliedPathInProject
-        : _absoluteFromRoot(applied.path);
-    final appliedExists =
-        appliedPathInProject != null &&
-        Directory(appliedPathInProject).existsSync();
-    final overridePointsToApplied =
-        applied != null &&
-        _pubspecOverrides.pointsToPath(
-          workspaceRootPath: _rootPath,
-          package: package,
-          path: applied.path,
-        );
-    final hasBlockingOverride =
-        hasPatchFile &&
-        (_hasBlockingPendingOverride(
-              package: package,
-              version: version,
-              applied: applied,
-            ) ||
-            _hasForeignOverride(package, applied));
-    final repairHint = pubResolutionMatchesSource
-        ? 'Run patchwork apply $package.'
-        : 'Run patchwork undo $package, dart pub get, then patchwork apply $package.';
-    final repairRequiresUndoFirst = !pubResolutionMatchesSource;
-    if (hasBlockingOverride) {
-      problems.add(
-        PatchProblem(
-          code: 'pub.override_conflict',
-          message:
-              'A project file already has a dependency override for "$package".',
-          hint:
-              'Remove or resolve the existing override before running patchwork apply $package.',
-        ),
-      );
-    }
-    if (applied != null && !appliedExists) {
-      problems.add(
-        PatchProblem(
-          code: 'applied.output_missing',
-          message:
-              'Applied marker exists, but the generated directory is missing.',
-          hint: repairHint,
-          remediationRequiresUndoFirst: repairRequiresUndoFirst,
-        ),
-      );
-    }
-    if (applied != null && !hasPatchFile) {
-      problems.add(
-        PatchProblem(
-          code: 'applied.patch_missing',
-          message:
-              'An applied patch is recorded, but no committed patch exists.',
-          hint: 'Run patchwork undo $package and dart pub get.',
-        ),
-      );
-    }
-    if (applied != null &&
-        overridePointsToApplied &&
-        resolved != null &&
-        !pubResolutionPointsToApplied) {
-      problems.add(
-        const PatchProblem(
-          code: 'applied.pub_get_required',
-          message:
-              'pub resolution has not been refreshed for the applied patch.',
-          hint: 'Run dart pub get.',
-        ),
-      );
-    }
-    if (applied != null &&
-        patchSha256 != null &&
-        applied.patchSha256 != patchSha256) {
-      problems.add(
-        PatchProblem(
-          code: 'applied.patch_stale',
-          message: 'Applied patch sha256 differs from the committed patch.',
-          hint: repairHint,
-          remediationRequiresUndoFirst: repairRequiresUndoFirst,
-        ),
-      );
-    }
-    if (applied != null &&
-        resolved != null &&
-        !pubResolutionPointsToApplied &&
-        applied.source != null &&
-        applied.source != resolved.source) {
-      problems.add(
-        PatchProblem(
-          code: 'applied.source_stale',
-          message: 'Applied output was generated from a different source tree.',
-          hint: repairHint,
-          remediationRequiresUndoFirst: repairRequiresUndoFirst,
-        ),
-      );
-    }
-    if (applied != null && appliedPathInProject == null) {
-      problems.add(
-        PatchProblem(
-          code: 'undo.applied_path_not_deletable',
-          message: 'Applied output path cannot be safely deleted.',
-          hint: 'Remove the generated output manually after reviewing it.',
-        ),
-      );
-    }
-    if (applied != null && !overridePointsToApplied) {
-      problems.add(
-        PatchProblem(
-          code: 'applied.override_missing',
-          message:
-              'pubspec_overrides.yaml no longer points at the applied patch.',
-          hint: repairHint,
-          remediationRequiresUndoFirst: repairRequiresUndoFirst,
-        ),
-      );
-    }
-
-    return PatchStatus(
-      package: package,
-      version: version,
-      editPath: _layout.editPath(package, version),
-      patchPath: patchPath,
-      appliedPath: appliedAbsolutePath,
-      hasOpenEdit: edit.isNotEmpty,
-      hasPatch: hasPatchFile,
-      needsApply:
-          hasPatchFile &&
-          edit.isEmpty &&
-          resolved != null &&
-          resolved.version == version &&
-          pubResolutionMatchesSource &&
-          !hasBlockingOverride &&
-          patchSha256 != null &&
-          (appliedForVersion.isEmpty ||
-              (applied != null &&
-                  _needsApply(
-                    package: package,
-                    version: version,
-                    patchSha256: patchSha256,
-                    source: resolved.source,
-                    applied: applied,
-                  ))),
-      problems: problems,
-    );
-  }
-
-  String _absoluteFromRoot(String path) {
-    final absolute = p.isAbsolute(path) ? path : p.absolute(_rootPath, path);
-    return p.normalize(absolute);
-  }
-
-  String? _projectChildPath(String path) {
-    final absolute = _absoluteFromRoot(path);
-    final root = p.normalize(p.absolute(_rootPath));
-    if (p.equals(root, absolute) || !p.isWithin(root, absolute)) {
-      return null;
-    }
-    final canonical = _canonicalPathThroughExistingAncestors(absolute);
-    final canonicalRoot = _canonicalPathThroughExistingAncestors(root);
-    if (canonical == null ||
-        canonicalRoot == null ||
-        p.equals(canonicalRoot, canonical) ||
-        !p.isWithin(canonicalRoot, canonical)) {
-      return null;
-    }
-    return absolute;
-  }
-
-  String? _deletableProjectChildPath(String path) {
-    final absolute = _projectChildPath(path);
-    if (absolute == null || _isProtectedRootPath(absolute)) {
-      return null;
-    }
-    return absolute;
-  }
-
-  String? _patchworkAppliedPath(String package, String version, String path) {
-    final absolute = _deletableProjectChildPath(path);
-    if (absolute == null) {
-      return null;
-    }
-    final expected = p.normalize(_layout.appliedPath(package, version));
-    if (!p.equals(absolute, expected)) {
-      return null;
-    }
-    return absolute;
-  }
-
-  String _requirePatchworkAppliedPath(
-    String package,
-    String version,
-    String path, {
-    required String code,
-    required String message,
-  }) {
-    final absolute = _patchworkAppliedPath(package, version, path);
-    if (absolute == null) {
-      throw PatchworkException(message, code: code, location: path);
-    }
-    return absolute;
-  }
-
-  bool _isProtectedRootPath(String path) {
-    final normalized = p.normalize(path);
-    final canonical = _canonicalPathIfExists(path);
-    for (final protectedRoot in _protectedRootPaths) {
-      if (p.equals(normalized, protectedRoot)) {
-        return true;
-      }
-      final canonicalProtectedRoot = _canonicalPathIfExists(protectedRoot);
-      if (canonical != null &&
-          canonicalProtectedRoot != null &&
-          p.equals(canonical, canonicalProtectedRoot)) {
-        return true;
-      }
-    }
-    return false;
-  }
-}
-
-final class _OverrideConflict {
-  const _OverrideConflict({required this.fileName, required this.path});
-
-  final String fileName;
-  final String path;
-}
-
-String? _canonicalPathIfExists(String path) {
-  try {
-    return p.normalize(_resolveExistingPath(path));
-  } on FileSystemException {
-    return null;
-  }
-}
-
-String? _canonicalPathThroughExistingAncestors(String path) {
-  final missingSegments = <String>[];
-  var current = p.normalize(path);
-  while (FileSystemEntity.typeSync(current, followLinks: false) ==
-      FileSystemEntityType.notFound) {
-    final parent = p.dirname(current);
-    if (p.equals(parent, current)) {
-      return null;
-    }
-    missingSegments.add(p.basename(current));
-    current = parent;
-  }
-
-  try {
-    var canonical = p.normalize(_resolveExistingPath(current));
-    for (final segment in missingSegments.reversed) {
-      canonical = p.join(canonical, segment);
-    }
-    return p.normalize(canonical);
-  } on FileSystemException {
-    return null;
-  }
-}
-
-String _resolveExistingPath(String path) {
-  return switch (FileSystemEntity.typeSync(path, followLinks: false)) {
-    FileSystemEntityType.directory => Directory(
-      path,
-    ).resolveSymbolicLinksSync(),
-    FileSystemEntityType.file => File(path).resolveSymbolicLinksSync(),
-    FileSystemEntityType.link => Link(path).resolveSymbolicLinksSync(),
-    _ => throw FileSystemException('Path cannot be resolved.', path),
-  };
 }
 
 void _checkPlainPackageName(String package) {

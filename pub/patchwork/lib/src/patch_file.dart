@@ -193,7 +193,6 @@ final class PatchFile {
     }
 
     final existingRejectBackups = _rejectFileBackups(packagePath);
-    final patchTouchedPaths = _patchTouchedRelativePaths(patchContent);
     final patchFile = File(
       p.join(
         Directory.systemTemp.path,
@@ -204,6 +203,17 @@ final class PatchFile {
 
     try {
       patchFile.writeAsStringSync(patchContent, flush: true);
+      final patchTouchedPaths = _patchTouchedRelativePaths(patchContent)
+        ..addAll(
+          _gitNumstatRelativePaths(
+            _runGitAllowingRejects([
+              'apply',
+              '--numstat',
+              '-z',
+              patchFile.path,
+            ], workingDirectory: packagePath),
+          ),
+        );
       final result = _runGitAllowingRejects([
         'apply',
         '--reject',
@@ -470,6 +480,32 @@ Set<String> _gitRejectRelativePaths(String output) {
   return paths;
 }
 
+Set<String> _gitNumstatRelativePaths(ProcessResult result) {
+  if (result.exitCode != 0) {
+    return const {};
+  }
+
+  final paths = <String>{};
+  for (final record in result.stdout.toString().split('\x00')) {
+    if (record.isEmpty) {
+      continue;
+    }
+    final firstSeparator = record.indexOf('\t');
+    if (firstSeparator == -1) {
+      continue;
+    }
+    final secondSeparator = record.indexOf('\t', firstSeparator + 1);
+    if (secondSeparator == -1) {
+      continue;
+    }
+    final path = _patchRelativePath(record.substring(secondSeparator + 1));
+    if (path != null) {
+      paths.add(path);
+    }
+  }
+  return paths;
+}
+
 Set<String> _patchTouchedRelativePaths(String patchContent) {
   final paths = <String>{};
   final normalized = patchContent.replaceAll('\r\n', '\n');
@@ -484,20 +520,43 @@ Set<String> _patchTouchedRelativePaths(String patchContent) {
       if (path != null) {
         paths.add(path);
       }
+    } else {
+      final path = _patchMetadataRelativePath(line);
+      if (path != null) {
+        paths.add(path);
+      }
     }
   }
   return paths;
 }
 
 String? _patchHeaderRelativePath(String rawPath) {
-  final decodedPath = _decodeGitPath(rawPath.trimRight());
-  if (decodedPath == '/dev/null') {
+  final path = _patchRelativePath(rawPath);
+  if (path == null) {
     return null;
   }
-  if (decodedPath.startsWith('a/') || decodedPath.startsWith('b/')) {
-    return decodedPath.substring(2).replaceAll('\\', '/');
+  if (path.startsWith('a/') || path.startsWith('b/')) {
+    return path.substring(2);
   }
   return null;
+}
+
+String? _patchMetadataRelativePath(String line) {
+  const prefixes = ['rename from ', 'rename to ', 'copy from ', 'copy to '];
+  for (final prefix in prefixes) {
+    if (line.startsWith(prefix)) {
+      return _patchRelativePath(line.substring(prefix.length));
+    }
+  }
+  return null;
+}
+
+String? _patchRelativePath(String rawPath) {
+  final decodedPath = _decodeGitPath(rawPath.trimRight());
+  if (decodedPath.isEmpty || decodedPath == '/dev/null') {
+    return null;
+  }
+  return decodedPath.replaceAll('\\', '/');
 }
 
 String _decodeGitPath(String path) {

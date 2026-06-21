@@ -102,4 +102,101 @@ diff --git a/lib/foo.dart.rej b/lib/foo.dart.rej
     expect(existingRejectFile.readAsStringSync(), 'original source file\n');
     expect(Directory(p.join(root.path, '.patchwork')).existsSync(), isFalse);
   });
+
+  test('partial apply detects reject collisions from binary patch paths', () {
+    final root = Directory.systemTemp.createTempSync('patchwork_patch_file_');
+    addTearDown(() => root.deleteSync(recursive: true));
+
+    final existingRejectFile =
+        File(p.join(root.path, 'lib', 'foo bar.dart.rej'))
+          ..createSync(recursive: true)
+          ..writeAsStringSync('original source file\n');
+    final patchFile = PatchFile(
+      gitRunner: (arguments, {workingDirectory, environment}) {
+        if (arguments.contains('--numstat')) {
+          return ProcessResult(1, 0, '-\t-\tlib/foo bar.dart.rej\x00', '');
+        }
+        File(
+          p.join(workingDirectory!, 'lib', 'foo bar.dart.rej'),
+        ).writeAsStringSync('ambiguous reject output\n');
+        return ProcessResult(
+          1,
+          1,
+          '',
+          'Applying patch lib/foo bar.dart with 1 reject...\n',
+        );
+      },
+    );
+
+    expect(
+      () => patchFile.applyPartial(
+        packagePath: root.path,
+        patchContent: '''
+diff --git a/lib/foo bar.dart.rej b/lib/foo bar.dart.rej
+new file mode 100644
+index 0000000..1234567
+GIT binary patch
+literal 4
+LcmZQzU|;|M0N2U<
+''',
+      ),
+      throwsA(
+        isA<PatchworkException>()
+            .having((error) => error.code, 'code', 'patch.reject_collision')
+            .having(
+              (error) => error.location,
+              'location',
+              p.join(root.path, 'lib', 'foo bar.dart.rej'),
+            ),
+      ),
+    );
+    expect(existingRejectFile.readAsStringSync(), 'original source file\n');
+  });
+
+  test('partial apply detects reject collisions from rename metadata', () {
+    final root = Directory.systemTemp.createTempSync('patchwork_patch_file_');
+    addTearDown(() => root.deleteSync(recursive: true));
+
+    final existingRejectFile = File(p.join(root.path, 'lib', 'foo.dart.rej'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('original source file\n');
+    final patchFile = PatchFile(
+      gitRunner: (arguments, {workingDirectory, environment}) {
+        if (arguments.contains('--numstat')) {
+          return ProcessResult(1, 0, '0\t0\tlib/bar.dart.rej\x00', '');
+        }
+        File(
+          p.join(workingDirectory!, 'lib', 'foo.dart.rej'),
+        ).writeAsStringSync('ambiguous reject output\n');
+        return ProcessResult(
+          1,
+          1,
+          '',
+          'Applying patch lib/foo.dart with 1 reject...\n',
+        );
+      },
+    );
+
+    expect(
+      () => patchFile.applyPartial(
+        packagePath: root.path,
+        patchContent: '''
+diff --git a/lib/foo.dart.rej b/lib/bar.dart.rej
+similarity index 100%
+rename from lib/foo.dart.rej
+rename to lib/bar.dart.rej
+''',
+      ),
+      throwsA(
+        isA<PatchworkException>()
+            .having((error) => error.code, 'code', 'patch.reject_collision')
+            .having(
+              (error) => error.location,
+              'location',
+              p.join(root.path, 'lib', 'foo.dart.rej'),
+            ),
+      ),
+    );
+    expect(existingRejectFile.readAsStringSync(), 'original source file\n');
+  });
 }

@@ -27,6 +27,11 @@ void main() {
         exitCodes: {1},
         stderrContains: 'already has an applied Patchwork patch',
       );
+      await project.application(
+        ['carry', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'already has an applied Patchwork patch',
+      );
       await project.application([
         'doctor',
       ], stdoutContains: 'applied: .dart_tool/patchwork/greeter@0.1.0');
@@ -147,6 +152,133 @@ void main() {
         exitCodes: {1},
         stderrContains: 'Could not apply patch',
       );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'carries a unique stale patch into the current standalone dependency edit',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      await project.application(['patch', 'greeter']);
+      project.writeEdit('Hello from a carried command patch');
+      await project.application(['commit', 'greeter']);
+
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      await project.pubGet();
+
+      final result = await project.applicationResult(['carry', 'greeter']);
+      expect(result.stdout, contains('Created carry edit'));
+      expect(result.stdout, contains('Applied patches/greeter@0.1.0.patch'));
+      expect(
+        result.stdout,
+        contains('Review the edit and run patchwork commit greeter.'),
+      );
+      expect(
+        project.editFileFor('0.1.1').readAsStringSync(),
+        contains('Hello from a carried command patch'),
+      );
+      expect(project.editManifestFor('0.1.1').existsSync(), isTrue);
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            '.patchwork',
+            'source',
+            'lib',
+            'greeter.dart',
+          ),
+        ).readAsStringSync(),
+        contains('Hello, \$name!'),
+      );
+
+      await project.application([
+        'commit',
+        'greeter',
+      ], stdoutContains: 'Wrote patches/greeter@0.1.1.patch.');
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'requires --from when multiple standalone stale patches exist',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from the first stale patch');
+      project.writeGreeterPatch(
+        'Hello from the second stale patch',
+        version: '0.1.1',
+      );
+      project.updateGreeterPackage(
+        version: '0.1.2',
+        greeting: 'Hello, \$name!',
+      );
+      project.writeResolution(greeterVersion: '0.1.2');
+
+      final ambiguous = await project.applicationResult(
+        ['carry', 'greeter'],
+        exitCodes: {1},
+      );
+      expect(ambiguous.stderr, contains('More than one stale patch'));
+      expect(ambiguous.stderr, contains('Pass --from with one of:'));
+      expect(ambiguous.stderr, contains('0.1.0'));
+      expect(ambiguous.stderr, contains('0.1.1'));
+
+      await project.application(['carry', 'greeter', '--from', '0.1.1']);
+      expect(
+        project.editFileFor('0.1.2').readAsStringSync(),
+        contains('Hello from the second stale patch'),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'leaves a repairable edit when carry cannot apply the stale patch',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from a broken stale patch');
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      project.writeResolution(greeterVersion: '0.1.1');
+      File(
+        p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
+      ).writeAsStringSync('tampered\n');
+
+      final result = await project.applicationResult(
+        ['carry', 'greeter'],
+        exitCodes: {1},
+      );
+      expect(result.stderr, contains('Could not apply patch'));
+      expect(result.stderr, contains('.patchwork/greeter@0.1.1'));
+      expect(result.stderr, contains('patchwork commit greeter'));
+      expect(project.editDirectoryFor('0.1.1').existsSync(), isTrue);
+      expect(project.editManifestFor('0.1.1').existsSync(), isTrue);
+      expect(
+        project.editFileFor('0.1.1').readAsStringSync(),
+        contains('Hello, \$name!'),
+      );
+      expect(
+        File(
+          p.join(project.stateRoot, 'patches', 'greeter@0.1.1.patch'),
+        ).existsSync(),
+        isFalse,
+      );
+      expect(project.appliedDirectoryFor('0.1.1').existsSync(), isFalse);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

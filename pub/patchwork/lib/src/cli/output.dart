@@ -140,8 +140,18 @@ void printSetupJson(Patchwork patchwork, SetupReport report, io.IOSink out) {
 
 /// Writes a `patchwork patch` result as a single JSON document.
 void printPatchJson(Patchwork patchwork, PreparedEdit edit, io.IOSink out) {
+  printEditJson(patchwork, edit, out, command: 'patch');
+}
+
+/// Writes an edit-producing command result as a single JSON document.
+void printEditJson(
+  Patchwork patchwork,
+  PreparedEdit edit,
+  io.IOSink out, {
+  required String command,
+}) {
   _printJson(out, {
-    'command': 'patch',
+    'command': command,
     'edit': {
       'package': edit.package,
       'version': edit.version,

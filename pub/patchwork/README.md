@@ -193,11 +193,11 @@ dart run patchwork remove collection 1.19.0 --dry-run
 dart run patchwork remove collection 1.19.0
 ```
 
-If the upstream release still needs your fix, continue from the older patch
-file onto the currently resolved source:
+If the upstream release still needs your fix, carry the older patch file onto
+the currently resolved source:
 
 ```sh
-dart run patchwork patch collection --continue 1.19.0
+dart run patchwork carry collection --from 1.19.0
 # inspect and adjust .patchwork/collection@<newVersion>/
 dart run patchwork commit collection
 dart run patchwork apply collection
@@ -212,10 +212,10 @@ dart run patchwork doctor --explain
 ```
 
 For upgrade-related conflicts, use `patchwork undo`, upgrade the dependency,
-then try `patchwork patch <pkg> --continue <oldVersion>` to carry the older
-patch onto the current source. If the older patch no longer applies cleanly,
-create a fresh edit with `patchwork patch <pkg>` and port the relevant changes
-manually from the stale patch file.
+then try `patchwork carry <pkg> --from <oldVersion>` to carry the older patch
+onto the current source. If the older patch no longer applies cleanly, create a
+fresh edit with `patchwork patch <pkg>` and port the relevant changes manually
+from the stale patch file.
 
 Patchwork keeps normal apply behavior atomic: a failed apply does not replace
 the committed patch file or pretend the generated output is healthy.
@@ -427,6 +427,7 @@ package in the dependency graph provides a hook.
 | Command                                                                          | Description                                                                     |
 | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | `patchwork patch <pkg> [--continue [version]] [--force] [--json]`                | Create a source-based edit.                                                     |
+| `patchwork carry <pkg> [--from version] [--json]`                                | Carry a stale patch into a current-version edit.                                |
 | `patchwork commit [pkg] [--json]`                                                | Commit open edits into patch files.                                             |
 | `patchwork apply [pkg] [--no-pub-get] [--json]`                                  | Apply committed patches and refresh pub resolution.                             |
 | `patchwork undo <pkg> [--no-pub-get] [--json]`                                   | Remove one applied patch and refresh pub resolution.                            |

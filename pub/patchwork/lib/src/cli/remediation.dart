@@ -157,7 +157,7 @@ List<SuggestedAction> _stalePatchActions(
 
   return [
     SuggestedAction(
-      command: 'patchwork patch $package --continue $version',
+      command: 'patchwork carry $package --from $version',
       description:
           'Carry the stale patch content into a fresh edit for the currently resolved version.',
     ),

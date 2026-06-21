@@ -61,9 +61,11 @@ final class ProjectSandbox {
 
   File get overrideFile => File(p.join(stateRoot, 'pubspec_overrides.yaml'));
 
-  Directory get appliedDirectory {
+  Directory get appliedDirectory => appliedDirectoryFor('0.1.0');
+
+  Directory appliedDirectoryFor(String version) {
     return Directory(
-      p.join(stateRoot, '.dart_tool', 'patchwork', 'greeter@0.1.0'),
+      p.join(stateRoot, '.dart_tool', 'patchwork', 'greeter@$version'),
     );
   }
 
@@ -214,13 +216,17 @@ final class ProjectSandbox {
     );
   }
 
-  void writeResolution({String greeterVersion = '0.1.0'}) {
+  void writeResolution({
+    String greeterVersion = '0.1.0',
+    String? greeterRootPath,
+  }) {
     final dartTool = Directory(p.join(stateRoot, '.dart_tool'))
       ..createSync(recursive: true);
     final otherRootPath = otherRoot;
+    final selectedGreeterRoot = greeterRootPath ?? greeterRoot;
     final packageRoots = <String, String>{
       'patchwork_test_app': appRoot,
-      'greeter': greeterRoot,
+      'greeter': selectedGreeterRoot,
     };
     if (stateRoot != appRoot) {
       packageRoots['patchwork_test_workspace'] = stateRoot;
@@ -263,7 +269,7 @@ packages:
   greeter:
     dependency: "direct main"
     description:
-      path: ${p.relative(greeterRoot, from: stateRoot)}
+      path: ${p.relative(selectedGreeterRoot, from: stateRoot)}
       relative: true
     source: path
     version: "$greeterVersion"
@@ -472,6 +478,33 @@ diff --git a/lib/greeter.dart b/lib/greeter.dart
 +  return '$greetingPrefix, \$name!';
  }
 ''');
+  }
+
+  void writeAppliedGreeterPatch(
+    String greetingPrefix, {
+    String version = '0.1.0',
+  }) {
+    writeGreeterPatch(greetingPrefix, version: version);
+    final appliedDirectory = appliedDirectoryFor(version);
+    _writeGreeterPackage(
+      appliedDirectory.path,
+      '$greetingPrefix, \$name!',
+      version: version,
+    );
+    overrideFile.writeAsStringSync('''
+dependency_overrides:
+  greeter:
+    path: .dart_tool/patchwork/greeter@$version
+''');
+    final marker = appliedMarkerFor(version);
+    marker.parent.createSync(recursive: true);
+    marker.writeAsStringSync(
+      '${jsonEncode({'schemaVersion': 1, 'kind': 'patchwork.applied', 'package': 'greeter', 'version': version, 'patchSha256': 'fixture-patch-sha', 'path': '.dart_tool/patchwork/greeter@$version'})}\n',
+    );
+    writeResolution(
+      greeterVersion: version,
+      greeterRootPath: appliedDirectory.path,
+    );
   }
 
   void updateGreeterPackage({

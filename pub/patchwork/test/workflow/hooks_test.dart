@@ -41,7 +41,7 @@ void main() {
         p.join(project.stateRoot, '.dart_tool', 'package_config.json'),
       );
       final modified = packageConfig.lastModifiedSync();
-      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      await _waitForDistinctTimestamp(packageConfig);
       await project.runApp('Hello from a standalone hook patch, Patchwork!');
       expect(packageConfig.lastModifiedSync(), modified);
     },
@@ -79,4 +79,26 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
+}
+
+Future<void> _waitForDistinctTimestamp(File file) async {
+  final suffix = DateTime.now().microsecondsSinceEpoch;
+  final probe = File(
+    p.join(file.parent.path, '.patchwork_timestamp_probe_${pid}_$suffix'),
+  );
+  try {
+    probe.writeAsStringSync('0');
+    final initial = probe.lastModifiedSync();
+    for (var attempt = 0; attempt < 60; attempt += 1) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      probe.writeAsStringSync('$attempt');
+      if (probe.lastModifiedSync() != initial) {
+        return;
+      }
+    }
+  } finally {
+    if (probe.existsSync()) {
+      probe.deleteSync();
+    }
+  }
 }

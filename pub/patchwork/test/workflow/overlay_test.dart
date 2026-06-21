@@ -18,10 +18,8 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
-      await project.application(['patch', 'greeter']);
-      project.writeEdit('Hello from an app-local patch');
-      await project.application(['commit', 'greeter']);
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from an app-local patch');
 
       await project.application(
         ['overlay', 'add', 'greeter', '--reason='],
@@ -103,7 +101,7 @@ void main() {
 
       project.writePrefixOverlay(project.providerBRoot, 'Hi');
       project.writeRootPrefixPatch('Hi');
-      await project.pubGet(project.appRoot);
+      project.writeResolution();
 
       final result = await _runApplication(project.appRoot, [
         'overlay',
@@ -154,7 +152,7 @@ void main() {
         project.providerBRoot,
         'Hello from provider B overlay',
       );
-      await project.pubGet(project.appRoot);
+      project.writeResolution();
 
       final result = await project.runApp();
       expect(
@@ -185,7 +183,7 @@ void main() {
       final project = await OverlayProjectSandbox.create();
       addTearDown(project.dispose);
 
-      await project.pubGet(project.appRoot);
+      project.writeResolution();
       final plain = await project.runApp();
       expect(plain.stdout, contains('Hello, Patchwork!'));
       project.expectGreeterResolvedToSource();
@@ -215,7 +213,7 @@ void main() {
         project.providerBRoot,
         'Hello from provider B overlay',
       );
-      await project.pubGet(project.appRoot);
+      project.writeResolution();
 
       final patched = await project.runApp();
       expect(
@@ -244,7 +242,7 @@ void main() {
 
       project.writePrefixOverlay(project.providerBRoot, 'Hi');
       project.writePunctuationOverlay(project.providerCRoot, '?');
-      await project.pubGet(project.appRoot);
+      project.writeResolution();
 
       final result = await project.runApp();
       expect(result.stdout, contains('Hi, Patchwork?'));
@@ -263,7 +261,7 @@ void main() {
 
       project.writePrefixOverlay(project.providerBRoot, 'Hi');
       project.writePrefixOverlay(project.providerCRoot, 'Hi');
-      await project.pubGet(project.appRoot);
+      project.writeResolution();
 
       final result = await project.runApp();
       expect(result.stdout, contains('Hi, Patchwork!'));
@@ -302,7 +300,7 @@ void main() {
         project.providerBRoot,
         'Hello from workspace provider',
       );
-      await project.pubGet(project.appRoot);
+      project.writeResolution();
 
       final result = await project.runApp();
       expect(
@@ -325,7 +323,7 @@ void main() {
 
       project.writePrefixOverlay(project.providerBRoot, 'Hi');
       project.writePunctuationOverlay(project.providerCRoot, '?');
-      await project.pubGet(project.appRoot);
+      project.writeResolution();
 
       final result = await project.runApp();
       expect(result.stdout, contains('Hi, Patchwork?'));
@@ -344,7 +342,7 @@ void main() {
 
       project.writePrefixOverlay(project.providerBRoot, 'Hi');
       project.writePrefixOverlay(project.providerCRoot, 'Yo');
-      await project.pubGet(project.appRoot);
+      project.writeResolution();
 
       final result = await project.runApp(exitCodes: {1, 255});
       expect(result.stdout + result.stderr, contains('overlay.apply_failed'));

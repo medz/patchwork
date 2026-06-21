@@ -16,7 +16,7 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
+      project.writeResolution();
       final emptyStatus = await project.applicationResult(['status', '--json']);
       expect(emptyStatus.stdout, isNot(contains('No patchwork packages.')));
       expect(_decodeObject(emptyStatus.stdout), {
@@ -121,10 +121,8 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      await project.pubGet();
-      await project.application(['patch', 'greeter']);
-      project.writeEdit('Hello from low-level JSON output');
-      await project.application(['commit', 'greeter']);
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from low-level JSON output');
 
       final applyResult = await project.applicationResult([
         'apply',
@@ -140,7 +138,7 @@ void main() {
       expect(finishApplyJson['applied'], isEmpty);
       expect(finishApplyJson['pubGetRan'], isTrue);
       expect(finishApplyJson['needsPubGet'], isFalse);
-      await project.runApp('Hello from low-level JSON output, Patchwork!');
+      project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
 
       final undoResult = await project.applicationResult([
         'undo',
@@ -152,9 +150,7 @@ void main() {
       expect(undoJson['pubGetRan'], isFalse);
       expect(undoJson['needsPubGet'], isTrue);
       expect(_object(undoJson['result'])['changed'], isTrue);
-
-      await project.pubGet();
-      await project.runApp('Hello, Patchwork!');
+      expect(project.overrideFile.existsSync(), isFalse);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
@@ -342,9 +338,7 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      project.writeResolution();
-      project.writeGreeterPatch('Hello from a stale applied JSON patch');
-      await project.application(['apply', 'greeter']);
+      project.writeAppliedGreeterPatch('Hello from a stale applied JSON patch');
 
       final marker = project.appliedMarkerFor('0.1.0');
       final decoded =
@@ -420,9 +414,9 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      project.writeResolution();
-      project.writeGreeterPatch('Hello from a marker-missing JSON patch');
-      await project.application(['apply', 'greeter']);
+      project.writeAppliedGreeterPatch(
+        'Hello from a marker-missing JSON patch',
+      );
       project.appliedMarkerFor('0.1.0').deleteSync();
 
       final result = await project.applicationResult(
@@ -455,9 +449,7 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      project.writeResolution();
-      project.writeGreeterPatch('Hello from a missing marker and patch');
-      await project.application(['apply', 'greeter']);
+      project.writeAppliedGreeterPatch('Hello from a missing marker and patch');
       project.appliedMarkerFor('0.1.0').deleteSync();
       File('${project.stateRoot}/patches/greeter@0.1.0.patch').deleteSync();
 
@@ -490,9 +482,9 @@ void main() {
       final project = await ProjectSandbox.standalone();
       addTearDown(project.dispose);
 
-      project.writeResolution();
-      project.writeGreeterPatch('Hello from unowned stale applied output');
-      await project.application(['apply', 'greeter']);
+      project.writeAppliedGreeterPatch(
+        'Hello from unowned stale applied output',
+      );
       project.overrideFile.deleteSync();
       project.updateGreeterPackage(
         version: '0.1.1',

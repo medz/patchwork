@@ -355,7 +355,8 @@ List<String> _rejectRelativePaths(String packagePath) {
       final type = FileSystemEntity.typeSync(entity.path, followLinks: false);
       if (type == FileSystemEntityType.directory) {
         collect(Directory(entity.path));
-      } else if (type == FileSystemEntityType.file &&
+      } else if ((type == FileSystemEntityType.file ||
+              type == FileSystemEntityType.link) &&
           entity.path.endsWith('.rej')) {
         paths.add(relativePath.join('/'));
       }
@@ -367,13 +368,41 @@ List<String> _rejectRelativePaths(String packagePath) {
   return paths;
 }
 
-Map<String, List<int>> _rejectFileBackups(String packagePath) {
+Map<String, _RejectEntryBackup> _rejectFileBackups(String packagePath) {
   return {
     for (final relativePath in _rejectRelativePaths(packagePath))
-      relativePath: File(
+      relativePath: _RejectEntryBackup.read(
         p.joinAll([packagePath, ...relativePath.split('/')]),
-      ).readAsBytesSync(),
+      ),
   };
+}
+
+final class _RejectEntryBackup {
+  const _RejectEntryBackup.file(this.bytes) : linkTarget = null;
+
+  const _RejectEntryBackup.link(this.linkTarget) : bytes = null;
+
+  factory _RejectEntryBackup.read(String path) {
+    final type = FileSystemEntity.typeSync(path, followLinks: false);
+    if (type == FileSystemEntityType.link) {
+      return _RejectEntryBackup.link(Link(path).targetSync());
+    }
+    return _RejectEntryBackup.file(File(path).readAsBytesSync());
+  }
+
+  final List<int>? bytes;
+
+  final String? linkTarget;
+
+  void restore(String path) {
+    _deleteExistingPath(path);
+    final target = linkTarget;
+    if (target != null) {
+      Link(path).createSync(target);
+      return;
+    }
+    File(path).writeAsBytesSync(bytes!, flush: true);
+  }
 }
 
 Set<String> _gitRejectRelativePaths(String output) {
@@ -445,7 +474,7 @@ bool _isOctalDigit(String value) {
 
 List<String> _moveNewRejectFiles({
   required String packagePath,
-  required Map<String, List<int>> existingRejectBackups,
+  required Map<String, _RejectEntryBackup> existingRejectBackups,
   required Set<String> rejectPaths,
 }) {
   final movedPaths = <String>[];
@@ -462,20 +491,34 @@ List<String> _moveNewRejectFiles({
       p.joinAll([packagePath, ...movedRelativePath.split('/')]),
     );
     destination.parent.createSync(recursive: true);
-    if (destination.existsSync()) {
-      destination.deleteSync();
-    }
+    _deleteExistingPath(destination.path);
     destination.writeAsBytesSync(rejectBytes, flush: true);
-    final backupBytes = existingRejectBackups[relativePath];
-    if (backupBytes == null) {
-      source.deleteSync();
+    final backup = existingRejectBackups[relativePath];
+    if (backup == null) {
+      _deleteExistingPath(source.path);
     } else {
-      source.writeAsBytesSync(backupBytes, flush: true);
+      backup.restore(source.path);
     }
     movedPaths.add(movedRelativePath);
   }
   movedPaths.sort();
   return movedPaths;
+}
+
+void _deleteExistingPath(String path) {
+  final type = FileSystemEntity.typeSync(path, followLinks: false);
+  switch (type) {
+    case FileSystemEntityType.directory:
+      Directory(path).deleteSync(recursive: true);
+    case FileSystemEntityType.file:
+      File(path).deleteSync();
+    case FileSystemEntityType.link:
+      Link(path).deleteSync();
+    case FileSystemEntityType.notFound:
+    case FileSystemEntityType.pipe:
+    case FileSystemEntityType.unixDomainSock:
+      break;
+  }
 }
 
 String _gitDiffPathPrefix(String path) {

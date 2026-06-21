@@ -301,6 +301,15 @@ void main() {
       File(
         p.join(project.greeterRoot, 'lib', 'quote"name.dart.rej'),
       ).writeAsStringSync('existing quoted reject source file\n');
+      File(
+        p.join(project.greeterRoot, 'lib', 'link.dart'),
+      ).writeAsStringSync("const link = 'old';\n");
+      File(
+        p.join(project.greeterRoot, 'lib', 'link-target.txt'),
+      ).writeAsStringSync('existing symlink target\n');
+      Link(
+        p.join(project.greeterRoot, 'lib', 'link.dart.rej'),
+      ).createSync('link-target.txt');
       project.writeResolution();
       final stalePatch = File(
         p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
@@ -333,6 +342,12 @@ diff --git a/lib/quote"name.dart b/lib/quote"name.dart
 @@ -1 +1 @@
 -const quoted = 'old';
 +const quoted = 'carried';
+diff --git a/lib/link.dart b/lib/link.dart
+--- a/lib/link.dart
++++ b/lib/link.dart
+@@ -1 +1 @@
+-const link = 'old';
++const link = 'carried';
 ''');
 
       project.updateGreeterPackage(
@@ -342,6 +357,9 @@ diff --git a/lib/quote"name.dart b/lib/quote"name.dart
       File(
         p.join(project.greeterRoot, 'lib', 'quote"name.dart'),
       ).writeAsStringSync("const quoted = 'upstream';\n");
+      File(
+        p.join(project.greeterRoot, 'lib', 'link.dart'),
+      ).writeAsStringSync("const link = 'upstream';\n");
       project.writeResolution(greeterVersion: '0.1.1');
 
       final result = await project.applicationResult([
@@ -406,6 +424,16 @@ diff --git a/lib/quote"name.dart b/lib/quote"name.dart
         ).readAsStringSync(),
         'existing quoted reject source file\n',
       );
+      expect(
+        Link(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            'lib',
+            'link.dart.rej',
+          ),
+        ).targetSync(),
+        'link-target.txt',
+      );
 
       final repairLog = File(
         p.join(
@@ -423,6 +451,7 @@ diff --git a/lib/quote"name.dart b/lib/quote"name.dart
         logContent,
         contains('- .patchwork/rejects/lib/quote"name.dart.rej'),
       );
+      expect(logContent, contains('- .patchwork/rejects/lib/link.dart.rej'));
       expect(logContent, isNot(contains(project.root.path)));
       expect(
         File(
@@ -447,6 +476,18 @@ diff --git a/lib/quote"name.dart b/lib/quote"name.dart
           ),
         ).readAsStringSync(),
         contains("const quoted = 'carried';"),
+      );
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            '.patchwork',
+            'rejects',
+            'lib',
+            'link.dart.rej',
+          ),
+        ).readAsStringSync(),
+        contains("const link = 'carried';"),
       );
       expect(
         File(
@@ -480,6 +521,9 @@ String greeting(String name) {
           'quote"name.dart',
         ),
       ).writeAsStringSync("const quoted = 'carried';\n");
+      File(
+        p.join(project.editDirectoryFor('0.1.1').path, 'lib', 'link.dart'),
+      ).writeAsStringSync("const link = 'carried';\n");
       await project.application([
         'commit',
         'greeter',
@@ -490,9 +534,11 @@ String greeting(String name) {
       expect(committedPatch, contains('lib/extra.dart'));
       expect(committedPatch, contains('lib/notes.rej'));
       expect(committedPatch, contains('quote\\"name.dart'));
+      expect(committedPatch, contains('lib/link.dart'));
       expect(committedPatch, contains('Hello from partial stale patch'));
       expect(committedPatch, isNot(contains('partial-repair.log')));
       expect(committedPatch, isNot(contains('greeter.dart.rej')));
+      expect(committedPatch, isNot(contains('link.dart.rej')));
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

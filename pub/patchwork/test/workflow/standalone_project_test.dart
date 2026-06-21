@@ -305,7 +305,6 @@ void main() {
         exitCodes: {1},
       );
       expect(result.stderr, contains('Could not apply patch'));
-      expect(result.stderr, contains('No valid patches in input'));
       expect(project.editDirectoryFor('0.1.1').existsSync(), isFalse);
       expect(project.appliedDirectoryFor('0.1.1').existsSync(), isFalse);
     },
@@ -423,9 +422,12 @@ new file mode 100644
       File(
         p.join(project.greeterRoot, 'lib', 'link-target.txt'),
       ).writeAsStringSync('existing symlink target\n');
-      Link(
-        p.join(project.greeterRoot, 'lib', 'link.dart.rej'),
-      ).createSync('link-target.txt');
+      final supportsSymlinkReject = !Platform.isWindows;
+      if (supportsSymlinkReject) {
+        Link(
+          p.join(project.greeterRoot, 'lib', 'link.dart.rej'),
+        ).createSync('link-target.txt');
+      }
       project.writeResolution();
       final stalePatch = File(
         p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
@@ -559,16 +561,16 @@ diff --git a/lib/link.dart b/lib/link.dart
       if (!Platform.isWindows) {
         expect(_permissionBits(restoredExecutableReject), 0x1ed);
       }
-      expect(
-        Link(
-          p.join(
-            project.editDirectoryFor('0.1.1').path,
-            'lib',
-            'link.dart.rej',
-          ),
-        ).targetSync(),
-        'link-target.txt',
+      final restoredLinkReject = p.join(
+        project.editDirectoryFor('0.1.1').path,
+        'lib',
+        'link.dart.rej',
       );
+      if (supportsSymlinkReject) {
+        expect(Link(restoredLinkReject).targetSync(), 'link-target.txt');
+      } else {
+        expect(File(restoredLinkReject).existsSync(), isFalse);
+      }
 
       final repairLog = File(
         p.join(

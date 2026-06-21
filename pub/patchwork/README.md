@@ -269,7 +269,8 @@ Run Patchwork after dependencies are installed and before tests:
 dart pub get
 dart run patchwork apply
 dart run patchwork doctor
-dart test
+dart test --exclude-tags=full
+dart test --tags=full --concurrency=1
 ```
 
 Use `patchwork doctor` when CI should fail on missing, stale, or unapplied patch
@@ -280,6 +281,20 @@ should verify repository configuration.
 Reserve `--no-pub-get` for low-level scripts that intentionally separate
 Patchwork filesystem changes from pub resolution refresh. Normal interactive
 and CI usage should let Patchwork run `dart pub get`.
+
+Patchwork's own test suite has two lanes. The fast lane covers unit and focused
+behavior tests without creating downstream Dart projects:
+
+```sh
+dart test --exclude-tags=full
+```
+
+The full lane covers real pub, hook, CLI, and generated-output workflows. Run it
+before release, and keep concurrency low on developer machines:
+
+```sh
+dart test --tags=full --concurrency=1
+```
 
 ## Automatic Apply Hooks
 

@@ -1,3 +1,6 @@
+@Tags(['full'])
+library;
+
 import 'dart:convert';
 
 import 'package:test/test.dart';

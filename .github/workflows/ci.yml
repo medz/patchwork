@@ -33,9 +33,13 @@ jobs:
         working-directory: pub/patchwork
         run: dart analyze
 
-      - name: Test package
+      - name: Test package fast lane
         working-directory: pub/patchwork
-        run: dart test
+        run: dart test --exclude-tags=full
+
+      - name: Test package full workflow lane
+        working-directory: pub/patchwork
+        run: dart test --tags=full --concurrency=1
 
       - name: Check publish package
         working-directory: pub/patchwork

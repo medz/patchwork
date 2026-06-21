@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -385,9 +386,61 @@ Set<String> _gitRejectRelativePaths(String output) {
     if (match == null) {
       continue;
     }
-    paths.add('${match.group(1)!}.rej');
+    paths.add('${_decodeGitPath(match.group(1)!)}.rej');
   }
   return paths;
+}
+
+String _decodeGitPath(String path) {
+  if (path.length < 2 || !path.startsWith('"') || !path.endsWith('"')) {
+    return path;
+  }
+
+  final content = path.substring(1, path.length - 1);
+  final bytes = <int>[];
+  for (var index = 0; index < content.length; index += 1) {
+    final char = content[index];
+    if (char != '\\') {
+      bytes.addAll(utf8.encode(char));
+      continue;
+    }
+
+    if (index + 1 >= content.length) {
+      bytes.add('\\'.codeUnitAt(0));
+      continue;
+    }
+
+    final next = content[index + 1];
+    if (_isOctalDigit(next)) {
+      var end = index + 1;
+      while (end < content.length &&
+          end < index + 4 &&
+          _isOctalDigit(content[end])) {
+        end += 1;
+      }
+      bytes.add(int.parse(content.substring(index + 1, end), radix: 8));
+      index = end - 1;
+      continue;
+    }
+
+    bytes.add(switch (next) {
+      'a' => 0x07,
+      'b' => 0x08,
+      'f' => 0x0c,
+      'n' => 0x0a,
+      'r' => 0x0d,
+      't' => 0x09,
+      'v' => 0x0b,
+      _ => next.codeUnitAt(0),
+    });
+    index += 1;
+  }
+  return utf8.decode(bytes);
+}
+
+bool _isOctalDigit(String value) {
+  final codeUnit = value.codeUnitAt(0);
+  return codeUnit >= 0x30 && codeUnit <= 0x37;
 }
 
 List<String> _moveNewRejectFiles({

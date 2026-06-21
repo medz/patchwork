@@ -18,10 +18,10 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a safe patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
 
       const unsafePath = '../victim';
       _replaceAppliedPath(project, unsafePath);
@@ -29,7 +29,7 @@ void main() {
       sentinel.parent.createSync(recursive: true);
       sentinel.writeAsStringSync('do not delete');
 
-      await project.patchwork(
+      await project.application(
         ['undo', 'greeter'],
         exitCodes: {1},
         stderrContains: 'generated Patchwork output',
@@ -46,14 +46,14 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a safe apply-all patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
 
       _replaceAppliedPath(project, '../victim');
 
-      await project.patchwork(
+      await project.application(
         ['apply'],
         exitCodes: {1},
         stderrContains: 'generated Patchwork output',
@@ -69,14 +69,14 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a safe workspace patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
 
       _replaceAppliedPath(project, 'app');
 
-      await project.patchwork(
+      await project.application(
         ['undo', 'greeter'],
         exitCodes: {1},
         stderrContains: 'generated Patchwork output',
@@ -96,15 +96,15 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a safe sibling patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
 
       const memberPath = 'packages/member_greeter';
       _replaceAppliedPath(project, memberPath);
 
-      await project.patchwork(
+      await project.application(
         ['undo', 'greeter'],
         exitCodes: {1},
         stderrContains: 'generated Patchwork output',
@@ -126,10 +126,10 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a package-graph-safe patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
 
       File(
         p.join(project.stateRoot, '.dart_tool', 'package_graph.json'),
@@ -144,7 +144,7 @@ void main() {
       const memberPath = 'packages/member_greeter';
       _replaceAppliedPath(project, memberPath);
 
-      await project.patchwork(
+      await project.application(
         ['undo', 'greeter'],
         exitCodes: {1},
         stderrContains: 'generated Patchwork output',
@@ -166,10 +166,10 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a symlink-safe patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
 
       final outside = Directory(p.join(project.root.path, 'outside_target'));
       final victim = File(p.join(outside.path, 'victim', 'sentinel'));
@@ -180,7 +180,7 @@ void main() {
       ).createSync(outside.path);
       _replaceAppliedPath(project, 'link_to_outside/victim');
 
-      await project.patchwork(
+      await project.application(
         ['undo', 'greeter'],
         exitCodes: {1},
         stderrContains: 'generated Patchwork output',
@@ -197,9 +197,9 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a missing symlink leaf');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
       await (await Patchwork.open(project.commandRoot)).apply('greeter');
 
       final outside = Directory(p.join(project.root.path, 'outside_target'));
@@ -239,7 +239,7 @@ void main() {
       project.writeManualOverride();
       await project.pubGet();
 
-      await project.patchwork(
+      await project.application(
         ['patch', 'greeter'],
         exitCodes: {1},
         stderrContains: 'already has a dependency override',
@@ -259,7 +259,7 @@ void main() {
       _writeWorkspaceMemberOverride(project);
       await project.pubGet();
 
-      await project.patchwork(
+      await project.application(
         ['patch', 'greeter'],
         exitCodes: {1},
         stderrContains: 'already has a dependency override',
@@ -290,12 +290,12 @@ void main() {
       );
       await workspace.pubGet();
 
-      await standalone.patchwork(
+      await standalone.application(
         ['patch', 'greeter'],
         exitCodes: {1},
         stderrContains: 'pubspec.yaml already has a dependency override',
       );
-      await workspace.patchwork(
+      await workspace.application(
         ['patch', 'greeter'],
         exitCodes: {1},
         stderrContains: 'pubspec.yaml already has a dependency override',
@@ -313,12 +313,12 @@ void main() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a blocked member override');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
       _writeWorkspaceMemberOverride(project);
 
-      await project.patchwork(
+      await project.application(
         ['apply', 'greeter'],
         exitCodes: {1},
         stderrContains: 'already has a dependency override',
@@ -338,29 +338,29 @@ void main() {
       addTearDown(workspace.dispose);
 
       await standalone.pubGet();
-      await standalone.patchwork(['patch', 'greeter']);
+      await standalone.application(['patch', 'greeter']);
       standalone.writeEdit('Hello from a blocked pubspec override');
-      await standalone.patchwork(['commit', 'greeter']);
+      await standalone.application(['commit', 'greeter']);
       _writePubspecDependencyOverride(
         standalone,
         packageRoot: standalone.stateRoot,
       );
 
       await workspace.pubGet();
-      await workspace.patchwork(['patch', 'greeter']);
+      await workspace.application(['patch', 'greeter']);
       workspace.writeEdit('Hello from a blocked member pubspec override');
-      await workspace.patchwork(['commit', 'greeter']);
+      await workspace.application(['commit', 'greeter']);
       _writePubspecDependencyOverride(
         workspace,
         packageRoot: workspace.appRoot,
       );
 
-      await standalone.patchwork(
+      await standalone.application(
         ['apply', 'greeter'],
         exitCodes: {1},
         stderrContains: 'pubspec.yaml already has a dependency override',
       );
-      await workspace.patchwork(
+      await workspace.application(
         ['apply', 'greeter'],
         exitCodes: {1},
         stderrContains: 'pubspec.yaml already has a dependency override',
@@ -391,10 +391,10 @@ void main() {
         packageRoot: standalone.stateRoot,
         package: 'other_pkg',
       );
-      await standalone.patchwork(['patch', 'greeter']);
+      await standalone.application(['patch', 'greeter']);
       standalone.writeEdit('Hello with a root pubspec override');
-      await standalone.patchwork(['commit', 'greeter']);
-      await standalone.patchwork(['apply', 'greeter']);
+      await standalone.application(['commit', 'greeter']);
+      await standalone.application(['apply', 'greeter']);
       await standalone.pubGet();
 
       await workspace.pubGet();
@@ -403,10 +403,10 @@ void main() {
         packageRoot: workspace.appRoot,
         package: 'other_pkg',
       );
-      await workspace.patchwork(['patch', 'greeter']);
+      await workspace.application(['patch', 'greeter']);
       workspace.writeEdit('Hello with a member pubspec override');
-      await workspace.patchwork(['commit', 'greeter']);
-      await workspace.patchwork(['apply', 'greeter']);
+      await workspace.application(['commit', 'greeter']);
+      await workspace.application(['apply', 'greeter']);
       await workspace.pubGet();
 
       standalone.expectPackageResolvedTo(
@@ -440,14 +440,14 @@ void main() {
         packageRoot: project.stateRoot,
         package: 'other_pkg',
       );
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello with a stale mirrored override');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       await project.pubGet();
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
 
-      await project.patchwork(['undo', 'greeter']);
+      await project.application(['undo', 'greeter']);
       await project.pubGet();
       _writePubspecDependencyOverride(
         project,
@@ -455,7 +455,7 @@ void main() {
         package: 'other_pkg',
         targetRoot: project.otherRoot!,
       );
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['apply', 'greeter']);
       await project.pubGet();
 
       project.expectPackageResolvedTo('other_pkg', project.otherRoot!);
@@ -487,10 +487,10 @@ void main() {
         package: 'third_pkg',
         targetRoot: manualThirdRoot,
       );
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello while refreshing an applied mirror');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       await project.pubGet();
       project.expectPackageResolvedTo('third_pkg', manualThirdRoot);
 
@@ -501,7 +501,7 @@ void main() {
         targetRoot: thirdRoot,
       );
       await _commitOtherPackagePatch(project);
-      await project.patchwork(['apply', 'other_pkg']);
+      await project.application(['apply', 'other_pkg']);
       await project.pubGet();
 
       project.expectPackageResolvedTo('third_pkg', thirdRoot);
@@ -535,12 +535,12 @@ void main() {
         package: 'third_pkg',
         targetRoot: manualThirdRoot,
       );
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello before undo refreshes a remaining mirror');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       await _commitOtherPackagePatch(project);
-      await project.patchwork(['apply', 'other_pkg']);
+      await project.application(['apply', 'other_pkg']);
       await project.pubGet();
       project.expectPackageResolvedTo('third_pkg', manualThirdRoot);
 
@@ -550,7 +550,7 @@ void main() {
         package: 'third_pkg',
         targetRoot: thirdRoot,
       );
-      await project.patchwork(['undo', 'greeter']);
+      await project.application(['undo', 'greeter']);
       await project.pubGet();
 
       project.expectPackageResolvedTo('third_pkg', thirdRoot);
@@ -595,10 +595,10 @@ void main() {
         packageRoot: project.stateRoot,
         package: 'other_pkg',
       );
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello while keeping an owned mirror');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       await project.pubGet();
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
 
@@ -607,7 +607,7 @@ void main() {
         package: 'manual_pkg',
         targetRoot: manualRoot,
       );
-      await project.patchwork(['patch', 'third_pkg']);
+      await project.application(['patch', 'third_pkg']);
       File(
         p.join(
           project.stateRoot,
@@ -621,8 +621,8 @@ String packageName() {
   return 'patched_third_pkg';
 }
 ''');
-      await project.patchwork(['commit', 'third_pkg']);
-      await project.patchwork(['apply', 'third_pkg']);
+      await project.application(['commit', 'third_pkg']);
+      await project.application(['apply', 'third_pkg']);
       await project.pubGet();
 
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
@@ -647,15 +647,15 @@ String packageName() {
         packageRoot: project.stateRoot,
         package: 'other_pkg',
       );
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello before removing a mirrored override');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       await project.pubGet();
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
 
       _removePubspecDependencyOverrides(project.stateRoot);
-      await project.patchwork(['undo', 'greeter']);
+      await project.application(['undo', 'greeter']);
       await project.pubGet();
 
       project.expectPackageResolvedTo('other_pkg', project.otherRoot!);
@@ -678,10 +678,10 @@ String packageName() {
         packageRoot: project.stateRoot,
         package: 'other_pkg',
       );
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello before cleaning an edited override');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       await project.pubGet();
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
 
@@ -692,7 +692,7 @@ String packageName() {
           p.relative(project.manualOverrideRoot, from: project.stateRoot),
         ),
       );
-      await project.patchwork(['undo', 'greeter']);
+      await project.application(['undo', 'greeter']);
       await project.pubGet();
 
       project.expectPackageResolvedTo('greeter', project.manualOverrideRoot);
@@ -720,10 +720,10 @@ String packageName() {
         packageRoot: project.stateRoot,
         package: 'other_pkg',
       );
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello while keeping a mirror with user overrides');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       await project.pubGet();
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
 
@@ -732,7 +732,7 @@ String packageName() {
         package: 'manual_pkg',
         targetRoot: manualRoot,
       );
-      await project.patchwork(['undo', 'greeter']);
+      await project.application(['undo', 'greeter']);
       await project.pubGet();
 
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
@@ -757,10 +757,10 @@ String packageName() {
       await project.pubGet();
       project.expectPackageResolvedTo('greeter', project.greeterRoot);
 
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello with a shadowed pubspec override');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
 
       expect(project.appliedDirectory.existsSync(), isTrue);
       expect(project.overrideFile.readAsStringSync(), contains('other_pkg:'));
@@ -785,10 +785,10 @@ String packageName() {
       await project.pubGet();
       project.expectPackageResolvedTo('other_pkg', project.otherRoot!);
 
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello with an empty override shadow');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       await project.pubGet();
 
       project.expectPackageResolvedTo('other_pkg', project.otherRoot!);
@@ -817,10 +817,10 @@ String packageName() {
       await project.pubGet();
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
 
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello while preserving active overrides');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       await project.pubGet();
 
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
@@ -864,10 +864,10 @@ dependency_overrides:
       await project.pubGet();
       project.expectPackageResolvedTo('other_pkg', project.otherRoot!);
 
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello with a user-owned dart tool override');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       await project.pubGet();
 
       project.expectPackageResolvedTo('other_pkg', project.otherRoot!);
@@ -896,12 +896,12 @@ dependency_overrides:
       await project.pubGet();
       project.expectPackageResolvedTo('other_pkg', project.otherRoot!);
 
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello with an empty shadow before undo');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       project.overrideFile.writeAsStringSync('dependency_overrides: {}\n');
-      await project.patchwork(['undo', 'greeter']);
+      await project.application(['undo', 'greeter']);
       await project.pubGet();
 
       expect(project.overrideFile.readAsStringSync(), contains('{}'));
@@ -927,11 +927,11 @@ dependency_overrides:
       await project.pubGet();
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
 
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello without deleting active overrides');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
-      await project.patchwork(['undo', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
+      await project.application(['undo', 'greeter']);
       await project.pubGet();
 
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
@@ -949,18 +949,18 @@ dependency_overrides:
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a blocked root apply');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
       _writeWorkspaceMemberOverride(project);
 
-      await project.patchwork(
+      await project.application(
         ['doctor'],
         workingDirectory: project.stateRoot,
         exitCodes: {1},
         stdoutContains: 'already has a dependency override',
       );
-      await project.patchwork(
+      await project.application(
         ['apply'],
         workingDirectory: project.stateRoot,
         exitCodes: {1},
@@ -978,10 +978,10 @@ dependency_overrides:
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from an applied root patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       await project.pubGet();
       _writeWorkspaceMemberOverride(project);
 
@@ -1022,7 +1022,7 @@ dependency_overrides:
       project.replaceAppPubspecText('../packages/greeter', dependencyPath);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
 
       expect(
         project.editFile.readAsStringSync(),
@@ -1046,9 +1046,9 @@ dependency_overrides:
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
 
-      await project.patchwork(
+      await project.application(
         ['doctor'],
         exitCodes: {1},
         stdoutContains: 'uncommitted edit directory',
@@ -1064,16 +1064,16 @@ dependency_overrides:
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
 
-      final defaultDoctor = await project.patchworkResult(
+      final defaultDoctor = await project.applicationResult(
         ['doctor'],
         exitCodes: {1},
       );
       expect(defaultDoctor.stdout, contains('uncommitted edit directory'));
       expect(defaultDoctor.stdout, isNot(contains('remediation:')));
 
-      final explainDoctor = await project.patchworkResult(
+      final explainDoctor = await project.applicationResult(
         ['doctor', '--explain'],
         exitCodes: {1},
       );
@@ -1095,7 +1095,7 @@ dependency_overrides:
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(
+      await project.application(
         ['patch', '--continue', '0.1.0'],
         exitCodes: {64},
         stderrContains: 'Expected a package name',
@@ -1111,10 +1111,10 @@ dependency_overrides:
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.editDirectoryFor('0.2.0').createSync(recursive: true);
 
-      await project.patchwork(
+      await project.application(
         ['doctor'],
         exitCodes: {1},
         stdoutContains: 'More than one edit directory exists',
@@ -1130,9 +1130,9 @@ dependency_overrides:
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a missing pub lock');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
       File(p.join(project.stateRoot, 'pubspec.lock')).deleteSync();
 
       final state = await (await Patchwork.open(project.commandRoot)).inspect();
@@ -1152,26 +1152,26 @@ dependency_overrides:
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a committed patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['patch', 'greeter', '--continue']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['patch', 'greeter', '--continue']);
       project.writeEdit('Hello from an uncommitted edit');
 
-      await project.patchwork(
+      await project.application(
         ['doctor'],
         exitCodes: {1},
         stdoutContains: 'open edit directory',
       );
-      await project.patchwork([
+      await project.application([
         'status',
       ], stdoutContains: 'open edit directory');
-      await project.patchwork(
+      await project.application(
         ['apply', 'greeter'],
         exitCodes: {1},
         stderrContains: 'open edit directory',
       );
-      await project.patchwork(
+      await project.application(
         ['apply'],
         exitCodes: {1},
         stderrContains: 'open edit directory',
@@ -1187,12 +1187,12 @@ dependency_overrides:
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a blocked apply all');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
       project.writeManualOverride();
 
-      await project.patchwork(
+      await project.application(
         ['apply'],
         exitCodes: {1},
         stderrContains: 'already has a dependency override',
@@ -1211,9 +1211,9 @@ dependency_overrides:
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a multi apply');
-      await project.patchwork(['patch', 'other_pkg']);
+      await project.application(['patch', 'other_pkg']);
       File(
         p.join(
           project.stateRoot,
@@ -1227,12 +1227,12 @@ String otherName() {
   return 'patched_other_pkg';
 }
 ''');
-      await project.patchwork(['commit']);
+      await project.application(['commit']);
       File(
         p.join(project.stateRoot, 'patches', 'other_pkg@0.1.0.patch'),
       ).writeAsStringSync('tampered\n');
 
-      await project.patchwork(
+      await project.application(
         ['apply'],
         exitCodes: {1},
         stderrContains: 'Generated patch does not apply',
@@ -1262,9 +1262,9 @@ String otherName() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from selected apply');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
       await _commitOtherPackagePatch(project);
 
       project.replaceAppPubspecText(
@@ -1273,7 +1273,7 @@ String otherName() {
       );
       await project.pubGet();
 
-      await project.patchwork([
+      await project.application([
         'apply',
       ], stdoutContains: 'Applied patches/greeter@0.1.0.patch');
       expect(project.appliedDirectory.existsSync(), isTrue);
@@ -1299,10 +1299,10 @@ String otherName() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a stale apply');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
       await project.pubGet();
 
       final marker = project.appliedMarkerFor('0.1.0');
@@ -1311,13 +1311,13 @@ String otherName() {
       decoded['patchSha256'] = 'stale';
       marker.writeAsStringSync('${jsonEncode(decoded)}\n');
 
-      await project.patchwork(
+      await project.application(
         ['doctor'],
         exitCodes: {1},
         stdoutContains:
             'Applied patch sha256 differs from the committed patch.',
       );
-      await project.patchwork([
+      await project.application([
         'apply',
       ], stdoutContains: 'No patches need apply.');
     },
@@ -1332,7 +1332,7 @@ String otherName() {
 
       await project.pubGet();
 
-      await project.patchwork(
+      await project.application(
         ['patch', 'greeter', '--continue=../greeter@0.1.0'],
         exitCodes: {1},
         stderrContains: 'not a safe path segment',
@@ -1351,18 +1351,18 @@ String otherName() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from an override-safe patch');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
 
       project.writeOtherOverride();
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['apply', 'greeter']);
       await project.pubGet();
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
       expect(project.overrideFile.readAsStringSync(), contains('other_pkg:'));
       expect(project.overrideFile.readAsStringSync(), contains('greeter:'));
 
-      await project.patchwork(['undo', 'greeter']);
+      await project.application(['undo', 'greeter']);
       await project.pubGet();
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
       final afterUndo = project.overrideFile.readAsStringSync();
@@ -1379,14 +1379,14 @@ String otherName() {
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from an owned patch');
-      await project.patchwork(['commit', 'greeter']);
+      await project.application(['commit', 'greeter']);
 
       final sentinel = File(p.join(project.appliedDirectory.path, 'SENTINEL'));
       sentinel.parent.createSync(recursive: true);
       sentinel.writeAsStringSync('user data');
-      await project.patchwork(
+      await project.application(
         ['apply', 'greeter'],
         exitCodes: {1},
         stderrContains: 'Applied output path already exists',
@@ -1399,7 +1399,7 @@ dependency_overrides:
   greeter:
     path: .dart_tool/patchwork/greeter@0.1.0
 ''');
-      await project.patchwork(
+      await project.application(
         ['apply', 'greeter'],
         exitCodes: {1},
         stderrContains: 'already has a dependency override',
@@ -1417,13 +1417,13 @@ dependency_overrides:
       addTearDown(project.dispose);
 
       await project.pubGet();
-      await project.patchwork(['patch', 'greeter']);
+      await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a replaceable patch');
-      await project.patchwork(['commit', 'greeter']);
-      await project.patchwork(['apply', 'greeter']);
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
 
       project.writeManualAndOtherOverrides();
-      await project.patchwork(['undo', 'greeter']);
+      await project.application(['undo', 'greeter']);
       await project.pubGet();
       project.expectPackageResolvedTo('greeter', project.manualOverrideRoot);
       project.expectPackageResolvedTo('other_pkg', project.otherOverrideRoot!);
@@ -1490,7 +1490,7 @@ dependency_overrides:
 }
 
 Future<void> _commitOtherPackagePatch(ProjectSandbox project) async {
-  await project.patchwork(['patch', 'other_pkg']);
+  await project.application(['patch', 'other_pkg']);
   File(
     p.join(
       project.stateRoot,
@@ -1504,7 +1504,7 @@ String otherName() {
   return 'patched_other_pkg';
 }
 ''');
-  await project.patchwork(['commit', 'other_pkg']);
+  await project.application(['commit', 'other_pkg']);
 }
 
 void _appendPubspecOverridesPathOverride(
@@ -1612,10 +1612,10 @@ void _replaceAppliedPath(ProjectSandbox project, String path) {
 
 Future<void> _expectUndoRefusesUserDirectory(ProjectSandbox project) async {
   await project.pubGet();
-  await project.patchwork(['patch', 'greeter']);
+  await project.application(['patch', 'greeter']);
   project.writeEdit('Hello from a safe patch');
-  await project.patchwork(['commit', 'greeter']);
-  await project.patchwork(['apply', 'greeter']);
+  await project.application(['commit', 'greeter']);
+  await project.application(['apply', 'greeter']);
 
   const userPath = 'user_owned_output';
   final sentinel = File(p.join(project.stateRoot, userPath, 'sentinel'));
@@ -1623,7 +1623,7 @@ Future<void> _expectUndoRefusesUserDirectory(ProjectSandbox project) async {
   sentinel.writeAsStringSync('do not delete');
   _replaceAppliedPath(project, userPath);
 
-  await project.patchwork(
+  await project.application(
     ['undo', 'greeter'],
     exitCodes: {1},
     stderrContains: 'generated Patchwork output',
@@ -1635,9 +1635,9 @@ Future<void> _expectUndoRefusesUserDirectory(ProjectSandbox project) async {
 
 Future<void> _expectApplyRefusesUserDirectory(ProjectSandbox project) async {
   await project.pubGet();
-  await project.patchwork(['patch', 'greeter']);
+  await project.application(['patch', 'greeter']);
   project.writeEdit('Hello from a safe apply');
-  await project.patchwork(['commit', 'greeter']);
+  await project.application(['commit', 'greeter']);
   await (await Patchwork.open(project.commandRoot)).apply('greeter');
 
   const userPath = 'user_owned_output';
@@ -1646,7 +1646,7 @@ Future<void> _expectApplyRefusesUserDirectory(ProjectSandbox project) async {
   sentinel.writeAsStringSync('do not replace');
   _replaceAppliedPath(project, userPath);
 
-  await project.patchwork(
+  await project.application(
     ['apply', 'greeter'],
     exitCodes: {1},
     stderrContains: 'generated Patchwork output',

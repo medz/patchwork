@@ -302,6 +302,13 @@ void main() {
         p.join(project.greeterRoot, 'lib', 'quote"name.dart.rej'),
       ).writeAsStringSync('existing quoted reject source file\n');
       File(
+        p.join(project.greeterRoot, 'lib', 'mode.dart'),
+      ).writeAsStringSync("const mode = 'old';\n");
+      final executableReject = File(
+        p.join(project.greeterRoot, 'lib', 'mode.dart.rej'),
+      )..writeAsStringSync('existing executable reject source file\n');
+      _chmod(executableReject.path, '755');
+      File(
         p.join(project.greeterRoot, 'lib', 'link.dart'),
       ).writeAsStringSync("const link = 'old';\n");
       File(
@@ -342,6 +349,12 @@ diff --git a/lib/quote"name.dart b/lib/quote"name.dart
 @@ -1 +1 @@
 -const quoted = 'old';
 +const quoted = 'carried';
+diff --git a/lib/mode.dart b/lib/mode.dart
+--- a/lib/mode.dart
++++ b/lib/mode.dart
+@@ -1 +1 @@
+-const mode = 'old';
++const mode = 'carried';
 diff --git a/lib/link.dart b/lib/link.dart
 --- a/lib/link.dart
 +++ b/lib/link.dart
@@ -357,6 +370,9 @@ diff --git a/lib/link.dart b/lib/link.dart
       File(
         p.join(project.greeterRoot, 'lib', 'quote"name.dart'),
       ).writeAsStringSync("const quoted = 'upstream';\n");
+      File(
+        p.join(project.greeterRoot, 'lib', 'mode.dart'),
+      ).writeAsStringSync("const mode = 'upstream';\n");
       File(
         p.join(project.greeterRoot, 'lib', 'link.dart'),
       ).writeAsStringSync("const link = 'upstream';\n");
@@ -424,6 +440,16 @@ diff --git a/lib/link.dart b/lib/link.dart
         ).readAsStringSync(),
         'existing quoted reject source file\n',
       );
+      final restoredExecutableReject = File(
+        p.join(project.editDirectoryFor('0.1.1').path, 'lib', 'mode.dart.rej'),
+      );
+      expect(
+        restoredExecutableReject.readAsStringSync(),
+        'existing executable reject source file\n',
+      );
+      if (!Platform.isWindows) {
+        expect(_permissionBits(restoredExecutableReject), 0x1ed);
+      }
       expect(
         Link(
           p.join(
@@ -451,6 +477,7 @@ diff --git a/lib/link.dart b/lib/link.dart
         logContent,
         contains('- .patchwork/rejects/lib/quote"name.dart.rej'),
       );
+      expect(logContent, contains('- .patchwork/rejects/lib/mode.dart.rej'));
       expect(logContent, contains('- .patchwork/rejects/lib/link.dart.rej'));
       expect(logContent, isNot(contains(project.root.path)));
       expect(
@@ -476,6 +503,18 @@ diff --git a/lib/link.dart b/lib/link.dart
           ),
         ).readAsStringSync(),
         contains("const quoted = 'carried';"),
+      );
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            '.patchwork',
+            'rejects',
+            'lib',
+            'mode.dart.rej',
+          ),
+        ).readAsStringSync(),
+        contains("const mode = 'carried';"),
       );
       expect(
         File(
@@ -524,6 +563,9 @@ String greeting(String name) {
       File(
         p.join(project.editDirectoryFor('0.1.1').path, 'lib', 'link.dart'),
       ).writeAsStringSync("const link = 'carried';\n");
+      File(
+        p.join(project.editDirectoryFor('0.1.1').path, 'lib', 'mode.dart'),
+      ).writeAsStringSync("const mode = 'carried';\n");
       await project.application([
         'commit',
         'greeter',
@@ -535,10 +577,12 @@ String greeting(String name) {
       expect(committedPatch, contains('lib/notes.rej'));
       expect(committedPatch, contains('quote\\"name.dart'));
       expect(committedPatch, contains('lib/link.dart'));
+      expect(committedPatch, contains('lib/mode.dart'));
       expect(committedPatch, contains('Hello from partial stale patch'));
       expect(committedPatch, isNot(contains('partial-repair.log')));
       expect(committedPatch, isNot(contains('greeter.dart.rej')));
       expect(committedPatch, isNot(contains('link.dart.rej')));
+      expect(committedPatch, isNot(contains('mode.dart.rej')));
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );
@@ -636,3 +680,16 @@ String greeting(String name) {
     timeout: const Timeout(Duration(minutes: 3)),
   );
 }
+
+void _chmod(String path, String mode) {
+  if (Platform.isWindows) {
+    return;
+  }
+
+  final result = Process.runSync('chmod', [mode, path]);
+  if (result.exitCode != 0) {
+    fail('${result.stderr}${result.stdout}');
+  }
+}
+
+int _permissionBits(File file) => file.statSync().mode & 0x1ff;

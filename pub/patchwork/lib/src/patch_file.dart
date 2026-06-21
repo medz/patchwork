@@ -378,19 +378,25 @@ Map<String, _RejectEntryBackup> _rejectFileBackups(String packagePath) {
 }
 
 final class _RejectEntryBackup {
-  const _RejectEntryBackup.file(this.bytes) : linkTarget = null;
+  const _RejectEntryBackup.file(this.bytes, this.mode) : linkTarget = null;
 
-  const _RejectEntryBackup.link(this.linkTarget) : bytes = null;
+  const _RejectEntryBackup.link(this.linkTarget) : bytes = null, mode = null;
 
   factory _RejectEntryBackup.read(String path) {
     final type = FileSystemEntity.typeSync(path, followLinks: false);
     if (type == FileSystemEntityType.link) {
       return _RejectEntryBackup.link(Link(path).targetSync());
     }
-    return _RejectEntryBackup.file(File(path).readAsBytesSync());
+    final file = File(path);
+    return _RejectEntryBackup.file(
+      file.readAsBytesSync(),
+      file.statSync().mode,
+    );
   }
 
   final List<int>? bytes;
+
+  final int? mode;
 
   final String? linkTarget;
 
@@ -402,6 +408,34 @@ final class _RejectEntryBackup {
       return;
     }
     File(path).writeAsBytesSync(bytes!, flush: true);
+    _restoreFileMode(path, mode!);
+  }
+}
+
+void _restoreFileMode(String path, int mode) {
+  if (Platform.isWindows) {
+    return;
+  }
+
+  final permissions = (mode & 0x0fff).toRadixString(8);
+  final ProcessResult result;
+  try {
+    result = Process.runSync('chmod', [permissions, path]);
+  } on ProcessException catch (error) {
+    throw PatchworkException(
+      'Could not restore reject file mode.',
+      code: 'patch.reject_mode_restore_failed',
+      hint: error.message,
+      location: path,
+    );
+  }
+  if (result.exitCode != 0) {
+    throw PatchworkException(
+      'Could not restore reject file mode.',
+      code: 'patch.reject_mode_restore_failed',
+      hint: '${result.stderr}${result.stdout}'.trim(),
+      location: path,
+    );
   }
 }
 

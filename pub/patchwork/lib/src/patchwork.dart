@@ -16,6 +16,7 @@ import 'internal/edit_preparer.dart';
 import 'internal/package_tree.dart';
 import 'internal/overlay_inspector.dart';
 import 'internal/path_layout.dart';
+import 'internal/patch_committer.dart';
 import 'internal/setup_inspector.dart';
 import 'internal/state_inspector.dart';
 import 'io/atomic_file_writer.dart';
@@ -56,6 +57,7 @@ final class Patchwork {
     required this._editSessionStore,
     required this._appliedMarkerStore,
     required this._editPreparer,
+    required this._committer,
     required this._packageTree,
     required this._patchFile,
     required this._pubspecDependencyOverrides,
@@ -104,6 +106,12 @@ final class Patchwork {
         patchFile: patchFile,
         editSessionStore: editSessionStore,
       ),
+      committer: PatchCommitter(
+        layout: layout,
+        editSessionStore: editSessionStore,
+        packageTree: packageTree,
+        patchFile: patchFile,
+      ),
       packageTree: packageTree,
       patchFile: patchFile,
       pubspecDependencyOverrides: const PubspecDependencyOverrides(),
@@ -120,6 +128,7 @@ final class Patchwork {
   final EditSessionStore _editSessionStore;
   final AppliedMarkerStore _appliedMarkerStore;
   final EditPreparer _editPreparer;
+  final PatchCommitter _committer;
   final PackageTree _packageTree;
   final PatchFile _patchFile;
   final PubspecDependencyOverrides _pubspecDependencyOverrides;
@@ -289,19 +298,14 @@ final class Patchwork {
   /// changes are validated before the patch file is written.
   Future<PatchWrite> commit(String package) async {
     _checkPlainPackageName(package);
-    final edit = _singleEditDirectory(package);
-    return _commitEdit(edit);
+    return _committer.commit(package);
   }
 
   /// Commits every open edit directory in package-name order.
   ///
   /// Returns an empty list when there are no open edits.
   Future<List<PatchWrite>> commitAll() async {
-    final writes = <PatchWrite>[];
-    for (final package in _openEditPackages()) {
-      writes.add(await commit(package));
-    }
-    return writes;
+    return _committer.commitAll();
   }
 
   /// Registers the committed patch for [package] in the current package's
@@ -361,10 +365,6 @@ final class Patchwork {
       manifestPath: manifestPath,
       reason: reason,
     );
-  }
-
-  List<String> _openEditPackages() {
-    return PatchworkArtifactInventory.read(_layout).openEditPackages;
   }
 
   /// Applies every committed patch that needs generated output.
@@ -1293,27 +1293,6 @@ final class Patchwork {
     }
   }
 
-  PackageVersionPath _singleEditDirectory(String package) {
-    final inventory = PatchworkArtifactInventory.read(_layout);
-    final edits = inventory.editsFor(package);
-    if (edits.isEmpty) {
-      throw PatchworkException(
-        'No edit directory exists for "$package".',
-        code: 'commit.edit_missing',
-        hint: 'Run patchwork patch $package first.',
-      );
-    }
-    if (edits.length > 1) {
-      throw PatchworkException(
-        'More than one edit directory exists for "$package".',
-        code: 'commit.ambiguous_edit',
-        hint:
-            'Commit or delete the extra .patchwork/$package@<version> directories.',
-      );
-    }
-    return edits.single;
-  }
-
   bool _isPackageApplied(String package, ResolvedPubPackage resolved) {
     if (_resolvesToAppliedPath(package, resolved.version, resolved)) {
       return true;
@@ -1351,57 +1330,6 @@ final class Patchwork {
         .readAll()
         .where((marker) => marker.package == package)
         .toList();
-  }
-
-  Future<PatchWrite> _commitEdit(PackageVersionPath edit) async {
-    final session = _editSessionStore.read(edit);
-    final patchPath = _layout.patchPath(edit.package, edit.version);
-    final existingPatchFile = File(patchPath);
-    final content = _patchFile.build(
-      sourcePath: session.baselinePath,
-      editPath: edit.path,
-    );
-    if (content.isEmpty) {
-      if (existingPatchFile.existsSync()) {
-        existingPatchFile.deleteSync();
-      }
-      _packageTree.deleteDirectory(edit.path);
-      return PatchWrite(
-        package: edit.package,
-        version: edit.version,
-        status: PatchWriteStatus.removed,
-        editPath: edit.path,
-        patchPath: patchPath,
-      );
-    }
-
-    final patchBytes = utf8.encode(content);
-    if (existingPatchFile.existsSync() &&
-        _sha256(existingPatchFile.readAsBytesSync()) == _sha256(patchBytes)) {
-      _packageTree.deleteDirectory(edit.path);
-      return PatchWrite(
-        package: edit.package,
-        version: edit.version,
-        status: PatchWriteStatus.unchanged,
-        editPath: edit.path,
-        patchPath: patchPath,
-      );
-    }
-
-    _patchFile.validate(
-      sourcePath: session.baselinePath,
-      patchContent: content,
-    );
-    writeBytesFileAtomically(patchPath, patchBytes);
-    _packageTree.deleteDirectory(edit.path);
-
-    return PatchWrite(
-      package: edit.package,
-      version: edit.version,
-      status: PatchWriteStatus.written,
-      editPath: edit.path,
-      patchPath: patchPath,
-    );
   }
 
   void _setMirroredPubspecDependencyOverrides(

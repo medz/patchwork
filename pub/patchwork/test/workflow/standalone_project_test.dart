@@ -292,6 +292,9 @@ void main() {
       File(
         p.join(project.greeterRoot, 'lib', 'extra.dart'),
       ).writeAsStringSync("const extra = 'old';\n");
+      File(
+        p.join(project.greeterRoot, 'lib', 'greeter.dart.rej'),
+      ).writeAsStringSync('existing reject-suffixed source file\n');
       project.writeResolution();
       final stalePatch = File(
         p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
@@ -358,6 +361,16 @@ diff --git a/lib/greeter.dart b/lib/greeter.dart
         ).readAsStringSync(),
         contains('legitimate reject-suffixed source file'),
       );
+      expect(
+        File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            'lib',
+            'greeter.dart.rej',
+          ),
+        ).readAsStringSync(),
+        'existing reject-suffixed source file\n',
+      );
 
       final repairLog = File(
         p.join(
@@ -381,18 +394,8 @@ diff --git a/lib/greeter.dart b/lib/greeter.dart
             'lib',
             'greeter.dart.rej',
           ),
-        ).existsSync(),
-        isTrue,
-      );
-      expect(
-        File(
-          p.join(
-            project.editDirectoryFor('0.1.1').path,
-            'lib',
-            'greeter.dart.rej',
-          ),
-        ).existsSync(),
-        isFalse,
+        ).readAsStringSync(),
+        contains('Hello from partial stale patch'),
       );
       expect(
         File(

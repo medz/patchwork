@@ -191,7 +191,7 @@ final class PatchFile {
       );
     }
 
-    final existingRejects = _rejectRelativePaths(packagePath).toSet();
+    final existingRejectBackups = _rejectFileBackups(packagePath);
     final patchFile = File(
       p.join(
         Directory.systemTemp.path,
@@ -215,7 +215,7 @@ final class PatchFile {
       );
       final rejectPaths = _moveNewRejectFiles(
         packagePath: packagePath,
-        existingRejects: existingRejects,
+        existingRejectBackups: existingRejectBackups,
         rejectPaths: _gitRejectRelativePaths(gitOutput),
       );
       return PartialPatchApply(
@@ -366,6 +366,15 @@ List<String> _rejectRelativePaths(String packagePath) {
   return paths;
 }
 
+Map<String, List<int>> _rejectFileBackups(String packagePath) {
+  return {
+    for (final relativePath in _rejectRelativePaths(packagePath))
+      relativePath: File(
+        p.joinAll([packagePath, ...relativePath.split('/')]),
+      ).readAsBytesSync(),
+  };
+}
+
 Set<String> _gitRejectRelativePaths(String output) {
   final paths = <String>{};
   final rejectLine = RegExp(
@@ -383,18 +392,16 @@ Set<String> _gitRejectRelativePaths(String output) {
 
 List<String> _moveNewRejectFiles({
   required String packagePath,
-  required Set<String> existingRejects,
+  required Map<String, List<int>> existingRejectBackups,
   required Set<String> rejectPaths,
 }) {
   final movedPaths = <String>[];
   for (final relativePath in rejectPaths) {
-    if (existingRejects.contains(relativePath)) {
-      continue;
-    }
     final source = File(p.joinAll([packagePath, ...relativePath.split('/')]));
     if (!source.existsSync()) {
       continue;
     }
+    final rejectBytes = source.readAsBytesSync();
     final movedRelativePath = p
         .joinAll(['.patchwork', 'rejects', ...relativePath.split('/')])
         .replaceAll('\\', '/');
@@ -405,7 +412,13 @@ List<String> _moveNewRejectFiles({
     if (destination.existsSync()) {
       destination.deleteSync();
     }
-    source.renameSync(destination.path);
+    destination.writeAsBytesSync(rejectBytes, flush: true);
+    final backupBytes = existingRejectBackups[relativePath];
+    if (backupBytes == null) {
+      source.deleteSync();
+    } else {
+      source.writeAsBytesSync(backupBytes, flush: true);
+    }
     movedPaths.add(movedRelativePath);
   }
   movedPaths.sort();

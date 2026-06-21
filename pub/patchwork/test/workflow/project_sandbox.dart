@@ -214,6 +214,78 @@ final class ProjectSandbox {
     );
   }
 
+  void writeResolution() {
+    final dartTool = Directory(p.join(stateRoot, '.dart_tool'))
+      ..createSync(recursive: true);
+    final otherRootPath = otherRoot;
+    final packageRoots = <String, String>{
+      'patchwork_test_app': appRoot,
+      'greeter': greeterRoot,
+    };
+    if (stateRoot != appRoot) {
+      packageRoots['patchwork_test_workspace'] = stateRoot;
+      packageRoots['member_greeter'] = p.join(
+        stateRoot,
+        'packages',
+        'member_greeter',
+      );
+    }
+    if (otherRootPath != null) {
+      packageRoots['other_pkg'] = otherRootPath;
+    }
+    File(p.join(dartTool.path, 'package_config.json')).writeAsStringSync(
+      '${jsonEncode({
+        'configVersion': 2,
+        'packages': [
+          for (final entry in packageRoots.entries) {'name': entry.key, 'rootUri': Directory(entry.value).absolute.uri.toString(), 'packageUri': 'lib/'},
+        ],
+      })}\n',
+    );
+    File(p.join(dartTool.path, 'package_graph.json')).writeAsStringSync(
+      '${jsonEncode({
+        'roots': stateRoot == appRoot ? ['patchwork_test_app'] : ['patchwork_test_workspace', 'patchwork_test_app', 'member_greeter'],
+        'packages': [
+          {
+            'name': 'patchwork_test_app',
+            'dependencies': ['greeter', if (otherRootPath != null) 'other_pkg', if (stateRoot != appRoot) 'member_greeter'],
+          },
+          {'name': 'greeter', 'dependencies': <String>[]},
+          if (otherRootPath != null) {'name': 'other_pkg', 'dependencies': <String>[]},
+          if (stateRoot != appRoot) ...[
+            {'name': 'patchwork_test_workspace', 'dependencies': <String>[]},
+            {'name': 'member_greeter', 'dependencies': <String>[]},
+          ],
+        ],
+      })}\n',
+    );
+    File(p.join(stateRoot, 'pubspec.lock')).writeAsStringSync('''
+packages:
+  greeter:
+    dependency: "direct main"
+    description:
+      path: ${p.relative(greeterRoot, from: stateRoot)}
+      relative: true
+    source: path
+    version: "0.1.0"
+${otherRootPath == null ? '' : '''  other_pkg:
+    dependency: "direct main"
+    description:
+      path: ${p.relative(otherRootPath, from: stateRoot)}
+      relative: true
+    source: path
+    version: "0.1.0"
+'''}${stateRoot == appRoot ? '' : '''  member_greeter:
+    dependency: "direct main"
+    description:
+      path: packages/member_greeter
+      relative: true
+    source: path
+    version: "0.1.0"
+'''}sdks:
+  dart: ">=3.12.0 <4.0.0"
+''');
+  }
+
   Future<void> patchwork(
     List<String> arguments, {
     String? workingDirectory,
@@ -384,6 +456,21 @@ final class ProjectSandbox {
 String greeting(String name) {
   return '$greetingPrefix, \$name!';
 }
+''');
+  }
+
+  void writeGreeterPatch(String greetingPrefix, {String version = '0.1.0'}) {
+    final patch = File(p.join(stateRoot, 'patches', 'greeter@$version.patch'));
+    patch.parent.createSync(recursive: true);
+    patch.writeAsStringSync('''
+diff --git a/lib/greeter.dart b/lib/greeter.dart
+--- a/lib/greeter.dart
++++ b/lib/greeter.dart
+@@ -1,3 +1,3 @@
+ String greeting(String name) {
+-  return 'Hello, \$name!';
++  return '$greetingPrefix, \$name!';
+ }
 ''');
   }
 

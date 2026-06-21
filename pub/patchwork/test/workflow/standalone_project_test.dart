@@ -304,6 +304,12 @@ diff --git a/lib/extra.dart b/lib/extra.dart
 @@ -1 +1 @@
 -const extra = 'old';
 +const extra = 'carried';
+diff --git a/lib/notes.rej b/lib/notes.rej
+new file mode 100644
+--- /dev/null
++++ b/lib/notes.rej
+@@ -0,0 +1 @@
++legitimate reject-suffixed source file
 diff --git a/lib/greeter.dart b/lib/greeter.dart
 --- a/lib/greeter.dart
 +++ b/lib/greeter.dart
@@ -346,6 +352,12 @@ diff --git a/lib/greeter.dart b/lib/greeter.dart
         ).readAsStringSync(),
         contains("const extra = 'carried';"),
       );
+      expect(
+        File(
+          p.join(project.editDirectoryFor('0.1.1').path, 'lib', 'notes.rej'),
+        ).readAsStringSync(),
+        contains('legitimate reject-suffixed source file'),
+      );
 
       final repairLog = File(
         p.join(
@@ -384,6 +396,18 @@ diff --git a/lib/greeter.dart b/lib/greeter.dart
       );
       expect(
         File(
+          p.join(
+            project.editDirectoryFor('0.1.1').path,
+            '.patchwork',
+            'rejects',
+            'lib',
+            'notes.rej',
+          ),
+        ).existsSync(),
+        isFalse,
+      );
+      expect(
+        File(
           p.join(project.stateRoot, 'patches', 'greeter@0.1.1.patch'),
         ).existsSync(),
         isFalse,
@@ -403,9 +427,10 @@ String greeting(String name) {
         p.join(project.stateRoot, 'patches', 'greeter@0.1.1.patch'),
       ).readAsStringSync();
       expect(committedPatch, contains('lib/extra.dart'));
+      expect(committedPatch, contains('lib/notes.rej'));
       expect(committedPatch, contains('Hello from partial stale patch'));
       expect(committedPatch, isNot(contains('partial-repair.log')));
-      expect(committedPatch, isNot(contains('.rej')));
+      expect(committedPatch, isNot(contains('greeter.dart.rej')));
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

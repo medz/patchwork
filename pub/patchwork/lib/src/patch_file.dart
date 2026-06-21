@@ -209,14 +209,19 @@ final class PatchFile {
         '--whitespace=nowarn',
         patchFile.path,
       ], workingDirectory: packagePath);
+      final gitOutput = '${result.stderr}${result.stdout}'.replaceAll(
+        '\r\n',
+        '\n',
+      );
       final rejectPaths = _moveNewRejectFiles(
         packagePath: packagePath,
         existingRejects: existingRejects,
+        rejectPaths: _gitRejectRelativePaths(gitOutput),
       );
       return PartialPatchApply(
         exitCode: result.exitCode,
         output: _normalizedGitOutput(
-          result,
+          gitOutput,
           workingDirectory: packagePath,
           patchPath: patchFile.path,
         ),
@@ -322,12 +327,11 @@ String _gitArgumentPath(String path) {
 }
 
 String _normalizedGitOutput(
-  ProcessResult result, {
+  String output, {
   required String workingDirectory,
   required String patchPath,
 }) {
-  return '${result.stderr}${result.stdout}'
-      .replaceAll('\r\n', '\n')
+  return output
       .replaceAll(_gitArgumentPath(patchPath), '<patch>')
       .replaceAll(patchPath, '<patch>')
       .replaceAll(_gitArgumentPath(workingDirectory), '.')
@@ -362,16 +366,35 @@ List<String> _rejectRelativePaths(String packagePath) {
   return paths;
 }
 
+Set<String> _gitRejectRelativePaths(String output) {
+  final paths = <String>{};
+  final rejectLine = RegExp(
+    r'^Applying patch (.+) with [0-9]+ rejects?\.\.\.$',
+  );
+  for (final line in output.split('\n')) {
+    final match = rejectLine.firstMatch(line.trimRight());
+    if (match == null) {
+      continue;
+    }
+    paths.add('${match.group(1)!}.rej');
+  }
+  return paths;
+}
+
 List<String> _moveNewRejectFiles({
   required String packagePath,
   required Set<String> existingRejects,
+  required Set<String> rejectPaths,
 }) {
   final movedPaths = <String>[];
-  for (final relativePath in _rejectRelativePaths(packagePath)) {
+  for (final relativePath in rejectPaths) {
     if (existingRejects.contains(relativePath)) {
       continue;
     }
     final source = File(p.joinAll([packagePath, ...relativePath.split('/')]));
+    if (!source.existsSync()) {
+      continue;
+    }
     final movedRelativePath = p
         .joinAll(['.patchwork', 'rejects', ...relativePath.split('/')])
         .replaceAll('\\', '/');

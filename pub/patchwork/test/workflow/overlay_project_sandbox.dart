@@ -243,7 +243,7 @@ final class OverlayProjectSandbox {
           {'name': 'greeter', 'dependencies': <String>[]},
           {
             'name': 'patchwork',
-            'dependencies': ['crypto', 'hooks', 'path', 'yaml'],
+            'dependencies': ['crypto', 'hooks', 'path', 'yaml', 'yaml_edit'],
           },
           for (final entry in hostedPackages) {'name': entry['name'], 'dependencies': <String>[]},
         ],

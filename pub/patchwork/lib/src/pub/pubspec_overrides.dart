@@ -2,10 +2,10 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:yaml/yaml.dart';
+import 'package:yaml_edit/yaml_edit.dart';
 
 import '../error.dart';
 import '../internal/yaml_conversion.dart';
-import '../internal/yaml_writer.dart';
 import '../io/atomic_file_writer.dart';
 
 /// Reads and updates dependency overrides in `pubspec_overrides.yaml`.
@@ -289,7 +289,9 @@ final class PubspecOverrides {
         }
         return;
       }
-      fileWriter.writeString(path, formatYamlMap(overrides));
+      final editor = YamlEditor('');
+      editor.update([], overrides);
+      fileWriter.writeString(path, '${editor.toString()}\n');
     } on FileSystemException catch (error) {
       throw PatchworkException(
         'Could not write pubspec_overrides.yaml.',

@@ -1,15 +1,14 @@
 import 'dart:io';
 
 import 'package:yaml/yaml.dart';
+import 'package:yaml_edit/yaml_edit.dart';
 
 import 'error.dart';
-import 'internal/yaml_writer.dart';
 import 'io/atomic_file_writer.dart';
 
 /// Reads and writes package-provided overlay declarations.
 ///
-/// The manifest is intentionally small and deterministic. Patchwork owns the
-/// formatting of `patchwork.yaml` so generated entries produce stable diffs.
+/// The manifest is intentionally small and deterministic.
 final class OverlayManifestStore {
   /// Creates a manifest store for [path].
   const OverlayManifestStore({
@@ -89,7 +88,9 @@ final class OverlayManifestStore {
 
   /// Writes [manifest] to disk.
   void write(OverlayManifest manifest) {
-    fileWriter.writeString(path, '${formatYamlMap(manifest.toYaml())}\n');
+    final editor = YamlEditor('');
+    editor.update([], manifest.toYaml());
+    fileWriter.writeString(path, '${editor.toString()}\n');
   }
 
   OverlayManifestEntry _readEntry(int index, YamlMap value) {

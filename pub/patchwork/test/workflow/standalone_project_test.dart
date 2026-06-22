@@ -109,6 +109,46 @@ void main() {
   );
 
   test(
+    'patches a transitive dependency selected by a standalone project resolution',
+    () async {
+      final project = await ProjectSandbox.standaloneTransitive();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      project.expectPackageResolvedTo('greeter', project.greeterRoot);
+
+      await project.application(['patch', 'greeter']);
+      project.writeEdit('Hello from a transitive patch');
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
+      await project.application([
+        'status',
+      ], stdoutContains: 'applied: .dart_tool/patchwork/greeter@0.1.0');
+      project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
+      await project.runApp('Hello from a transitive patch, Patchwork!');
+
+      await project.application(['undo', 'greeter']);
+      project.expectPackageResolvedTo('greeter', project.greeterRoot);
+      await project.runApp('Hello, Patchwork!');
+
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      await project.pubGet();
+      await project.application([
+        'carry',
+        'greeter',
+      ], stdoutContains: 'Created carry edit');
+      expect(
+        project.editFileFor('0.1.1').readAsStringSync(),
+        contains('Hello from a transitive patch'),
+      );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'can continue an old version patch after the dependency version changes',
     () async {
       final project = await ProjectSandbox.standalone();

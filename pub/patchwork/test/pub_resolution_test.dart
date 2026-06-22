@@ -88,7 +88,7 @@ packages:
     });
   });
 
-  test('rejects packages outside the current pubspec dependencies', () {
+  test('requires direct dependencies only when requested', () {
     final root = Directory.systemTemp.createTempSync('patchwork_resolution_');
     addTearDown(() => root.deleteSync(recursive: true));
 
@@ -145,6 +145,12 @@ packages:
           'pub.package_not_direct_dependency',
         ),
       ),
+    );
+    expect(
+      resolution
+          .resolvePackage('transitive_pkg', requireDirectDependency: false)
+          .rootPath,
+      transitiveRoot,
     );
   });
 

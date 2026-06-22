@@ -124,6 +124,39 @@ final class ProjectSandbox {
     );
   }
 
+  static Future<ProjectSandbox> standaloneTransitive() async {
+    final root = Directory.systemTemp.createTempSync(
+      'patchwork_standalone_transitive_',
+    );
+    final patchworkRoot = await _patchworkPackageRoot();
+    final pubCachePath = _resolvedPubCachePath(patchworkRoot);
+    final appRoot = p.join(root.path, 'app');
+    final directRoot = p.join(root.path, 'packages', 'direct_greeter');
+    final dependencyRoot = p.join(root.path, 'packages', 'greeter');
+    final manualRoot = p.join(root.path, 'manual_greeter');
+
+    _writeGreeterPackage(dependencyRoot, 'Hello, \$name!');
+    _writeGreeterPackage(manualRoot, 'Hello from a manual override, \$name!');
+    _writeDirectGreeterPackage(directRoot, greeterPath: '../greeter');
+    _writeTransitiveApp(
+      appRoot,
+      directGreeterPath: '../packages/direct_greeter',
+    );
+    _writePatchworkDevDependency(appRoot, patchworkPath: patchworkRoot);
+
+    return ProjectSandbox._(
+      root: root,
+      stateRoot: appRoot,
+      commandRoot: appRoot,
+      appRoot: appRoot,
+      greeterRoot: dependencyRoot,
+      manualOverrideRoot: manualRoot,
+      otherRoot: null,
+      otherOverrideRoot: null,
+      environment: _pubEnvironment(pubCachePath),
+    );
+  }
+
   static Future<ProjectSandbox> workspace({
     bool includeOtherDependency = false,
   }) async {
@@ -166,6 +199,43 @@ final class ProjectSandbox {
       manualOverrideRoot: manualRoot,
       otherRoot: otherRoot,
       otherOverrideRoot: otherOverrideRoot,
+      environment: _pubEnvironment(pubCachePath),
+    );
+  }
+
+  static Future<ProjectSandbox> workspaceTransitive() async {
+    final root = Directory.systemTemp.createTempSync(
+      'patchwork_workspace_transitive_',
+    );
+    final patchworkRoot = await _patchworkPackageRoot();
+    final pubCachePath = _resolvedPubCachePath(patchworkRoot);
+    final workspaceRoot = p.join(root.path, 'workspace');
+    final appRoot = p.join(workspaceRoot, 'app');
+    final directRoot = p.join(root.path, 'deps', 'direct_greeter');
+    final dependencyRoot = p.join(root.path, 'deps', 'greeter');
+    final manualRoot = p.join(root.path, 'manual_greeter');
+    final memberRoot = p.join(workspaceRoot, 'packages', 'member_greeter');
+
+    _writeGreeterPackage(dependencyRoot, 'Hello, \$name!');
+    _writeGreeterPackage(manualRoot, 'Hello from a manual override, \$name!');
+    _writeDirectGreeterPackage(directRoot, greeterPath: '../greeter');
+    _writeWorkspaceMember(memberRoot);
+    _writeWorkspaceRoot(workspaceRoot, patchworkPath: patchworkRoot);
+    _writeTransitiveApp(
+      appRoot,
+      directGreeterPath: '../../deps/direct_greeter',
+      workspaceMember: true,
+    );
+
+    return ProjectSandbox._(
+      root: root,
+      stateRoot: workspaceRoot,
+      commandRoot: appRoot,
+      appRoot: appRoot,
+      greeterRoot: dependencyRoot,
+      manualOverrideRoot: manualRoot,
+      otherRoot: null,
+      otherOverrideRoot: null,
       environment: _pubEnvironment(pubCachePath),
     );
   }
@@ -731,6 +801,33 @@ void main() {
 ''');
 }
 
+void _writeTransitiveApp(
+  String root, {
+  required String directGreeterPath,
+  bool workspaceMember = false,
+}) {
+  Directory(p.join(root, 'bin')).createSync(recursive: true);
+  File(p.join(root, 'pubspec.yaml')).writeAsStringSync('''
+name: patchwork_test_app
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+${workspaceMember ? 'resolution: workspace\n' : ''}dependencies:
+  direct_greeter:
+    path: $directGreeterPath
+${workspaceMember ? '  member_greeter: ^0.1.0\n' : ''}
+''');
+  File(p.join(root, 'bin', 'app.dart')).writeAsStringSync('''
+import 'package:direct_greeter/direct_greeter.dart';
+
+void main() {
+  print(greeting('Patchwork'));
+}
+''');
+}
+
 void _writeGitApp(
   String root, {
   required String greeterGitUrl,
@@ -789,6 +886,29 @@ environment:
   File(p.join(root, 'lib', 'greeter.dart')).writeAsStringSync('''
 String greeting(String name) {
   return '$greeting';
+}
+''');
+}
+
+void _writeDirectGreeterPackage(String root, {required String greeterPath}) {
+  Directory(p.join(root, 'lib')).createSync(recursive: true);
+  File(p.join(root, 'pubspec.yaml')).writeAsStringSync('''
+name: direct_greeter
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.12.0
+
+dependencies:
+  greeter:
+    path: $greeterPath
+''');
+  File(p.join(root, 'lib', 'direct_greeter.dart')).writeAsStringSync('''
+import 'package:greeter/greeter.dart' as greeter;
+
+String greeting(String name) {
+  return greeter.greeting(name);
 }
 ''');
 }

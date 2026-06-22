@@ -27,11 +27,6 @@ void main() {
         exitCodes: {1},
         stderrContains: 'workspace/root package',
       );
-      await project.application(
-        ['patch', 'patchwork'],
-        exitCodes: {1},
-        stderrContains: 'not a direct dependency',
-      );
 
       await project.application(['patch', 'greeter']);
       project.writeEdit('Hello from a workspace patch');
@@ -93,6 +88,36 @@ void main() {
       await project.application(['patch', 'greeter'], exitCodes: {1});
       await project.application(['patch', 'greeter', '--force']);
       expect(project.editFile.readAsStringSync(), contains('Hello, \$name!'));
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'patches a transitive dependency selected by a workspace resolution',
+    () async {
+      final project = await ProjectSandbox.workspaceTransitive();
+      addTearDown(project.dispose);
+
+      await project.pubGet();
+      project.expectPackageResolvedTo('greeter', project.greeterRoot);
+      await project.application(
+        ['patch', 'member_greeter'],
+        exitCodes: {1},
+        stderrContains: 'workspace/root package',
+      );
+
+      await project.application(['patch', 'greeter']);
+      project.writeEdit('Hello from a workspace transitive patch');
+      await project.application(['commit', 'greeter']);
+      await project.application(['apply', 'greeter']);
+      project.expectPackageResolvedTo('greeter', project.appliedDirectory.path);
+      await project.runApp(
+        'Hello from a workspace transitive patch, Patchwork!',
+      );
+
+      await project.application(['undo', 'greeter']);
+      project.expectPackageResolvedTo('greeter', project.greeterRoot);
+      await project.runApp('Hello, Patchwork!');
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

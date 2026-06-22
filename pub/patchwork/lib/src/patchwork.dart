@@ -185,7 +185,7 @@ final class Patchwork {
   /// existing edit directory that Patchwork can prove is either unchanged from
   /// the source or already represented by the committed patch.
   ///
-  /// The package must be a direct dependency of the current package and must not
+  /// The package must be selected by the current pub resolution and must not
   /// already resolve to Patchwork generated output. The edit directory carries a
   /// hidden baseline snapshot used later by [commit].
   Future<PreparedEdit> patch(
@@ -211,7 +211,10 @@ final class Patchwork {
   }) async {
     _checkPlainPackageName(package);
     final resolution = _readResolution();
-    final resolved = resolution.resolvePackage(package);
+    final resolved = resolution.resolvePackage(
+      package,
+      requireDirectDependency: false,
+    );
     if (_isPackageApplied(package, resolved)) {
       throw PatchworkException(
         'Package "$package" already has an applied Patchwork patch.',
@@ -273,7 +276,10 @@ final class Patchwork {
     }
 
     final resolution = _readResolution();
-    final resolved = resolution.resolvePackage(package);
+    final resolved = resolution.resolvePackage(
+      package,
+      requireDirectDependency: false,
+    );
     final inventory = PatchworkArtifactInventory.read(_layout);
     if (_isPackageApplied(package, resolved)) {
       throw PatchworkException(

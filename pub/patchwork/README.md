@@ -53,8 +53,8 @@ committed files. Edit directories are disposable workspaces.
 
 This is the default path when the current app or workspace owns the dependency
 fix.
-Replace `collection` with a direct dependency name from your `pubspec.yaml`
-(`dependencies` or `dev_dependencies`).
+Replace `collection` with a package selected by the current pub resolution,
+including direct or transitive dependencies.
 
 ```sh
 dart pub add dev:patchwork
@@ -113,14 +113,13 @@ the current pub resolution:
 .patchwork/collection@<version>/
 ```
 
-Use the dependency name exactly as it appears in `pubspec.yaml`, such as
-`collection`.
+Use the resolved package name, such as `collection`.
 
 The dependency can be hosted, path, or git; the command target is still only
 the package name. SDK packages are not patch targets.
-The target must be a direct dependency of the current package, listed under
-`dependencies` or `dev_dependencies`, not only a transitive package in
-`pubspec.lock`.
+The target must be selected by the current pub resolution, have lockfile
+metadata, and appear in `.dart_tool/package_config.json`. It can be a direct or
+transitive dependency.
 
 ### Commit the edit
 
@@ -556,9 +555,9 @@ Before changing files:
 - Run or verify `dart pub get`, then read `pubspec.yaml`, `pubspec.lock`,
   `.dart_tool/package_config.json`, and, for package-provided patches,
   `.dart_tool/package_graph.json` before choosing a target version.
-- For root project patches, verify the target package is under the current
-  package's `dependencies` or `dev_dependencies`, not only transitive in
-  `pubspec.lock`.
+- For root project patches, verify the target package is selected by the
+  current pub resolution and has lockfile metadata. It can be direct or
+  transitive.
 - For package-provided patches, verify the target package and `patchwork` are
   both under the providing package's `dependencies`, not `dev_dependencies`,
   before running `patchwork patch` or `overlay add`.

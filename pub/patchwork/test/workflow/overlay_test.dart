@@ -54,11 +54,11 @@ void main() {
         manifest.readAsStringSync(),
         allOf([
           contains('overlays:'),
-          contains('package: "greeter"'),
-          contains('version: "0.1.0"'),
+          contains('package: greeter'),
+          contains('version: 0.1.0'),
           contains('sha256:'),
-          contains('patch: "patches/greeter@0.1.0.patch"'),
-          contains('reason: "Fix greeting used by provider_b."'),
+          contains('patch: patches/greeter@0.1.0.patch'),
+          contains('reason: Fix greeting used by provider_b.'),
         ]),
       );
     },
@@ -86,7 +86,7 @@ void main() {
       );
       expect(
         project.manifestFor(project.providerBRoot).readAsStringSync(),
-        contains('patch: "patches/greeter@0.1.0.patch"'),
+        contains('patch: patches/greeter@0.1.0.patch'),
       );
     },
     timeout: const Timeout(Duration(minutes: 4)),

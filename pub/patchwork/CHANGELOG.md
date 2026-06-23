@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.6.0 - 2026-06-23
+
+- Added root-owned `patchwork patch` and `patchwork carry` support for
+  transitive packages selected by the current pub resolution, while keeping
+  package-provided overlays direct-only.
+- Switched Patchwork-owned YAML writes for `patchwork.yaml` and
+  `pubspec_overrides.yaml` to parser-backed `yaml_edit` updates.
+- Refreshed README guidance for package-provided patches and hook workflows.
+
 ## 0.5.0 - 2026-06-21
 
 - Added `patchwork carry <pkg> [--from version]` to carry stale patch files into

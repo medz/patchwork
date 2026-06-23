@@ -7,12 +7,11 @@
 Patch a Dart pub dependency without forking it or editing your shared
 `.pub-cache`.
 
-Patchwork is for the space between a fragile local cache edit and a long-lived
-fork: make a small fix to a resolved dependency, commit the fix as a reviewable
-patch file, and let Patchwork regenerate local path overrides wherever the
-project runs.
+Patchwork turns dependency patches into normal project artifacts: edit a
+resolved pub dependency, commit the change as a reviewable patch file, and let
+Patchwork regenerate local path overrides wherever the project runs.
 
-> No fork. No cache edits. A normal patch file your team can review and reapply.
+> No fork. No cache edits. Reviewable patch files that travel with your project.
 
 ## Choose The Workflow
 
@@ -21,7 +20,7 @@ Start here: decide who owns the patch file.
 | If this is true                             | Use                                                   |
 | ------------------------------------------- | ----------------------------------------------------- |
 | App/workspace needs the patch while it runs | [Root Project Patches](#root-project-patches)         |
-| Published package ships fix downstream      | [Package-Provided Patches](#package-provided-patches) |
+| Published package carries patch downstream  | [Package-Provided Patches](#package-provided-patches) |
 
 Workflow outcomes:
 
@@ -31,9 +30,9 @@ Workflow outcomes:
   `commit` -> review the patch file -> `overlay add`, and commit
   `patchwork.yaml` plus `patches/<pkg>@<version>.patch`.
 
-If you are unsure, choose Root Project Patches. Use Package-Provided Patches
-only when a published package must carry a direct runtime dependency fix for
-downstream applications.
+If you are unsure, choose Root Project Patches. Choose Package-Provided Patches
+when a published package carries a direct runtime dependency patch for downstream
+applications.
 
 Use one workflow for one patch. The two workflows install Patchwork differently
 and commit different files.
@@ -52,7 +51,7 @@ committed files. Edit directories are disposable workspaces.
 ## Quick Start: Root Project Patch
 
 This is the default path when the current app or workspace owns the dependency
-fix.
+change.
 Replace `collection` with a package selected by the current pub resolution,
 including direct or transitive dependencies.
 
@@ -83,11 +82,13 @@ downstream applications should use
 
 Manual `.pub-cache` edits are fast, but they are local to one machine and easy
 to lose. Patchwork keeps the durable part of the change in your project so the
-same dependency fix can be reviewed, committed, and applied by teammates or CI.
+same dependency change can be reviewed, committed, and applied by teammates or
+CI.
 
-Patchwork is a good fit for small dependency fixes while you wait for an
-upstream release. Prefer a fork or vendored dependency when the change is large,
-long-lived, security-sensitive, or needs its own release process.
+Use Patchwork when your project or package needs to carry a reviewable change to
+a pub dependency in its normal repository. It works well for compatibility work,
+platform adaptation, release unblocks, and dependency behavior adjustments that
+should stay visible in code review.
 
 ## Root Project Patches
 
@@ -698,7 +699,7 @@ Future<void> main() async {
 Use `PatchRef.version('1.19.0')` with `patch` when carrying an older patch onto
 a newer dependency source.
 
-## Migration And Limits
+## Migration
 
 If you currently use a cache patch tool or manual `.pub-cache` edits, restore a
 clean dependency copy before creating a Patchwork edit. Patchwork should diff
@@ -709,9 +710,8 @@ Patchwork does not import other patch formats yet. Recreate the dependency edit
 with `patchwork patch <package>`, then commit it with
 `patchwork commit <package>`.
 
-Patchwork is intentionally optimized for small, reviewable dependency fixes.
-Use a fork, vendored dependency, or upstream contribution for broad feature
-work, long-lived divergence, or changes that need their own release process.
+Patchwork is optimized for reviewable dependency patches that stay attached to
+the consuming project or package.
 
 ## Runnable Example
 

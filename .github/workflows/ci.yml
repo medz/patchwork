@@ -10,9 +10,15 @@ permissions:
   contents: read
 
 jobs:
-  dart:
-    name: Dart
+  test:
+    name: Test (Dart ${{ matrix.dart-sdk }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dart-sdk:
+          - 3.10.0
+          - stable
 
     steps:
       - name: Checkout
@@ -21,7 +27,7 @@ jobs:
       - name: Set up Dart
         uses: dart-lang/setup-dart@v1.7.2
         with:
-          sdk: stable
+          sdk: ${{ matrix.dart-sdk }}
 
       - name: Install workspace dependencies
         run: dart pub get
@@ -56,3 +62,72 @@ jobs:
       - name: Smoke example
         working-directory: examples/hello_patch/app
         run: dart run patchwork doctor && dart run bin/app.dart
+
+  flutter-dependency-resolution:
+    name: Flutter dependency resolution (Flutter ${{ matrix.flutter-sdk }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        flutter-sdk:
+          - 3.38.2
+          - stable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Flutter ${{ matrix.flutter-sdk }}
+        if: matrix.flutter-sdk != 'stable'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ matrix.flutter-sdk }}
+          cache: true
+
+      - name: Set up Flutter stable
+        if: matrix.flutter-sdk == 'stable'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Verify Flutter SDK
+        run: |
+          flutter --version
+          dart --version
+
+      - name: Resolve Patchwork in a Flutter project
+        run: |
+          set -euo pipefail
+          probe="$(mktemp -d)"
+          mkdir -p "$probe/app/lib"
+          cat > "$probe/app/pubspec.yaml" <<YAML
+          name: patchwork_flutter_probe
+          publish_to: none
+
+          environment:
+            sdk: ^3.10.0
+
+          dependencies:
+            flutter:
+              sdk: flutter
+
+          dev_dependencies:
+            flutter_test:
+              sdk: flutter
+            patchwork:
+              path: $GITHUB_WORKSPACE/pub/patchwork
+
+          flutter:
+            uses-material-design: true
+          YAML
+          cat > "$probe/app/lib/main.dart" <<'DART'
+          import 'package:flutter/widgets.dart';
+
+          void main() => runApp(const SizedBox.shrink());
+          DART
+          cd "$probe/app"
+          flutter pub get
+          flutter pub deps --style=compact
+          flutter pub run patchwork doctor

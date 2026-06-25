@@ -24,7 +24,7 @@ name: app
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 
 dependencies:
   hosted_pkg: any
@@ -39,7 +39,7 @@ dependencies:
     });
     _writeLockfile(appRoot, '''
 sdks:
-  dart: ">=3.12.0 <4.0.0"
+  dart: ">=3.10.0 <4.0.0"
 packages:
   hosted_pkg:
     dependency: "direct main"
@@ -103,7 +103,7 @@ name: app
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 
 dependencies:
   direct_pkg: any
@@ -115,7 +115,7 @@ dependencies:
     });
     _writeLockfile(appRoot, '''
 sdks:
-  dart: ">=3.12.0 <4.0.0"
+  dart: ">=3.10.0 <4.0.0"
 packages:
   direct_pkg:
     dependency: "direct main"
@@ -166,7 +166,7 @@ name: workspace
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 
 workspace:
   - app
@@ -177,7 +177,7 @@ name: app
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 
 resolution: workspace
 
@@ -192,7 +192,7 @@ dependencies:
     });
     _writeLockfile(workspaceRoot, '''
 sdks:
-  dart: ">=3.12.0 <4.0.0"
+  dart: ">=3.10.0 <4.0.0"
 packages:
   member_greeter:
     dependency: "direct main"
@@ -230,7 +230,7 @@ name: app
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 
 dependencies:
   unknown_pkg: any
@@ -238,7 +238,7 @@ dependencies:
     _writePackageConfig(appRoot, {'app': appRoot, 'unknown_pkg': unknownRoot});
     _writeLockfile(appRoot, '''
 sdks:
-  dart: ">=3.12.0 <4.0.0"
+  dart: ">=3.10.0 <4.0.0"
 packages:
   unknown_pkg:
     dependency: "direct main"
@@ -271,7 +271,7 @@ version: 0.1.0
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 ''');
   File(p.join(root, 'lib', '$name.dart')).writeAsStringSync('''
 String name() => '$name';

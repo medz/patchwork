@@ -5,10 +5,10 @@ repository: https://github.com/medz/patchwork
 issue_tracker: https://github.com/medz/patchwork/issues
 
 environment:
-  sdk: ^3.12.1
+  sdk: ^3.10.0
 
 workspace:
-  - pub/*
+  - pub/patchwork
 
 dependencies:
   hooks: ^2.0.2

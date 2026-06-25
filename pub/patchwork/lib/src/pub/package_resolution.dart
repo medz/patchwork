@@ -428,11 +428,13 @@ final class PubResolutionReader {
 final class PubResolution {
   const PubResolution._({
     required this.workspace,
-    required this._packages,
-    required this._rootNames,
-    required this._directDependencies,
+    required _PackageIndex packages,
+    required Set<String> rootNames,
+    required Set<String> directDependencies,
     required this.packageTree,
-  });
+  }) : _packages = packages,
+       _rootNames = rootNames,
+       _directDependencies = directDependencies;
 
   /// The package or workspace that owns the active pub resolution files.
   final PubWorkspace workspace;

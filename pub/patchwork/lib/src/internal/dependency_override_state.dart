@@ -12,9 +12,10 @@ import '../pub/pubspec_overrides.dart';
 final class DependencyOverrideState {
   DependencyOverrideState._({
     required this.rootPath,
-    required this._roots,
-    required this._root,
-  });
+    required List<_OverrideRootState> roots,
+    required _OverrideRootState root,
+  }) : _roots = roots,
+       _root = root;
 
   /// Reads override state for the Patchwork state root and all pub roots.
   factory DependencyOverrideState.read({

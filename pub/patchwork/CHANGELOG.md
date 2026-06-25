@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.6.1 - 2026-06-25
+
+- Lowered the minimum Dart SDK to `3.10.0` while keeping Patchwork's
+  package-provided build hook and overlay behavior intact.
+- Added CI coverage for Dart `3.10.0`, Dart stable, Flutter `3.38.2`, and
+  Flutter stable dependency resolution.
+- Refined README positioning around package-provided patches and project-owned
+  patch workflows.
+
 ## 0.6.0 - 2026-06-23
 
 - Added root-owned `patchwork patch` and `patchwork carry` support for

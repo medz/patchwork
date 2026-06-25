@@ -1458,7 +1458,7 @@ version: 0.1.0
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 ''');
   File(p.join(root, 'lib', '$package.dart')).writeAsStringSync('''
 String packageName() {

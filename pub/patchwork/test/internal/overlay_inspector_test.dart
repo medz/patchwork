@@ -252,7 +252,7 @@ packages:
     source: path
     version: "0.1.0"
 sdks:
-  dart: ">=3.12.0 <4.0.0"
+  dart: ">=3.10.0 <4.0.0"
 ''');
 }
 
@@ -268,7 +268,7 @@ version: 0.1.0
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 ${dependencies.isEmpty ? '' : '\ndependencies:\n'}${dependencies.map((dependency) => '  $dependency:\n    path: packages/$dependency\n').join()}
 ''');
   File(p.join(root, 'lib', '$name.dart')).writeAsStringSync('''
@@ -286,7 +286,7 @@ version: 0.1.0
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 ''');
   File(p.join(root, 'lib', 'greeter.dart')).writeAsStringSync('''
 String greeting(String name) {

@@ -18,15 +18,22 @@ import 'path_layout.dart';
 final class PatchworkStateInspector {
   /// Creates an inspector for one Patchwork state root.
   const PatchworkStateInspector({
-    required this._rootPath,
-    required this._currentPackageRootPath,
-    required this._layout,
-    required this._pubResolutionReader,
-    required this._editSessionStore,
-    required this._appliedMarkerStore,
-    required this._appliedPaths,
-    required this._readOverrideState,
-  });
+    required String rootPath,
+    required String currentPackageRootPath,
+    required PathLayout layout,
+    required PubResolutionReader pubResolutionReader,
+    required EditSessionStore editSessionStore,
+    required AppliedMarkerStore appliedMarkerStore,
+    required AppliedPathPolicy appliedPaths,
+    required DependencyOverrideState Function() readOverrideState,
+  }) : _rootPath = rootPath,
+       _currentPackageRootPath = currentPackageRootPath,
+       _layout = layout,
+       _pubResolutionReader = pubResolutionReader,
+       _editSessionStore = editSessionStore,
+       _appliedMarkerStore = appliedMarkerStore,
+       _appliedPaths = appliedPaths,
+       _readOverrideState = readOverrideState;
 
   final String _rootPath;
   final String _currentPackageRootPath;

@@ -281,7 +281,7 @@ ${appDependsOnProviderC ? '''  provider_c:
     source: path
     version: "0.4.0"
 sdks:
-  dart: ">=3.12.0 <4.0.0"
+  dart: ">=3.10.0 <4.0.0"
 ''');
   }
 
@@ -617,7 +617,7 @@ version: 0.1.0
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 ''');
   _writeGreeterLibrary(p.join(root, 'lib'), prefix: 'Hello', punctuation: '!');
 }
@@ -657,7 +657,7 @@ version: 0.1.0
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 
 ${workspaceMember ? 'resolution: workspace\n' : ''}dependencies:
   greeter:
@@ -688,7 +688,7 @@ name: patchwork_overlay_app
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 
 ${workspaceMember ? 'resolution: workspace\n' : ''}dependencies:
   provider_b:
@@ -711,7 +711,7 @@ name: patchwork_overlay_workspace
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 
 workspace:
   - app
@@ -726,7 +726,7 @@ name: patchwork_overlay_provider_workspace
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 
 workspace:
   - packages/provider_b

@@ -358,7 +358,7 @@ ${otherRootPath == null ? '' : '''  other_pkg:
     source: path
     version: "0.1.0"
 '''}sdks:
-  dart: ">=3.12.0 <4.0.0"
+  dart: ">=3.10.0 <4.0.0"
 ''');
   }
 
@@ -761,7 +761,7 @@ name: patchwork_test_workspace
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 
 workspace:
   - app
@@ -785,7 +785,7 @@ name: patchwork_test_app
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 
 ${workspaceMember ? 'resolution: workspace\n' : ''}dependencies:
   greeter:
@@ -812,7 +812,7 @@ name: patchwork_test_app
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 
 ${workspaceMember ? 'resolution: workspace\n' : ''}dependencies:
   direct_greeter:
@@ -839,7 +839,7 @@ name: patchwork_test_app
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 
 dependencies:
   greeter:
@@ -881,7 +881,7 @@ version: $version
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 ''');
   File(p.join(root, 'lib', 'greeter.dart')).writeAsStringSync('''
 String greeting(String name) {
@@ -898,7 +898,7 @@ version: 0.1.0
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 
 dependencies:
   greeter:
@@ -921,7 +921,7 @@ version: 0.1.0
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 ''');
   File(p.join(root, 'lib', 'other_pkg.dart')).writeAsStringSync('''
 String otherName() {
@@ -938,7 +938,7 @@ version: 0.1.0
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 
 resolution: workspace
 ''');

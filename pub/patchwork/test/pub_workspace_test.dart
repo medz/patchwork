@@ -128,7 +128,7 @@ name: $name
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 ''');
 }
 
@@ -142,7 +142,7 @@ name: workspace
 publish_to: none
 
 environment:
-  sdk: ^3.12.0
+  sdk: ^3.10.0
 
 workspace:
   - app

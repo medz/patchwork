@@ -3,11 +3,12 @@ import 'dart:collection';
 import 'dart:io';
 import 'dart:isolate';
 
-import 'package:crypto/crypto.dart';
 import 'package:hooks/hooks.dart';
 import 'package:path/path.dart' as p;
 
 import 'error.dart';
+import 'internal/artifact_identity.dart';
+import 'internal/hashing.dart';
 import 'internal/package_tree.dart';
 import 'internal/path_layout.dart';
 import 'internal/pub_resolution_files.dart';
@@ -209,7 +210,7 @@ void _deduplicateOverlayGroupContributions(_OverlayGroup group) {
   final seen = <String>{};
   group.contributions.removeWhere((contribution) {
     final file = File(contribution.patchPath);
-    return !seen.add(_sha256(file.readAsBytesSync()));
+    return !seen.add(sha256Hex(file.readAsBytesSync()));
   });
 }
 
@@ -273,7 +274,7 @@ void _appendRootPatches(
     if (!patchFile.existsSync()) {
       continue;
     }
-    final patchSha256 = _sha256(patchFile.readAsBytesSync());
+    final patchSha256 = sha256Hex(patchFile.readAsBytesSync());
     output.dependencies.add(patchFile.absolute.uri);
     if (_hasContributionPatchSha(group, patchSha256)) {
       continue;
@@ -287,7 +288,7 @@ void _appendRootPatches(
 bool _hasContributionPatchSha(_OverlayGroup group, String sha256) {
   for (final contribution in group.contributions) {
     final file = File(contribution.patchPath);
-    if (file.existsSync() && _sha256(file.readAsBytesSync()) == sha256) {
+    if (file.existsSync() && sha256Hex(file.readAsBytesSync()) == sha256) {
       return true;
     }
   }
@@ -311,9 +312,10 @@ void _rejectOpenEdits(Iterable<_OverlayGroup> groups, PathLayout layout) {
 
 void _composeOverlayGroup(_OverlayGroup group, {required PathLayout layout}) {
   final outputPath = layout.appliedPath(group.package, group.version);
+  final identity = packageVersionName(group.package, group.version);
   final tempPath = p.join(
     layout.appliedRootPath,
-    '.${group.package}@${group.version}.$pid.${DateTime.now().microsecondsSinceEpoch}',
+    '.$identity.$pid.${DateTime.now().microsecondsSinceEpoch}',
   );
   const packageTree = PackageTree();
   const patchFile = PatchFile();
@@ -329,7 +331,7 @@ void _composeOverlayGroup(_OverlayGroup group, {required PathLayout layout}) {
         );
       } on PatchworkException catch (error) {
         throw PatchworkException(
-          'Could not compose overlays for "${group.package}@${group.version}".',
+          'Could not compose overlays for "$identity".',
           code: 'overlay.apply_failed',
           hint:
               'Failed patch from ${contribution.provider}: ${contribution.patchPath}\n${error.message}',
@@ -355,7 +357,7 @@ void _writeOverlayPackageConfig(
     for (final group in groups)
       group.package: p.posix.join(
         'patchwork',
-        '${group.package}@${group.version}',
+        packageVersionName(group.package, group.version),
       ),
   };
   final json = basePackageConfig.deepCopyJson();
@@ -470,10 +472,6 @@ String _formatPatchworkException(PatchworkException error) {
     if (error.location != null && error.location!.isNotEmpty) error.location!,
   ];
   return lines.join('\n');
-}
-
-String _sha256(List<int> bytes) {
-  return sha256.convert(bytes).toString();
 }
 
 final class _PackageManifest {

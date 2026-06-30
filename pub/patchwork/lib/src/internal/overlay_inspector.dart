@@ -1,7 +1,6 @@
 import 'dart:collection';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../error.dart';
@@ -9,6 +8,7 @@ import '../model.dart';
 import '../overlay_manifest.dart';
 import '../patch_file.dart';
 import '../pub/package_resolution.dart';
+import 'hashing.dart';
 import 'package_tree.dart';
 import 'path_layout.dart';
 import 'pub_resolution_files.dart';
@@ -304,7 +304,7 @@ final class OverlayInspector {
         continue;
       }
 
-      final patchSha256 = _sha256(patchFile.readAsBytesSync());
+      final patchSha256 = sha256Hex(patchFile.readAsBytesSync());
       final duplicate = group.contributions.any((contribution) {
         return contribution.patchSha256 == patchSha256;
       });
@@ -407,7 +407,7 @@ final class _OverlayContributionPlan {
     required this.provider,
     required this.patchPath,
     required this.status,
-  }) : patchSha256 = _sha256(File(patchPath).readAsBytesSync());
+  }) : patchSha256 = sha256Hex(File(patchPath).readAsBytesSync());
 
   factory _OverlayContributionPlan.active({
     required String provider,
@@ -435,8 +435,4 @@ final class _OverlayContributionPlan {
   final String patchPath;
   final String patchSha256;
   final OverlayContributionStatus status;
-}
-
-String _sha256(List<int> bytes) {
-  return sha256.convert(bytes).toString();
 }

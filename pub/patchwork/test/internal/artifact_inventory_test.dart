@@ -43,4 +43,40 @@ void main() {
     expect(inventory.edit('greeter', '0.1.0')?.path, isNotNull);
     expect(inventory.edit('greeter', 'missing'), isNull);
   });
+
+  test('ignores unsafe patch and applied artifact identities', () {
+    final root = Directory.systemTemp.createTempSync('patchwork_inventory_');
+    addTearDown(() => root.deleteSync(recursive: true));
+
+    final layout = PathLayout(root.path);
+    File(layout.patchPath('greeter', '0.1.0'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('patch');
+    File(p.join(layout.patchesRootPath, 'bad-name@0.1.0.patch'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('ignored');
+    File(p.join(layout.patchesRootPath, 'greeter@..patch'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('ignored');
+
+    Directory(
+      layout.appliedPath('greeter', '0.1.0'),
+    ).createSync(recursive: true);
+    Directory(
+      p.join(layout.appliedRootPath, 'bad-name@0.1.0'),
+    ).createSync(recursive: true);
+    Directory(
+      p.join(layout.appliedRootPath, 'greeter@..'),
+    ).createSync(recursive: true);
+
+    final inventory = PatchworkArtifactInventory.read(layout);
+
+    expect(inventory.patchesFor('greeter').map((entry) => entry.version), [
+      '0.1.0',
+    ]);
+    expect(inventory.appliedFor('greeter').map((entry) => entry.version), [
+      '0.1.0',
+    ]);
+    expect(inventory.packages, ['greeter']);
+  });
 }

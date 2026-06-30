@@ -222,19 +222,20 @@ final class DependencyOverrideState {
   }
 
   Object? _rootRelativePathOverride(Object? value) {
-    if (value is Map<String, Object?> && value['path'] is String) {
-      final path = value['path'] as String;
-      final absolutePath = p.normalize(
-        p.isAbsolute(path) ? path : p.absolute(rootPath, path),
-      );
-      return {
-        ...value,
-        'path': p.posix.joinAll(
-          p.split(p.relative(absolutePath, from: rootPath)),
-        ),
-      };
+    final path = _pathOverridePath(value);
+    if (path == null) {
+      return value;
     }
-    return value;
+    final absolutePath = p.normalize(
+      p.isAbsolute(path) ? path : p.absolute(rootPath, path),
+    );
+    final pathOverride = value as Map<String, Object?>;
+    return {
+      ...pathOverride,
+      'path': p.posix.joinAll(
+        p.split(p.relative(absolutePath, from: rootPath)),
+      ),
+    };
   }
 }
 
@@ -288,10 +289,8 @@ bool _hasBlockingPathOverride({
   if (existing == null) {
     return false;
   }
-  if (replaceExisting &&
-      existing is Map<String, Object?> &&
-      existing['path'] is String) {
-    final existingPath = existing['path'] as String;
+  final existingPath = _pathOverridePath(existing);
+  if (replaceExisting && existingPath != null) {
     if (_pathsPointToSameLocation(workspaceRootPath, existingPath, path)) {
       return false;
     }
@@ -305,14 +304,19 @@ bool _overrideValuePointsToPath({
   required Object? value,
   required String path,
 }) {
-  if (value is! Map<String, Object?>) {
-    return false;
-  }
-  final overridePath = value['path'];
-  if (overridePath is! String) {
+  final overridePath = _pathOverridePath(value);
+  if (overridePath == null) {
     return false;
   }
   return _pathsPointToSameLocation(workspaceRootPath, overridePath, path);
+}
+
+String? _pathOverridePath(Object? value) {
+  if (value is! Map<String, Object?>) {
+    return null;
+  }
+  final path = value['path'];
+  return path is String ? path : null;
 }
 
 bool _pathsPointToSameLocation(

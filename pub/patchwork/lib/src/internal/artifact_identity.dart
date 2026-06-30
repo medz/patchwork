@@ -7,11 +7,12 @@ String packageVersionName(String package, String version) {
 
 /// Parses a canonical `<package>@<version>` artifact identity.
 ///
-/// The final `@` separates the package from the version, which allows versions
-/// to contain other punctuation without changing Patchwork's artifact layout.
+/// A single `@` separates the package from the version.
 PackageVersion? parsePackageVersionName(String name) {
-  final separator = name.lastIndexOf('@');
-  if (separator <= 0 || separator == name.length - 1) {
+  final separator = name.indexOf('@');
+  if (separator <= 0 ||
+      separator == name.length - 1 ||
+      separator != name.lastIndexOf('@')) {
     return null;
   }
   return PackageVersion(

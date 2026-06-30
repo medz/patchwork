@@ -6,10 +6,11 @@ void main() {
   test('formats and parses package version identities', () {
     expect(packageVersionName('greeter', '1.0.0'), 'greeter@1.0.0');
 
-    final parsed = parsePackageVersionName('greeter@1.0.0+build@local');
+    final parsed = parsePackageVersionName('greeter@1.0.0+build');
 
-    expect(parsed?.package, 'greeter@1.0.0+build');
-    expect(parsed?.version, 'local');
+    expect(parsed?.package, 'greeter');
+    expect(parsed?.version, '1.0.0+build');
+    expect(parsePackageVersionName('greeter@1.0.0+build@local'), isNull);
     expect(parsePackageVersionName('greeter'), isNull);
     expect(parsePackageVersionName('@1.0.0'), isNull);
     expect(parsePackageVersionName('greeter@'), isNull);

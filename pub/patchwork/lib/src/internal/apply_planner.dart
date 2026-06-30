@@ -186,6 +186,10 @@ final class ApplyPlanner {
       appliedPath: appliedPath,
       existingApplied: existingApplied,
     );
+    patchFile.validate(
+      sourcePath: resolved.rootPath,
+      patchContent: committedPatch.content,
+    );
 
     return _applyPlan(
       package: package,

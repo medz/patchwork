@@ -289,6 +289,31 @@ void main() {
   );
 
   test(
+    'carry reports carry command for same-package override conflicts',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from a carried override conflict');
+      project.updateGreeterPackage(
+        version: '0.1.1',
+        greeting: 'Hello, \$name!',
+      );
+      project.writeResolution(greeterVersion: '0.1.1');
+      project.writeManualOverride();
+
+      await project.application(
+        ['carry', 'greeter'],
+        exitCodes: {1},
+        stderrContains: 'patchwork carry greeter',
+      );
+      expect(project.editDirectoryFor('0.1.1').existsSync(), isFalse);
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
     'apply refuses same-package overrides from a workspace member',
     () async {
       final project = await ProjectSandbox.workspace();
@@ -1179,6 +1204,28 @@ String otherName() {
         ).existsSync(),
         isFalse,
       );
+    },
+    timeout: const Timeout(Duration(minutes: 3)),
+  );
+
+  test(
+    'explicit apply validates tampered patches before materializing',
+    () async {
+      final project = await ProjectSandbox.standalone();
+      addTearDown(project.dispose);
+
+      project.writeResolution();
+      project.writeGreeterPatch('Hello from a tampered explicit apply');
+      File(
+        p.join(project.stateRoot, 'patches', 'greeter@0.1.0.patch'),
+      ).writeAsStringSync('tampered\n');
+
+      await project.application(
+        ['apply', 'greeter', '--no-pub-get'],
+        exitCodes: {1},
+        stderrContains: 'Generated patch does not apply',
+      );
+      expect(project.appliedDirectory.existsSync(), isFalse);
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

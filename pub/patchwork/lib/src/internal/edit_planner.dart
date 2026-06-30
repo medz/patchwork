@@ -62,7 +62,7 @@ final class EditPlanner {
       appliedHint:
           'Run patchwork undo $package, then dart pub get, before patching it again.',
     );
-    _rejectPatchOverride(package, resolved);
+    _rejectPatchOverride(package, resolved, command: 'patch');
     final seed = _seedForPatchRef(
       package: package,
       resolvedVersion: resolved.version,
@@ -101,7 +101,7 @@ final class EditPlanner {
       fromVersion: fromVersion,
       inventory: PatchworkArtifactInventory.read(layout),
     );
-    _rejectPatchOverride(package, resolved);
+    _rejectPatchOverride(package, resolved, command: 'carry');
     final seed = _readSeedPatch(
       package: package,
       version: selectedVersion,
@@ -233,11 +233,15 @@ final class EditPlanner {
     return stalePatches.single.version;
   }
 
-  void _rejectPatchOverride(String package, ResolvedPubPackage resolved) {
+  void _rejectPatchOverride(
+    String package,
+    ResolvedPubPackage resolved, {
+    required String command,
+  }) {
     rejectBlockingOverride(
       overrideState: readOverrideState(),
       package: package,
-      command: 'patch',
+      command: command,
       targetPath: layout.appliedPath(package, resolved.version),
     );
   }

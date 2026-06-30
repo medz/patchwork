@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.6.2 - 2026-06-30
+
+- Split Patchwork state planning into dedicated edit, apply, cleanup, and undo
+  planner components while keeping command execution behavior stable.
+- Made explicit `patchwork apply <pkg>` validate committed patch content before
+  materializing generated output, matching apply-all validation.
+- Tightened artifact identity parsing and kept carry override-conflict hints
+  tied to the actual `patchwork carry` command.
+
 ## 0.6.1 - 2026-06-25
 
 - Lowered the minimum Dart SDK to `3.10.0` while keeping Patchwork's

@@ -1,6 +1,5 @@
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../applied_marker.dart';
@@ -8,11 +7,15 @@ import '../edit_session.dart';
 import '../error.dart';
 import '../model.dart';
 import '../pub/package_resolution.dart';
+import 'applied_marker_reader.dart';
 import 'applied_patch_freshness.dart';
 import 'applied_path_policy.dart';
+import 'applied_resolution.dart';
 import 'artifact_inventory.dart';
 import 'dependency_override_state.dart';
+import 'hashing.dart';
 import 'path_layout.dart';
+import 'project_paths.dart';
 
 /// Builds read-only Patchwork state diagnostics for status and doctor output.
 final class PatchworkStateInspector {
@@ -117,10 +120,13 @@ final class PatchworkStateInspector {
           package,
           requireDirectDependency: false,
         );
-        pubResolutionPointsToApplied = _resolvesToAppliedPath(
-          package,
-          resolved.version,
-          resolved,
+        pubResolutionPointsToApplied = resolvesToPatchworkAppliedPath(
+          rootPath: _rootPath,
+          appliedPaths: _appliedPaths,
+          appliedMarkerStore: _appliedMarkerStore,
+          package: package,
+          version: resolved.version,
+          resolved: resolved,
         );
         pubResolutionMatchesSource = !pubResolutionPointsToApplied;
       } on PatchworkException catch (error) {
@@ -148,7 +154,7 @@ final class PatchworkStateInspector {
       (patch) => patch.version == version && p.equals(patch.path, patchPath),
     );
     final patchSha256 = hasPatchFile
-        ? _sha256(File(patchPath).readAsBytesSync())
+        ? sha256Hex(File(patchPath).readAsBytesSync())
         : null;
 
     if (edit.length == 1) {
@@ -212,15 +218,13 @@ final class PatchworkStateInspector {
       if (appliedDirectory.version == version) {
         continue;
       }
-      final staleAppliedMarker = _tryReadAppliedMarker(appliedDirectory);
+      final staleAppliedMarker = tryReadAppliedMarker(
+        _appliedMarkerStore,
+        appliedDirectory,
+      );
       final staleAppliedCanPrune =
           staleAppliedMarker != null &&
-          _appliedPaths.patchworkAppliedPath(
-                package,
-                appliedDirectory.version,
-                staleAppliedMarker.path,
-              ) !=
-              null;
+          _patchworkAppliedPath(staleAppliedMarker) != null;
       problems.add(
         PatchProblem(
           code: 'applied.stale',
@@ -276,12 +280,8 @@ final class PatchworkStateInspector {
     final appliedPathInProject = applied == null
         ? (appliedForVersion.isEmpty
               ? null
-              : _appliedPaths.patchworkAppliedPath(
-                  package,
-                  version,
-                  _layout.relativeAppliedPath(package, version),
-                ))
-        : _appliedPaths.patchworkAppliedPath(package, version, applied.path);
+              : _defaultPatchworkAppliedPath(package, version))
+        : _patchworkAppliedPath(applied);
     final appliedAbsolutePath = applied == null
         ? appliedPathInProject
         : _appliedPaths.absoluteFromRoot(applied.path);
@@ -434,51 +434,19 @@ final class PatchworkStateInspector {
     return _pubResolutionReader.readFromDirectory(_currentPackageRootPath);
   }
 
-  bool _resolvesToAppliedPath(
-    String package,
-    String version,
-    ResolvedPubPackage resolved,
-  ) {
-    final marker = _appliedMarkerStore.read(package, version);
-    if (marker == null) {
-      return false;
-    }
-    final absoluteAppliedPath = _appliedPaths.patchworkAppliedPath(
+  String _relativePath(String path) {
+    return relativeToProjectRoot(rootPath: _rootPath, path: path);
+  }
+
+  String? _patchworkAppliedPath(AppliedMarker marker) {
+    return _appliedPaths.patchworkAppliedPathForMarker(marker);
+  }
+
+  String? _defaultPatchworkAppliedPath(String package, String version) {
+    return _appliedPaths.patchworkAppliedPath(
       package,
       version,
-      marker.path,
+      _layout.relativeAppliedPath(package, version),
     );
-    return absoluteAppliedPath != null &&
-        p.equals(
-          p.normalize(p.absolute(_rootPath, resolved.rootPath)),
-          absoluteAppliedPath,
-        );
   }
-
-  AppliedMarker? _tryReadAppliedMarker(PackageVersionPath appliedDirectory) {
-    try {
-      return _appliedMarkerStore.read(
-        appliedDirectory.package,
-        appliedDirectory.version,
-      );
-    } on PatchworkException {
-      return null;
-    }
-  }
-
-  String _relativePath(String path) {
-    final absolute = p.normalize(p.absolute(path));
-    final root = p.normalize(p.absolute(_rootPath));
-    if (p.equals(root, absolute)) {
-      return '.';
-    }
-    if (p.isWithin(root, absolute)) {
-      return p.posix.joinAll(p.split(p.relative(absolute, from: root)));
-    }
-    return path;
-  }
-}
-
-String _sha256(List<int> bytes) {
-  return sha256.convert(bytes).toString();
 }

@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import '../applied_marker.dart';
 import '../error.dart';
 import 'path_layout.dart';
 
@@ -74,6 +75,12 @@ final class AppliedPathPolicy {
     return absolute;
   }
 
+  /// Returns the absolute applied output path recorded by [marker] if it still
+  /// matches Patchwork's deterministic generated directory.
+  String? patchworkAppliedPathForMarker(AppliedMarker marker) {
+    return patchworkAppliedPath(marker.package, marker.version, marker.path);
+  }
+
   /// Requires [path] to be Patchwork's deterministic applied output path.
   String requirePatchworkAppliedPath(
     String package,
@@ -87,6 +94,22 @@ final class AppliedPathPolicy {
       throw PatchworkException(message, code: code, location: path);
     }
     return absolute;
+  }
+
+  /// Requires the path recorded by [marker] to be Patchwork's deterministic
+  /// applied output path.
+  String requirePatchworkAppliedPathForMarker(
+    AppliedMarker marker, {
+    required String code,
+    required String message,
+  }) {
+    return requirePatchworkAppliedPath(
+      marker.package,
+      marker.version,
+      marker.path,
+      code: code,
+      message: message,
+    );
   }
 
   /// Whether [path] resolves to a protected pub root.

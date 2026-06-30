@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
+import 'artifact_identity.dart';
+
 /// Computes Patchwork-owned paths relative to a project state root.
 ///
 /// The layout centralizes the filenames that make up Patchwork state so command
@@ -78,37 +80,10 @@ final class PathLayout {
   /// Entries that do not parse as `<package>@<version>` directories are ignored
   /// so unrelated scratch files do not become package state.
   List<PackageVersionPath> editDirectories() {
-    final root = Directory(editRootPath);
-    if (!root.existsSync()) {
-      return const [];
-    }
-
-    final entries = <PackageVersionPath>[];
-    for (final entity in root.listSync(followLinks: false)) {
-      if (FileSystemEntity.typeSync(entity.path, followLinks: false) !=
-          FileSystemEntityType.directory) {
-        continue;
-      }
-      final parsed = parsePackageVersionName(p.basename(entity.path));
-      if (parsed == null) {
-        continue;
-      }
-      entries.add(
-        PackageVersionPath(
-          package: parsed.package,
-          version: parsed.version,
-          path: entity.path,
-        ),
-      );
-    }
-    entries.sort((left, right) {
-      final packageCompare = left.package.compareTo(right.package);
-      if (packageCompare != 0) {
-        return packageCompare;
-      }
-      return left.version.compareTo(right.version);
-    });
-    return entries;
+    return _packageVersionPaths(
+      rootPath: editRootPath,
+      type: FileSystemEntityType.directory,
+    );
   }
 
   /// Lists valid committed patch files currently present under `patches/`.
@@ -117,82 +92,21 @@ final class PathLayout {
   /// identity are returned. Other files are ignored so scratch notes or editor
   /// artifacts do not become patch inventory.
   List<PackageVersionPath> patchFiles() {
-    final root = Directory(patchesRootPath);
-    if (!root.existsSync()) {
-      return const [];
-    }
-
-    final entries = <PackageVersionPath>[];
-    for (final entity in root.listSync(followLinks: false)) {
-      if (FileSystemEntity.typeSync(entity.path, followLinks: false) !=
-          FileSystemEntityType.file) {
-        continue;
-      }
-      final basename = p.basename(entity.path);
-      if (!basename.endsWith('.patch')) {
-        continue;
-      }
-      final parsed = parsePackageVersionName(
-        basename.substring(0, basename.length - '.patch'.length),
-      );
-      if (parsed == null ||
-          !_isPlainPackageName(parsed.package) ||
-          !_isSafePathSegment(parsed.version)) {
-        continue;
-      }
-      entries.add(
-        PackageVersionPath(
-          package: parsed.package,
-          version: parsed.version,
-          path: entity.path,
-        ),
-      );
-    }
-    entries.sort((left, right) {
-      final packageCompare = left.package.compareTo(right.package);
-      if (packageCompare != 0) {
-        return packageCompare;
-      }
-      return left.version.compareTo(right.version);
-    });
-    return entries;
+    return _packageVersionPaths(
+      rootPath: patchesRootPath,
+      type: FileSystemEntityType.file,
+      extension: '.patch',
+      requireSafeIdentity: true,
+    );
   }
 
   /// Lists valid generated package directories under `.dart_tool/patchwork/`.
   List<PackageVersionPath> appliedDirectories() {
-    final root = Directory(appliedRootPath);
-    if (!root.existsSync()) {
-      return const [];
-    }
-
-    final entries = <PackageVersionPath>[];
-    for (final entity in root.listSync(followLinks: false)) {
-      if (FileSystemEntity.typeSync(entity.path, followLinks: false) !=
-          FileSystemEntityType.directory) {
-        continue;
-      }
-      final parsed = parsePackageVersionName(p.basename(entity.path));
-      if (parsed == null ||
-          !_isPlainPackageName(parsed.package) ||
-          !_isSafePathSegment(parsed.version)) {
-        continue;
-      }
-      entries.add(
-        PackageVersionPath(
-          package: parsed.package,
-          version: parsed.version,
-          path: entity.path,
-        ),
-      );
-    }
-    entries.sort((left, right) {
-      final packageCompare = left.package.compareTo(right.package);
-      if (packageCompare != 0) {
-        return packageCompare;
-      }
-      return left.version.compareTo(right.version);
-    });
-    return entries;
+    return _packageVersionPaths(
+      rootPath: appliedRootPath,
+      type: FileSystemEntityType.directory,
+      requireSafeIdentity: true,
+    );
   }
 }
 
@@ -215,47 +129,59 @@ final class PackageVersionPath {
   final String path;
 }
 
-/// Returns the canonical `<package>@<version>` path segment.
-String packageVersionName(String package, String version) {
-  return '$package@$version';
-}
-
-/// Parses a canonical `<package>@<version>` path segment.
-///
-/// The final `@` separates the package from the version, which allows package
-/// names to remain ordinary pub package names while versions may contain other
-/// punctuation.
-PackageVersion? parsePackageVersionName(String name) {
-  final separator = name.lastIndexOf('@');
-  if (separator <= 0 || separator == name.length - 1) {
-    return null;
+List<PackageVersionPath> _packageVersionPaths({
+  required String rootPath,
+  required FileSystemEntityType type,
+  String? extension,
+  bool requireSafeIdentity = false,
+}) {
+  final root = Directory(rootPath);
+  if (!root.existsSync()) {
+    return const [];
   }
-  return PackageVersion(
-    package: name.substring(0, separator),
-    version: name.substring(separator + 1),
-  );
+
+  final entries = <PackageVersionPath>[];
+  for (final entity in root.listSync(followLinks: false)) {
+    if (FileSystemEntity.typeSync(entity.path, followLinks: false) != type) {
+      continue;
+    }
+    var basename = p.basename(entity.path);
+    if (extension != null) {
+      if (!basename.endsWith(extension)) {
+        continue;
+      }
+      basename = basename.substring(0, basename.length - extension.length);
+    }
+
+    final parsed = parsePackageVersionName(basename);
+    if (parsed == null) {
+      continue;
+    }
+    if (requireSafeIdentity &&
+        (!isPlainPackageName(parsed.package) ||
+            !isSafePathSegment(parsed.version))) {
+      continue;
+    }
+    entries.add(
+      PackageVersionPath(
+        package: parsed.package,
+        version: parsed.version,
+        path: entity.path,
+      ),
+    );
+  }
+
+  entries.sort(_comparePackageVersionPaths);
+  return entries;
 }
 
-/// A package and version pair parsed from a Patchwork path segment.
-final class PackageVersion {
-  /// Creates a parsed package-version identity.
-  const PackageVersion({required this.package, required this.version});
-
-  /// The parsed package name.
-  final String package;
-
-  /// The parsed package version.
-  final String version;
-}
-
-bool _isPlainPackageName(String value) {
-  return RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(value);
-}
-
-bool _isSafePathSegment(String value) {
-  return value.isNotEmpty &&
-      value != '.' &&
-      value != '..' &&
-      !value.contains('/') &&
-      !value.contains(r'\');
+int _comparePackageVersionPaths(
+  PackageVersionPath left,
+  PackageVersionPath right,
+) {
+  final packageCompare = left.package.compareTo(right.package);
+  if (packageCompare != 0) {
+    return packageCompare;
+  }
+  return left.version.compareTo(right.version);
 }

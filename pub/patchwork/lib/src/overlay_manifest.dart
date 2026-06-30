@@ -4,6 +4,7 @@ import 'package:yaml/yaml.dart';
 import 'package:yaml_edit/yaml_edit.dart';
 
 import 'error.dart';
+import 'internal/artifact_identity.dart';
 import 'io/atomic_file_writer.dart';
 
 /// Reads and writes package-provided overlay declarations.
@@ -116,7 +117,7 @@ final class OverlayManifestStore {
         location: path,
       );
     }
-    if (!_isPlainPackageName(package) || !_isSafePathSegment(version)) {
+    if (!isPlainPackageName(package) || !isSafePathSegment(version)) {
       throw PatchworkException(
         'patchwork.yaml overlay #${index + 1} has an unsafe package or version.',
         code: 'overlay_manifest.malformed',
@@ -233,16 +234,4 @@ final class OverlayManifestEntry {
       if (reason != null && reason!.isNotEmpty) 'reason': reason,
     };
   }
-}
-
-bool _isPlainPackageName(String value) {
-  return RegExp(r'^[A-Za-z_][A-Za-z0-9_]*$').hasMatch(value);
-}
-
-bool _isSafePathSegment(String value) {
-  return value.isNotEmpty &&
-      value != '.' &&
-      value != '..' &&
-      !value.contains('/') &&
-      !value.contains(r'\');
 }

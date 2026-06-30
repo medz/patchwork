@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import '../patch_file.dart';
+import 'artifact_identity.dart';
 import 'package_tree.dart';
 import 'path_layout.dart';
 
@@ -34,7 +35,7 @@ final class AppliedPatchMaterializer {
   }) {
     final tempPath = p.join(
       layout.appliedRootPath,
-      '.$package@$version.$pid.${DateTime.now().microsecondsSinceEpoch}',
+      '.${packageVersionName(package, version)}.$pid.${DateTime.now().microsecondsSinceEpoch}',
     );
     packageTree.deleteDirectory(tempPath);
     Directory(tempPath).createSync(recursive: true);

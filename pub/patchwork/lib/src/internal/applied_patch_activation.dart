@@ -47,21 +47,20 @@ final class AppliedPatchActivation {
     required String path,
     required PackageSource source,
   }) {
-    final markers = appliedMarkerStore.readAll();
-    final overrideState = readOverrideState();
-    final previousMirroredPubspecDependencyOverrides =
-        DependencyOverrideState.mirroredPubspecDependencyOverrides(markers);
+    final state = _readActivationState();
     final mirroredPubspecDependencyOverrides = pubspecOverrides
         .upsertPathOverride(
           workspaceRootPath: rootPath,
           package: package,
           path: path,
           ownedDependencyOverrides:
-              DependencyOverrideState.ownedPubspecDependencyOverrides(markers),
-          pubspecDependencyOverrides: overrideState
+              DependencyOverrideState.ownedPubspecDependencyOverrides(
+                state.markers,
+              ),
+          pubspecDependencyOverrides: state.overrideState
               .rootPubspecDependencyOverrides(skippedPackage: package),
           mirroredPubspecDependencyOverrides:
-              previousMirroredPubspecDependencyOverrides,
+              state.mirroredPubspecDependencyOverrides,
         );
     final nextMarker = AppliedMarker(
       package: package,
@@ -72,7 +71,7 @@ final class AppliedPatchActivation {
       mirroredPubspecDependencyOverrides: mirroredPubspecDependencyOverrides,
     );
     _setMirroredPubspecDependencyOverrides([
-      for (final marker in markers)
+      for (final marker in state.markers)
         if (!(marker.package == package && marker.version == version)) marker,
       nextMarker,
     ], mirroredPubspecDependencyOverrides);
@@ -80,39 +79,47 @@ final class AppliedPatchActivation {
 
   /// Removes applied output and Patchwork-owned pub override state.
   String remove(AppliedMarker marker, {required String code}) {
-    final absoluteAppliedPath = appliedPaths.requirePatchworkAppliedPath(
-      marker.package,
-      marker.version,
-      marker.path,
-      code: code,
-      message: invalidAppliedPathMessage,
-    );
-    final markers = appliedMarkerStore.readAll();
-    final overrideState = readOverrideState();
-    final mirroredPubspecDependencyOverrides =
-        DependencyOverrideState.mirroredPubspecDependencyOverrides(markers);
+    final absoluteAppliedPath = appliedPaths
+        .requirePatchworkAppliedPathForMarker(
+          marker,
+          code: code,
+          message: invalidAppliedPathMessage,
+        );
+    final state = _readActivationState();
     final nextMirroredPubspecDependencyOverrides = pubspecOverrides
         .removePathOverrideIfMatches(
           workspaceRootPath: rootPath,
           package: marker.package,
           path: marker.path,
           ownedDependencyOverrides:
-              DependencyOverrideState.ownedPubspecDependencyOverrides(markers),
-          pubspecDependencyOverrides: overrideState
+              DependencyOverrideState.ownedPubspecDependencyOverrides(
+                state.markers,
+              ),
+          pubspecDependencyOverrides: state.overrideState
               .rootPubspecDependencyOverrides(),
           mirroredPubspecDependencyOverrides:
-              mirroredPubspecDependencyOverrides,
+              state.mirroredPubspecDependencyOverrides,
         );
     packageTree.deleteDirectory(absoluteAppliedPath);
 
     _setMirroredPubspecDependencyOverrides([
-      for (final existing in markers)
+      for (final existing in state.markers)
         if (!(existing.package == marker.package &&
             existing.version == marker.version))
           existing,
     ], nextMirroredPubspecDependencyOverrides);
 
     return absoluteAppliedPath;
+  }
+
+  _ActivationState _readActivationState() {
+    final markers = appliedMarkerStore.readAll();
+    return _ActivationState(
+      markers: markers,
+      overrideState: readOverrideState(),
+      mirroredPubspecDependencyOverrides:
+          DependencyOverrideState.mirroredPubspecDependencyOverrides(markers),
+    );
   }
 
   void _setMirroredPubspecDependencyOverrides(
@@ -127,4 +134,16 @@ final class AppliedPatchActivation {
       );
     }
   }
+}
+
+final class _ActivationState {
+  const _ActivationState({
+    required this.markers,
+    required this.overrideState,
+    required this.mirroredPubspecDependencyOverrides,
+  });
+
+  final List<AppliedMarker> markers;
+  final DependencyOverrideState overrideState;
+  final Map<String, Object?> mirroredPubspecDependencyOverrides;
 }

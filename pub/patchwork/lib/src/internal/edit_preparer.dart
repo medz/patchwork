@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
 import '../edit_session.dart';
@@ -9,8 +8,11 @@ import '../error.dart';
 import '../model.dart';
 import '../patch_file.dart';
 import '../pub/package_resolution.dart';
+import 'artifact_identity.dart';
+import 'hashing.dart';
 import 'package_tree.dart';
 import 'path_layout.dart';
+import 'project_paths.dart';
 
 /// Materializes editable package copies under `.patchwork/`.
 ///
@@ -73,7 +75,7 @@ final class EditPreparer {
 
     final tempEditPath = p.join(
       layout.editRootPath,
-      '.$package@${resolved.version}.$pid.${DateTime.now().microsecondsSinceEpoch}',
+      '.${packageVersionName(package, resolved.version)}.$pid.${DateTime.now().microsecondsSinceEpoch}',
     );
     packageTree.deleteDirectory(tempEditPath);
     var preservedFailedEdit = false;
@@ -182,7 +184,7 @@ final class EditPreparer {
       return true;
     }
     return patch.existsSync() &&
-        _sha256(utf8.encode(content)) == _sha256(patch.readAsBytesSync());
+        sha256Hex(utf8.encode(content)) == sha256Hex(patch.readAsBytesSync());
   }
 
   String _failedCarryHint({
@@ -245,18 +247,6 @@ final class EditPreparer {
   }
 
   String _relativePath(String path) {
-    final absolute = p.normalize(p.absolute(path));
-    final root = p.normalize(p.absolute(rootPath));
-    if (p.equals(root, absolute)) {
-      return '.';
-    }
-    if (p.isWithin(root, absolute)) {
-      return p.posix.joinAll(p.split(p.relative(absolute, from: root)));
-    }
-    return path;
+    return relativeToProjectRoot(rootPath: rootPath, path: path);
   }
-}
-
-String _sha256(List<int> bytes) {
-  return sha256.convert(bytes).toString();
 }

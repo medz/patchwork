@@ -1,14 +1,13 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
-
 import '../edit_session.dart';
 import '../error.dart';
 import '../io/atomic_file_writer.dart';
 import '../model.dart';
 import '../patch_file.dart';
 import 'artifact_inventory.dart';
+import 'hashing.dart';
 import 'package_tree.dart';
 import 'path_layout.dart';
 
@@ -76,52 +75,66 @@ final class PatchCommitter {
   Future<PatchWrite> _commitEdit(PackageVersionPath edit) async {
     final session = editSessionStore.read(edit);
     final patchPath = layout.patchPath(edit.package, edit.version);
-    final existingPatchFile = File(patchPath);
-    final content = patchFile.build(
-      sourcePath: session.baselinePath,
-      editPath: edit.path,
+    final patch = _BuiltPatch(
+      patchFile.build(sourcePath: session.baselinePath, editPath: edit.path),
     );
-    if (content.isEmpty) {
-      if (existingPatchFile.existsSync()) {
-        existingPatchFile.deleteSync();
-      }
-      packageTree.deleteDirectory(edit.path);
-      return PatchWrite(
-        package: edit.package,
-        version: edit.version,
-        status: PatchWriteStatus.removed,
-        editPath: edit.path,
-        patchPath: patchPath,
-      );
-    }
-
-    final patchBytes = utf8.encode(content);
-    if (existingPatchFile.existsSync() &&
-        _sha256(existingPatchFile.readAsBytesSync()) == _sha256(patchBytes)) {
-      packageTree.deleteDirectory(edit.path);
-      return PatchWrite(
-        package: edit.package,
-        version: edit.version,
-        status: PatchWriteStatus.unchanged,
-        editPath: edit.path,
-        patchPath: patchPath,
-      );
-    }
-
-    patchFile.validate(sourcePath: session.baselinePath, patchContent: content);
-    writeBytesFileAtomically(patchPath, patchBytes);
+    final status = _commitPatchArtifact(
+      baselinePath: session.baselinePath,
+      patchPath: patchPath,
+      patch: patch,
+    );
     packageTree.deleteDirectory(edit.path);
 
     return PatchWrite(
       package: edit.package,
       version: edit.version,
-      status: PatchWriteStatus.written,
+      status: status,
       editPath: edit.path,
       patchPath: patchPath,
     );
   }
+
+  PatchWriteStatus _commitPatchArtifact({
+    required String baselinePath,
+    required String patchPath,
+    required _BuiltPatch patch,
+  }) {
+    final existingPatchFile = File(patchPath);
+    if (patch.isEmpty) {
+      if (existingPatchFile.existsSync()) {
+        existingPatchFile.deleteSync();
+      }
+      return PatchWriteStatus.removed;
+    }
+
+    if (_existingPatchMatches(existingPatchFile, patch)) {
+      return PatchWriteStatus.unchanged;
+    }
+
+    patchFile.validate(sourcePath: baselinePath, patchContent: patch.content);
+    writeBytesFileAtomically(patchPath, patch.bytes);
+    return PatchWriteStatus.written;
+  }
 }
 
-String _sha256(List<int> bytes) {
-  return sha256.convert(bytes).toString();
+final class _BuiltPatch {
+  factory _BuiltPatch(String content) {
+    final bytes = utf8.encode(content);
+    return _BuiltPatch._(content, bytes, sha256Hex(bytes));
+  }
+
+  const _BuiltPatch._(this.content, this.bytes, this.sha256);
+
+  final String content;
+  final List<int> bytes;
+  final String sha256;
+
+  bool get isEmpty => content.isEmpty;
+}
+
+bool _existingPatchMatches(File existingPatchFile, _BuiltPatch patch) {
+  if (!existingPatchFile.existsSync()) {
+    return false;
+  }
+  return sha256Hex(existingPatchFile.readAsBytesSync()) == patch.sha256;
 }

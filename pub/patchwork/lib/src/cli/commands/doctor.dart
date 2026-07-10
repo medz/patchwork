@@ -2,6 +2,7 @@ import 'dart:io' as io;
 
 import '../../patchwork.dart';
 import '../arguments.dart';
+import '../json.dart';
 import '../output.dart';
 
 /// Runs `patchwork doctor`.
@@ -9,16 +10,16 @@ import '../output.dart';
 /// The output is the same status report used by `patchwork status`, but the exit
 /// code is non-zero when Patchwork finds problems or patches that still need to
 /// be applied.
-Future<int> runDoctorCommand(
+int runDoctorCommand(
   Patchwork patchwork,
   List<String> arguments,
   io.IOSink out,
-) async {
+) {
   final parsed = parseCommandArguments('doctor', arguments);
   final options = _parseDoctorOptions(parsed.rest);
   expectNoArguments('doctor', options.rest);
   if (options.setup) {
-    final report = await patchwork.inspectSetup();
+    final report = patchwork.inspectSetup();
     if (parsed.json) {
       printSetupJson(patchwork, report, out);
     } else {
@@ -27,7 +28,7 @@ Future<int> runDoctorCommand(
     return report.hasWarnings ? 1 : 0;
   }
 
-  final state = await patchwork.inspect();
+  final state = patchwork.inspect();
   if (parsed.json) {
     printStatusJson(patchwork, state, out, explain: options.explain);
   } else {

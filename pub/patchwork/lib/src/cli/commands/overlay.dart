@@ -1,25 +1,27 @@
 import 'dart:io' as io;
 
 import '../../error.dart';
-import '../../model.dart';
+import '../../overlay/model.dart';
 import '../../patchwork.dart';
 import '../arguments.dart';
+import '../json.dart';
 import '../output.dart';
+import '../path.dart';
 
 /// Runs `patchwork overlay`.
 ///
 /// `overlay add` turns an already committed `patches/<pkg>@<version>.patch`
 /// file into a package-provided overlay declaration in `patchwork.yaml`.
 /// `overlay inspect` reports read-only downstream overlay diagnostics.
-Future<int> runOverlayCommand(
+int runOverlayCommand(
   Patchwork patchwork,
   List<String> arguments,
   io.IOSink out,
-) async {
+) {
   final parsed = parseCommandArguments('overlay', arguments);
   final command = _parseOverlayCommand(parsed.rest);
   if (command.inspect) {
-    final inspection = await patchwork.inspectOverlays();
+    final inspection = patchwork.inspectOverlays();
     if (parsed.json) {
       printOverlayInspectionJson(patchwork, inspection, out);
     } else {
@@ -28,7 +30,7 @@ Future<int> runOverlayCommand(
     return _hasOverlayInspectionFailures(inspection) ? 1 : 0;
   }
 
-  final overlay = await patchwork.overlay(
+  final overlay = patchwork.overlay(
     command.add.package,
     reason: command.add.reason,
   );
@@ -40,7 +42,7 @@ Future<int> runOverlayCommand(
 
   out.writeln(
     'Registered ${overlay.package}@${overlay.version} in '
-    '${patchwork.relativePath(overlay.manifestPath)}.',
+    '${patchwork.displayPath(overlay.manifestPath)}.',
   );
   return 0;
 }

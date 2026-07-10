@@ -1,5 +1,5 @@
 import 'package:patchwork/src/cli/remediation.dart';
-import 'package:patchwork/src/model.dart';
+import 'package:patchwork/src/inspection/model.dart';
 import 'package:test/test.dart';
 
 void main() {

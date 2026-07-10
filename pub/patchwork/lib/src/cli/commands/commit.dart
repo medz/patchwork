@@ -1,25 +1,26 @@
 import 'dart:io' as io;
 
-import '../../model.dart';
+import '../../edit/model.dart';
 import '../../patchwork.dart';
 import '../arguments.dart';
-import '../output.dart';
+import '../json.dart';
+import '../path.dart';
 
 /// Runs `patchwork commit`.
 ///
 /// With no package operand, all open edit directories are committed in the
 /// order returned by [Patchwork.commitAll]. Each result is rendered according
 /// to whether a patch file was written, left unchanged, or removed.
-Future<int> runCommitCommand(
+int runCommitCommand(
   Patchwork patchwork,
   List<String> arguments,
   io.IOSink out,
-) async {
+) {
   final parsed = parseCommandArguments('commit', arguments);
   final package = singlePackage('commit', parsed.rest, required: false);
   final writes = package == null
-      ? await patchwork.commitAll()
-      : [await patchwork.commit(package)];
+      ? patchwork.commitAll()
+      : [patchwork.commit(package)];
 
   if (parsed.json) {
     printCommitJson(patchwork, writes, out);
@@ -40,7 +41,7 @@ Future<int> runCommitCommand(
 void _printPatchWrite(Patchwork patchwork, PatchWrite write, io.IOSink out) {
   switch (write.status) {
     case PatchWriteStatus.written:
-      out.writeln('Wrote ${patchwork.relativePath(write.patchPath)}.');
+      out.writeln('Wrote ${patchwork.displayPath(write.patchPath)}.');
     case PatchWriteStatus.unchanged:
       out.writeln(
         '${write.package}@${write.version} patch is already current; '

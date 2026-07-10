@@ -3,18 +3,19 @@ import 'dart:io' as io;
 import '../../error.dart';
 import '../../patchwork.dart';
 import '../arguments.dart';
-import '../output.dart';
+import '../json.dart';
+import '../path.dart';
 
 /// Runs `patchwork carry`.
 ///
 /// This command creates a current-version edit directory seeded from a stale
 /// committed patch. When multiple stale patch files exist, callers must choose
 /// one with `--from`.
-Future<int> runCarryCommand(
+int runCarryCommand(
   Patchwork patchwork,
   List<String> arguments,
   io.IOSink out,
-) async {
+) {
   final parsed = parseCommandArguments('carry', arguments);
   String? fromVersion;
   var partial = false;
@@ -64,7 +65,7 @@ Future<int> runCarryCommand(
   }
 
   final package = singlePackage('carry', packages, required: true)!;
-  final edit = await patchwork.carry(
+  final edit = patchwork.carry(
     package,
     fromVersion: fromVersion,
     partial: partial,
@@ -76,21 +77,21 @@ Future<int> runCarryCommand(
 
   out.writeln(
     '${edit.partialRepairLogPath == null ? 'Created carry edit' : 'Created partial carry edit'} '
-    '${patchwork.relativePath(edit.path)} from '
-    '${patchwork.relativePath(edit.sourcePath)}.',
+    '${patchwork.displayPath(edit.path)} from '
+    '${patchwork.displayPath(edit.sourcePath)}.',
   );
   if (edit.partialRepairLogPath == null) {
     out.writeln(
-      'Applied ${patchwork.relativePath(edit.continuedFromPatchPath!)}.',
+      'Applied ${patchwork.displayPath(edit.continuedFromPatchPath!)}.',
     );
   } else {
     out.writeln(
       'Prepared partial repair from '
-      '${patchwork.relativePath(edit.continuedFromPatchPath!)}.',
+      '${patchwork.displayPath(edit.continuedFromPatchPath!)}.',
     );
     out.writeln(
       'Wrote conflict log '
-      '${patchwork.relativePath(edit.partialRepairLogPath!)}.',
+      '${patchwork.displayPath(edit.partialRepairLogPath!)}.',
     );
     if (edit.partialRejectPaths.isNotEmpty) {
       out.writeln('Moved rejects under .patchwork/rejects/.');

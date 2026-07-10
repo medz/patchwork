@@ -1,21 +1,22 @@
 import 'dart:io' as io;
 
 import '../../error.dart';
-import '../../model.dart';
+import '../../edit/model.dart';
 import '../../patchwork.dart';
 import '../arguments.dart';
-import '../output.dart';
+import '../json.dart';
+import '../path.dart';
 
 /// Runs `patchwork patch`.
 ///
 /// This command accepts exactly one package operand plus optional `--force` and
 /// `--continue` flags. `--continue` may either use the currently resolved patch
 /// file or an explicit historical version.
-Future<int> runPatchCommand(
+int runPatchCommand(
   Patchwork patchwork,
   List<String> arguments,
   io.IOSink out,
-) async {
+) {
   final parsed = parseCommandArguments('patch', arguments);
   var force = false;
   PatchRef? continueFrom;
@@ -62,7 +63,7 @@ Future<int> runPatchCommand(
   }
 
   final package = singlePackage('patch', packages, required: true)!;
-  final edit = await patchwork.patch(
+  final edit = patchwork.patch(
     package,
     fromPatch: continueFrom,
     replaceExisting: force,
@@ -72,12 +73,12 @@ Future<int> runPatchCommand(
     return 0;
   }
   out.writeln(
-    'Created edit ${patchwork.relativePath(edit.path)} from '
-    '${patchwork.relativePath(edit.sourcePath)}.',
+    'Created edit ${patchwork.displayPath(edit.path)} from '
+    '${patchwork.displayPath(edit.sourcePath)}.',
   );
   if (edit.continuedFromPatchPath != null) {
     out.writeln(
-      'Applied ${patchwork.relativePath(edit.continuedFromPatchPath!)}.',
+      'Applied ${patchwork.displayPath(edit.continuedFromPatchPath!)}.',
     );
   }
   return 0;

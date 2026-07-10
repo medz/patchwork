@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- Made the core `Patchwork` filesystem API synchronous and narrowed
+  `Patchwork.open` to string paths; hook and CLI adapters remain asynchronous
+  only where they run external processes.
+- Reorganized implementation and tests by domain, split public result models by
+  workflow, and separated pub parsing, package diagnostics, cleanup planning,
+  and text/JSON presentation responsibilities.
+- Reused one failure-safe package materializer across apply and overlay
+  workflows, consolidated overlay discovery/resolution, and removed repeated
+  marker scans and unchanged marker writes from multi-package activation.
+- Split override YAML I/O from ownership reconciliation, reused one override
+  editor per batch operation, and centralized normalized override-path logic.
+- Made public result collections immutable snapshots, replaced stringly typed
+  cleanup commands with `CleanupCommand`, and made `Patchwork.open` a factory.
+- Moved apply and cleanup filesystem execution into domain executors so the
+  public `Patchwork` class remains the composition root instead of a workflow
+  implementation.
+- Unified single-package and batch apply outcomes through `ApplyResult`, made
+  source-tree hashing lazy, and kept each `Patchwork` instance on one workspace
+  snapshot.
+- Moved applied-state lifecycle rules under `state`, made package directory
+  swaps failure-safe, and tightened cleanup and overlay path result semantics.
+- Fixed dependency-override mirror precedence, overlay patch read diagnostics,
+  and recursive gitignore wildcard handling found during review.
+
 ## 0.6.2 - 2026-06-30
 
 - Split Patchwork state planning into dedicated edit, apply, cleanup, and undo

@@ -1,9 +1,10 @@
 import 'dart:io' as io;
 
 import '../../error.dart';
-import '../../model.dart';
+import '../../cleanup/model.dart';
 import '../../patchwork.dart';
 import '../arguments.dart';
+import '../json.dart';
 import '../output.dart';
 import '../pub_get.dart';
 
@@ -22,7 +23,7 @@ Future<int> runRemoveCommand(
   final pubGetOptions = parsePubGetOption('remove', parsed.rest);
   final options = parseCleanupOptions('remove', pubGetOptions.rest);
   final operands = _removeOperands(options.rest);
-  final result = await patchwork.remove(
+  final result = patchwork.remove(
     operands.package,
     version: operands.version,
     dryRun: options.dryRun,

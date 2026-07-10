@@ -10,13 +10,11 @@ import 'dart:io';
 
 import 'package:hooks/hooks.dart';
 
-import 'src/error.dart';
-import 'src/internal/hook_errors.dart';
-import 'src/internal/path_layout.dart';
-import 'src/model.dart';
+import 'src/hooks/errors.dart';
+import 'src/state/path_layout.dart';
+import 'src/apply/model.dart';
 import 'src/patchwork.dart';
-import 'src/pub/pub_workspace.dart';
-
+import 'src/pub/workspace.dart';
 export 'patchwork.dart' show AppliedPatch;
 
 /// Applies every committed Patchwork patch from a build hook callback.
@@ -55,29 +53,14 @@ Future<List<AppliedPatch>> _apply(
   final layout = PathLayout(workspace.rootPath);
   _declareDependencies(output, workspace: workspace, layout: layout);
 
-  final patchwork = await Patchwork.open(packageRoot);
-  final applied = package == null
-      ? await patchwork.applyAll()
-      : await _applyPackage(patchwork, package);
-  final state = await patchwork.inspect();
-  if (applied.isNotEmpty || _pubGetRequired(state, package: package)) {
+  final patchwork = Patchwork.open(packageRoot);
+  final result = package == null
+      ? patchwork.applyAll()
+      : patchwork.apply(package);
+  if (result.needsPubGet) {
     await _runPubGet(workspace.rootPath);
   }
-  return applied;
-}
-
-Future<List<AppliedPatch>> _applyPackage(
-  Patchwork patchwork,
-  String package,
-) async {
-  try {
-    return [await patchwork.apply(package)];
-  } on PatchworkException catch (error) {
-    if (error.code == 'applied.pub_get_required') {
-      return const [];
-    }
-    rethrow;
-  }
+  return result.applied;
 }
 
 void _declareDependencies(
@@ -105,20 +88,6 @@ void _declareDependencies(
     for (final path in directories)
       _existingDirectoryDependency(path).absolute.uri,
   });
-}
-
-bool _pubGetRequired(PatchworkState state, {required String? package}) {
-  for (final status in state.packages) {
-    if (package != null && status.package != package) {
-      continue;
-    }
-    if (status.problems.any(
-      (problem) => problem.code == 'applied.pub_get_required',
-    )) {
-      return true;
-    }
-  }
-  return false;
 }
 
 Future<void> _runPubGet(String rootPath) async {

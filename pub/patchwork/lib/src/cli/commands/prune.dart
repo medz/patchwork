@@ -1,8 +1,9 @@
 import 'dart:io' as io;
 
-import '../../model.dart';
+import '../../cleanup/model.dart';
 import '../../patchwork.dart';
 import '../arguments.dart';
+import '../json.dart';
 import '../output.dart';
 import '../pub_get.dart';
 
@@ -20,10 +21,7 @@ Future<int> runPruneCommand(
   final pubGetOptions = parsePubGetOption('prune', parsed.rest);
   final options = parseCleanupOptions('prune', pubGetOptions.rest);
   expectNoArguments('prune', options.rest);
-  final result = await patchwork.prune(
-    dryRun: options.dryRun,
-    force: options.force,
-  );
+  final result = patchwork.prune(dryRun: options.dryRun, force: options.force);
   final needsPubGet = _cleanupNeedsPubGet(result);
   final pubGetRan = pubGetOptions.pubGet && needsPubGet;
   if (pubGetRan) {

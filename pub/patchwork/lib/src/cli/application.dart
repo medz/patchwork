@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io' as io;
 
 import '../error.dart';
@@ -13,6 +14,7 @@ import 'commands/prune.dart';
 import 'commands/remove.dart';
 import 'commands/status.dart';
 import 'commands/undo.dart';
+import 'json.dart';
 import 'output.dart';
 
 /// Dispatches process arguments to Patchwork commands.
@@ -63,20 +65,21 @@ final class Application {
       }
 
       final cwd = workingDirectory ?? io.Directory.current.path;
-      final patchwork = await Patchwork.open(cwd);
-      return switch (command) {
-        'patch' => await runPatchCommand(patchwork, rest, out),
-        'carry' => await runCarryCommand(patchwork, rest, out),
-        'commit' => await runCommitCommand(patchwork, rest, out),
-        'overlay' => await runOverlayCommand(patchwork, rest, out),
-        'apply' => await runApplyCommand(patchwork, rest, out, cwd),
-        'undo' => await runUndoCommand(patchwork, rest, out, cwd),
-        'remove' => await runRemoveCommand(patchwork, rest, out, cwd),
-        'prune' => await runPruneCommand(patchwork, rest, out, cwd),
-        'status' => await runStatusCommand(patchwork, rest, out),
-        'doctor' => await runDoctorCommand(patchwork, rest, out),
+      final patchwork = Patchwork.open(cwd);
+      final FutureOr<int> result = switch (command) {
+        'patch' => runPatchCommand(patchwork, rest, out),
+        'carry' => runCarryCommand(patchwork, rest, out),
+        'commit' => runCommitCommand(patchwork, rest, out),
+        'overlay' => runOverlayCommand(patchwork, rest, out),
+        'apply' => runApplyCommand(patchwork, rest, out, cwd),
+        'undo' => runUndoCommand(patchwork, rest, out, cwd),
+        'remove' => runRemoveCommand(patchwork, rest, out, cwd),
+        'prune' => runPruneCommand(patchwork, rest, out, cwd),
+        'status' => runStatusCommand(patchwork, rest, out),
+        'doctor' => runDoctorCommand(patchwork, rest, out),
         _ => throw StateError('unreachable command: $command'),
       };
+      return await result;
     } on PatchworkException catch (error) {
       if (renderJsonError) {
         printErrorJson(out, error);

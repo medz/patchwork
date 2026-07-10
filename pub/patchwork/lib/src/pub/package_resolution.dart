@@ -426,7 +426,7 @@ final class PubResolutionReader {
 /// and indirect dependencies when the caller requires a direct dependency. A
 /// successful lookup returns the package tree Patchwork can copy and diff.
 final class PubResolution {
-  const PubResolution._({
+  PubResolution._({
     required this.workspace,
     required _PackageIndex packages,
     required Set<String> rootNames,
@@ -441,6 +441,7 @@ final class PubResolution {
   final _PackageIndex _packages;
   final Set<String> _rootNames;
   final Set<String> _directDependencies;
+  final Map<String, ResolvedPubPackage> _resolvedPackages = {};
 
   /// Computes content hashes used in returned [PackageSource] values.
   final PackageTree packageTree;
@@ -509,10 +510,13 @@ final class PubResolution {
       );
     }
 
-    return ResolvedPubPackage(
-      version: metadata.version,
-      rootPath: packageConfig,
-      source: _sourceFor(metadata, packageConfig, workspace),
+    return _resolvedPackages.putIfAbsent(
+      packageName,
+      () => ResolvedPubPackage(
+        version: metadata.version,
+        rootPath: packageConfig,
+        source: _sourceFor(metadata, packageConfig, workspace),
+      ),
     );
   }
 

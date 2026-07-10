@@ -8,7 +8,8 @@ import 'package:path/path.dart' as p;
 
 import 'error.dart';
 import 'internal/artifact_identity.dart';
-import 'internal/hashing.dart';
+import 'internal/hook_errors.dart';
+import 'internal/overlay_rules.dart';
 import 'internal/package_tree.dart';
 import 'internal/path_layout.dart';
 import 'internal/pub_resolution_files.dart';
@@ -41,7 +42,7 @@ Future<void> applyPackageOverlaysFromPackageConfig(
   String packageConfigPath,
   BuildOutputBuilder output,
 ) {
-  return _wrapPatchworkErrors(
+  return wrapPatchworkHookErrors(
     () => _applyPackageOverlaysFromPackageConfig(packageConfigPath, output),
   );
 }
@@ -158,7 +159,7 @@ SplayTreeMap<String, _OverlayGroup> _collectOverlayGroups(
       continue;
     }
     for (final entry in manifest.manifest.overlays) {
-      if (!provider.dependencies.contains(entry.package)) {
+      if (!providerDependsOnOverlayTarget(provider, entry.package)) {
         throw PatchworkException(
           'Package "${manifest.packageName}" declares an overlay for "${entry.package}" but does not depend on it.',
           code: 'overlay.provider_not_dependency',
@@ -166,14 +167,23 @@ SplayTreeMap<String, _OverlayGroup> _collectOverlayGroups(
         );
       }
 
-      final resolved = _resolveOverlayTarget(resolution, entry.package);
-      if (resolved == null ||
-          resolved.version != entry.version ||
-          resolved.source.sha256 != entry.sha256) {
+      final resolved = tryResolveOverlayTarget(resolution, entry.package);
+      if (resolved == null || !overlayEntryMatchesResolution(entry, resolved)) {
         continue;
       }
 
-      final patchPath = _resolveManifestPatchPath(manifest, entry.patch);
+      final patchPath = resolveOverlayPatchPath(
+        packageRootPath: manifest.packageRootPath,
+        manifestPath: manifest.manifestPath,
+        patchPath: entry.patch,
+      );
+      if (!File(patchPath).existsSync()) {
+        throw PatchworkException(
+          'Overlay patch file does not exist.',
+          code: 'overlay.patch_file_missing',
+          location: patchPath,
+        );
+      }
       output.dependencies.add(File(patchPath).absolute.uri);
       final group = groups.putIfAbsent(
         entry.package,
@@ -185,7 +195,7 @@ SplayTreeMap<String, _OverlayGroup> _collectOverlayGroups(
         ),
       );
       group.contributions.add(
-        _OverlayContribution(
+        OverlayContribution(
           provider: manifest.packageName,
           patchPath: patchPath,
         ),
@@ -194,65 +204,14 @@ SplayTreeMap<String, _OverlayGroup> _collectOverlayGroups(
   }
 
   for (final group in groups.values) {
-    group.contributions.sort((left, right) {
-      final providerCompare = left.provider.compareTo(right.provider);
-      if (providerCompare != 0) {
-        return providerCompare;
-      }
-      return left.patchPath.compareTo(right.patchPath);
-    });
-    _deduplicateOverlayGroupContributions(group);
+    final normalized = normalizeProviderOverlayContributions(
+      group.contributions,
+    );
+    group.contributions
+      ..clear()
+      ..addAll(normalized);
   }
   return groups;
-}
-
-void _deduplicateOverlayGroupContributions(_OverlayGroup group) {
-  final seen = <String>{};
-  group.contributions.removeWhere((contribution) {
-    final file = File(contribution.patchPath);
-    return !seen.add(sha256Hex(file.readAsBytesSync()));
-  });
-}
-
-ResolvedPubPackage? _resolveOverlayTarget(
-  PubResolution resolution,
-  String package,
-) {
-  try {
-    return resolution.resolvePackage(package, requireDirectDependency: false);
-  } on PatchworkException catch (error) {
-    if (error.code == 'pub.package_not_found') {
-      return null;
-    }
-    rethrow;
-  }
-}
-
-String _resolveManifestPatchPath(_PackageManifest manifest, String patchPath) {
-  if (p.isAbsolute(patchPath)) {
-    throw PatchworkException(
-      'Overlay patch paths must be relative to the declaring package.',
-      code: 'overlay.absolute_patch_path',
-      location: manifest.manifestPath,
-    );
-  }
-  final absolutePath = p.normalize(p.join(manifest.packageRootPath, patchPath));
-  final rootPath = p.normalize(p.absolute(manifest.packageRootPath));
-  if (!p.isWithin(rootPath, absolutePath)) {
-    throw PatchworkException(
-      'Overlay patch paths must stay inside the declaring package.',
-      code: 'overlay.patch_path_escapes_package',
-      location: manifest.manifestPath,
-    );
-  }
-  if (!File(absolutePath).existsSync()) {
-    throw PatchworkException(
-      'Overlay patch file does not exist.',
-      code: 'overlay.patch_file_missing',
-      location: absolutePath,
-    );
-  }
-  return absolutePath;
 }
 
 void _appendRootPatches(
@@ -262,7 +221,7 @@ void _appendRootPatches(
   required BuildOutputBuilder output,
 }) {
   for (final group in groups.values) {
-    final resolved = _resolveOverlayTarget(resolution, group.package);
+    final resolved = tryResolveOverlayTarget(resolution, group.package);
     if (resolved == null ||
         resolved.version != group.version ||
         resolved.source.sha256 != group.sourceSha256) {
@@ -270,29 +229,18 @@ void _appendRootPatches(
     }
 
     final patchPath = layout.patchPath(group.package, group.version);
-    final patchFile = File(patchPath);
-    if (!patchFile.existsSync()) {
-      continue;
-    }
-    final patchSha256 = sha256Hex(patchFile.readAsBytesSync());
-    output.dependencies.add(patchFile.absolute.uri);
-    if (_hasContributionPatchSha(group, patchSha256)) {
-      continue;
-    }
-    group.contributions.add(
-      _OverlayContribution(provider: '<root>', patchPath: patchPath),
+    final contribution = rootOverlayContribution(
+      patchPath,
+      group.contributions,
     );
-  }
-}
-
-bool _hasContributionPatchSha(_OverlayGroup group, String sha256) {
-  for (final contribution in group.contributions) {
-    final file = File(contribution.patchPath);
-    if (file.existsSync() && sha256Hex(file.readAsBytesSync()) == sha256) {
-      return true;
+    if (contribution == null) {
+      continue;
+    }
+    output.dependencies.add(File(patchPath).absolute.uri);
+    if (!contribution.deduplicated) {
+      group.contributions.add(contribution);
     }
   }
-  return false;
 }
 
 void _rejectOpenEdits(Iterable<_OverlayGroup> groups, PathLayout layout) {
@@ -324,6 +272,9 @@ void _composeOverlayGroup(_OverlayGroup group, {required PathLayout layout}) {
   try {
     packageTree.copy(group.sourcePath, tempPath);
     for (final contribution in group.contributions) {
+      if (contribution.deduplicated) {
+        continue;
+      }
       try {
         patchFile.apply(
           packagePath: tempPath,
@@ -451,29 +402,6 @@ void _declareExistingFileDependency(BuildOutputBuilder output, String path) {
   }
 }
 
-Future<T> _wrapPatchworkErrors<T>(Future<T> Function() run) async {
-  try {
-    return await run();
-  } on HookError {
-    rethrow;
-  } on PatchworkException catch (error, stackTrace) {
-    throw BuildError(
-      message: _formatPatchworkException(error),
-      wrappedException: error,
-      wrappedTrace: stackTrace,
-    );
-  }
-}
-
-String _formatPatchworkException(PatchworkException error) {
-  final lines = [
-    '${error.code}: ${error.message}',
-    if (error.hint != null && error.hint!.isNotEmpty) error.hint!,
-    if (error.location != null && error.location!.isNotEmpty) error.location!,
-  ];
-  return lines.join('\n');
-}
-
 final class _PackageManifest {
   const _PackageManifest({
     required this.packageName,
@@ -500,12 +428,5 @@ final class _OverlayGroup {
   final String version;
   final String sourceSha256;
   final String sourcePath;
-  final List<_OverlayContribution> contributions = [];
-}
-
-final class _OverlayContribution {
-  const _OverlayContribution({required this.provider, required this.patchPath});
-
-  final String provider;
-  final String patchPath;
+  final List<OverlayContribution> contributions = [];
 }

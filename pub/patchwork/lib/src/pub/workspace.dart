@@ -67,14 +67,15 @@ final class PubWorkspaceLocator {
       );
     }
 
-    final resolutionRoot = _findResolutionRoot(currentPackageRoot);
-    if (resolutionRoot == null) {
+    final resolution = _findResolution(currentPackageRoot);
+    if (resolution == null) {
       throw PatchworkException(
         'Could not find a pub resolution for "$startPath".',
         code: 'pub.resolution_not_found',
         hint: 'Run dart pub get before using patchwork.',
       );
     }
+    final resolutionRoot = resolution.rootPath;
 
     final packageConfigPath = p.join(
       resolutionRoot,
@@ -93,7 +94,7 @@ final class PubWorkspaceLocator {
       rootPackageRootPaths: _rootPackageRootPaths(
         resolutionRoot: resolutionRoot,
         currentPackageRoot: currentPackageRoot,
-        packageConfigPath: packageConfigPath,
+        packageRoots: resolution.packageRoots,
         packageGraphPath: packageGraphPath,
       ),
       packageConfigPath: packageConfigPath,
@@ -102,7 +103,10 @@ final class PubWorkspaceLocator {
     );
   }
 
-  String? _findResolutionRoot(String currentPackageRoot) {
+  ({String rootPath, Map<String, String> packageRoots})? _findResolution(
+    String currentPackageRoot,
+  ) {
+    final expectedRoot = p.normalize(p.absolute(currentPackageRoot));
     for (final candidate in _ancestorDirectories(currentPackageRoot)) {
       final packageConfigPath = p.join(
         candidate,
@@ -112,9 +116,10 @@ final class PubWorkspaceLocator {
       if (!File(packageConfigPath).existsSync()) {
         continue;
       }
+      final packageRoots = _packageConfigRootPaths(packageConfigPath);
       if (p.equals(candidate, currentPackageRoot) ||
-          _packageConfigContainsRoot(packageConfigPath, currentPackageRoot)) {
-        return candidate;
+          packageRoots.values.any((root) => p.equals(root, expectedRoot))) {
+        return (rootPath: candidate, packageRoots: packageRoots);
       }
     }
     return null;
@@ -129,20 +134,10 @@ final class PubWorkspaceLocator {
     return null;
   }
 
-  bool _packageConfigContainsRoot(
-    String packageConfigPath,
-    String packageRoot,
-  ) {
-    final expectedRoot = p.normalize(p.absolute(packageRoot));
-    return _packageConfigRootPaths(
-      packageConfigPath,
-    ).values.any((root) => p.equals(root, expectedRoot));
-  }
-
   Set<String> _rootPackageRootPaths({
     required String resolutionRoot,
     required String currentPackageRoot,
-    required String packageConfigPath,
+    required Map<String, String> packageRoots,
     required String packageGraphPath,
   }) {
     final paths = <String>{
@@ -151,7 +146,6 @@ final class PubWorkspaceLocator {
       ..._pubspecWorkspaceRootPaths(resolutionRoot),
     };
 
-    final packageRoots = _packageConfigRootPaths(packageConfigPath);
     for (final name in _packageGraphRootNames(packageGraphPath)) {
       final rootPath = packageRoots[name];
       if (rootPath != null) {

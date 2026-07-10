@@ -5,9 +5,9 @@ import 'package:yaml/yaml.dart';
 
 import '../error.dart';
 import '../io/atomic_file_writer.dart';
+import '../pub/resolution.dart';
 import 'model.dart';
 import 'manifest.dart';
-import '../pub/resolution_reader.dart';
 import '../state/path_layout.dart';
 
 /// Publishes committed patches into the current package overlay manifest.
@@ -16,7 +16,7 @@ final class OverlayPublisher {
   const OverlayPublisher({
     required this.currentPackageRootPath,
     required this.layout,
-    required this.pubResolutionReader,
+    required this.readResolution,
   });
 
   /// Current package root that owns `patchwork.yaml`.
@@ -25,16 +25,14 @@ final class OverlayPublisher {
   /// Patchwork state-root path layout.
   final PathLayout layout;
 
-  /// Pub resolution reader.
-  final PubResolutionReader pubResolutionReader;
+  /// Reads the active pub resolution.
+  final PubResolution Function() readResolution;
 
   /// Registers the committed patch for [package].
   RegisteredOverlay overlay(String package, {String? reason}) {
     _ensureCurrentPackageCanPublishOverlays();
 
-    final resolution = pubResolutionReader.readFromDirectory(
-      currentPackageRootPath,
-    );
+    final resolution = readResolution();
     final resolved = resolution.resolvePackage(package);
     final patchPath = layout.patchPath(package, resolved.version);
     final patchFile = File(patchPath);

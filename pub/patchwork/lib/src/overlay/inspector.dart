@@ -6,6 +6,7 @@ import '../error.dart';
 import '../patch/file.dart';
 import '../patch/package_tree.dart';
 import '../pub/resolution_reader.dart';
+import '../pub/workspace.dart';
 import '../state/path_layout.dart';
 import 'composer.dart';
 import 'discovery.dart';
@@ -17,15 +18,18 @@ import 'resolver.dart';
 final class OverlayInspector {
   /// Creates an overlay inspector for one Patchwork state root.
   const OverlayInspector({
-    required this.rootPath,
+    required this.workspace,
     required this.layout,
     this.pubResolutionReader = const PubResolutionReader(),
     this.packageTree = const PackageTree(),
     this.patchFile = const PatchFile(),
   });
 
+  /// The pub workspace being inspected.
+  final PubWorkspace workspace;
+
   /// The pub resolution root being inspected.
-  final String rootPath;
+  String get rootPath => workspace.rootPath;
 
   /// Patchwork paths for the inspected project.
   final PathLayout layout;
@@ -51,8 +55,8 @@ final class OverlayInspector {
       packageConfigPath: packageConfigPath,
     );
     final graph = PackageGraph.read(p.join(rootPath, '.dart_tool'));
-    final resolution = pubResolutionReader.readFromDirectory(
-      rootPath,
+    final resolution = pubResolutionReader.read(
+      workspace,
       packageConfigContent: packageConfig.content,
     );
     final catalog = const OverlayManifestDiscovery().discover(
@@ -131,7 +135,7 @@ final class OverlayInspector {
         try {
           patchFile.apply(
             packagePath: packagePath,
-            patchContent: File(contribution.patchPath).readAsStringSync(),
+            patchContent: readOverlayPatch(contribution.patchPath),
           );
         } on PatchworkException catch (error) {
           final hint = error.hint;

@@ -1,7 +1,5 @@
 import 'dart:io' as io;
 
-import '../../error.dart';
-import '../../apply/model.dart';
 import '../../patchwork.dart';
 import '../arguments.dart';
 import '../json.dart';
@@ -22,10 +20,11 @@ Future<int> runApplyCommand(
   final parsed = parseCommandArguments('apply', arguments);
   final options = parsePubGetOption('apply', parsed.rest);
   final package = singlePackage('apply', options.rest, required: false);
-  final applied = package == null
+  final result = package == null
       ? patchwork.applyAll()
-      : _applyPackage(patchwork, package);
-  final needsPubGet = applied.isNotEmpty || _pubGetRequired(patchwork, package);
+      : patchwork.apply(package);
+  final applied = result.applied;
+  final needsPubGet = result.needsPubGet;
   final pubGetRan = options.pubGet && needsPubGet;
   if (pubGetRan) {
     await runPubGet(workingDirectory);
@@ -58,30 +57,4 @@ Future<int> runApplyCommand(
     out.writeln('Run dart pub get.');
   }
   return 0;
-}
-
-List<AppliedPatch> _applyPackage(Patchwork patchwork, String package) {
-  try {
-    return [patchwork.apply(package)];
-  } on PatchworkException catch (error) {
-    if (error.code == 'applied.pub_get_required') {
-      return const [];
-    }
-    rethrow;
-  }
-}
-
-bool _pubGetRequired(Patchwork patchwork, String? package) {
-  final state = patchwork.inspect();
-  for (final status in state.packages) {
-    if (package != null && status.package != package) {
-      continue;
-    }
-    if (status.problems.any(
-      (problem) => problem.code == 'applied.pub_get_required',
-    )) {
-      return true;
-    }
-  }
-  return false;
 }

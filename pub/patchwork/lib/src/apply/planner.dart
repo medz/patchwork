@@ -6,7 +6,7 @@ import '../error.dart';
 import '../pub/source.dart';
 import '../patch/file.dart';
 import '../pub/resolution.dart';
-import 'freshness.dart';
+import '../state/applied_freshness.dart';
 import '../state/applied_path_policy.dart';
 import '../state/applied_resolution.dart';
 import '../state/artifact_inventory.dart';
@@ -57,16 +57,17 @@ final class ApplyPlanner {
   final String invalidAppliedPathMessage;
 
   /// Plans every committed patch that currently needs generated output.
-  List<ApplyPlan> plansNeedingApply() {
+  ({List<ApplyPlan> plans, bool needsPubGet}) plansNeedingApply() {
     final inventory = PatchworkArtifactInventory.read(layout);
     final patches = inventory.patchFiles;
     if (patches.isEmpty) {
-      return const [];
+      return (plans: const [], needsPubGet: false);
     }
 
     final resolution = readResolution();
     final overrideState = readOverrideState();
     final plans = <ApplyPlan>[];
+    var needsPubGet = false;
     for (final patch in patches) {
       final package = patch.package;
       late final ResolvedPubPackage resolved;
@@ -85,118 +86,100 @@ final class ApplyPlanner {
         continue;
       }
 
-      _rejectOpenEdit(package, inventory);
-      final applied = appliedMarkerStore.read(package, patch.version);
-      final appliedPath = _appliedOutputPath(package, patch.version, applied);
-      if (overrideState.hasForeignOverride(package, applied)) {
-        throw PatchworkException(
-          'A project file already has a dependency override for "$package".',
-          code: 'pub.override_conflict',
-          hint:
-              'Remove or resolve the existing override before running patchwork apply $package.',
-        );
-      }
-      if (_pubResolvesToAppliedOutput(package, patch.version, resolved)) {
-        continue;
-      }
-      if (applied == null &&
-          overrideState.blockingConflict(
-                package: package,
-                targetPath: layout.appliedPath(package, patch.version),
-              ) !=
-              null) {
-        rejectBlockingOverride(
-          overrideState: overrideState,
-          package: package,
-          command: 'apply',
-          targetPath: appliedPath,
-        );
-      }
-      _rejectUnownedAppliedOutput(
+      final planned = _planResolvedPackage(
         package: package,
-        appliedPath: appliedPath,
-        existingApplied: applied,
-      );
-
-      final committedPatch = _readPatchFile(patch.path);
-      if (appliedPatchNeedsRefresh(
-        package: package,
-        version: patch.version,
-        patchSha256: committedPatch.sha256,
-        source: resolved.source,
-        applied: applied,
-        appliedPaths: appliedPaths,
+        resolved: resolved,
+        inventory: inventory,
         overrideState: overrideState,
-      )) {
-        patchFile.validate(
-          sourcePath: resolved.rootPath,
-          patchContent: committedPatch.content,
-        );
-        plans.add(
-          _applyPlan(
-            package: package,
-            resolved: resolved,
-            committedPatch: committedPatch,
-            existingApplied: applied,
-            appliedPath: appliedPath,
-          ),
-        );
+        readCommittedPatch: () => _readPatchFile(patch.path),
+      );
+      if (planned.plan != null) {
+        plans.add(planned.plan!);
       }
+      needsPubGet = needsPubGet || planned.needsPubGet;
     }
-    return plans;
+    return (plans: List.unmodifiable(plans), needsPubGet: needsPubGet);
   }
 
-  /// Plans a single `patchwork apply <package>` operation.
-  ApplyPlan plan(String package) {
+  /// Plans a single package only when generated output needs refreshing.
+  ({ApplyPlan? plan, bool needsPubGet}) planIfNeeded(String package) {
     final inventory = PatchworkArtifactInventory.read(layout);
-    _rejectOpenEdit(package, inventory);
-
     final resolution = readResolution();
     final resolved = resolution.resolvePackage(
       package,
       requireDirectDependency: false,
     );
-    if (_pubResolvesToAppliedOutput(package, resolved.version, resolved)) {
-      throw PatchworkException(
-        'Package "$package" still resolves to the applied Patchwork output.',
-        code: 'applied.pub_get_required',
-        hint:
-            'Run patchwork undo $package, then dart pub get, before applying again.',
-        location: resolved.rootPath,
-      );
-    }
-
-    final committedPatch = _readCommittedPatch(package, resolved.version);
-    final existingApplied = appliedMarkerStore.read(package, resolved.version);
-    final appliedPath = _appliedOutputPath(
-      package,
-      resolved.version,
-      existingApplied,
-    );
     final overrideState = readOverrideState();
+    return _planResolvedPackage(
+      package: package,
+      resolved: resolved,
+      inventory: inventory,
+      overrideState: overrideState,
+      readCommittedPatch: () => _readCommittedPatch(package, resolved.version),
+    );
+  }
+
+  ({ApplyPlan? plan, bool needsPubGet}) _planResolvedPackage({
+    required String package,
+    required ResolvedPubPackage resolved,
+    required PatchworkArtifactInventory inventory,
+    required DependencyOverrideState overrideState,
+    required _CommittedPatch Function() readCommittedPatch,
+  }) {
+    _rejectOpenEdit(package, inventory);
+    final applied = appliedMarkerStore.read(package, resolved.version);
+    final appliedPath = _appliedOutputPath(package, resolved.version, applied);
     rejectBlockingOverride(
       overrideState: overrideState,
       package: package,
       command: 'apply',
       targetPath: appliedPath,
-      replaceRootOverride: existingApplied != null,
+      replaceRootOverride: applied != null,
     );
+    if (_pubResolvesToAppliedOutput(package, resolved.version, resolved)) {
+      return (plan: null, needsPubGet: false);
+    }
     _rejectUnownedAppliedOutput(
       package: package,
       appliedPath: appliedPath,
-      existingApplied: existingApplied,
+      existingApplied: applied,
     );
+
+    final committedPatch = readCommittedPatch();
+    final source = resolved.source;
+    if (!appliedPatchNeedsRefresh(
+      package: package,
+      version: resolved.version,
+      patchSha256: committedPatch.sha256,
+      source: source,
+      applied: applied,
+      appliedPaths: appliedPaths,
+      overrideState: overrideState,
+    )) {
+      return (
+        plan: null,
+        needsPubGet:
+            applied != null &&
+            overrideState.rootOverridePointsToPath(
+              package: package,
+              path: applied.path,
+            ),
+      );
+    }
     patchFile.validate(
       sourcePath: resolved.rootPath,
       patchContent: committedPatch.content,
     );
 
-    return _applyPlan(
-      package: package,
-      resolved: resolved,
-      committedPatch: committedPatch,
-      existingApplied: existingApplied,
-      appliedPath: appliedPath,
+    return (
+      plan: _applyPlan(
+        package: package,
+        resolved: resolved,
+        committedPatch: committedPatch,
+        existingApplied: applied,
+        appliedPath: appliedPath,
+      ),
+      needsPubGet: false,
     );
   }
 

@@ -105,4 +105,22 @@ void main() {
     expect(result.changes, hasLength(1));
     expect(() => result.changes.clear(), throwsUnsupportedError);
   });
+
+  test('apply results expose immutable changes and pub refresh state', () {
+    final applied = <AppliedPatch>[
+      const AppliedPatch(
+        package: 'greeter',
+        version: '0.1.0',
+        path: '.dart_tool/patchwork/greeter@0.1.0',
+        patchPath: 'patches/greeter@0.1.0.patch',
+      ),
+    ];
+    final result = ApplyResult(applied: applied, needsPubGet: true);
+    applied.clear();
+
+    expect(result.changed, isTrue);
+    expect(result.needsPubGet, isTrue);
+    expect(result.applied, hasLength(1));
+    expect(() => result.applied.clear(), throwsUnsupportedError);
+  });
 }

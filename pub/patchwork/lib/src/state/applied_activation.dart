@@ -1,15 +1,15 @@
-import '../state/applied_marker.dart';
+import 'applied_marker.dart';
 import '../pub/source.dart';
 import '../pub/override_editor.dart';
 import '../pub/overrides.dart';
-import '../state/applied_path_policy.dart';
-import '../state/dependency_override_state.dart';
+import 'applied_path_policy.dart';
+import 'dependency_override_state.dart';
 import '../patch/package_tree.dart';
 
 /// Keeps applied marker metadata and generated pub overrides in sync.
-final class AppliedPatchActivation {
+final class AppliedStateActivation {
   /// Creates an activation helper for one Patchwork state root.
-  AppliedPatchActivation({
+  AppliedStateActivation({
     required this.rootPath,
     required this.appliedPaths,
     required this.appliedMarkerStore,

@@ -74,7 +74,7 @@ final class OverlayEntryInspection {
   /// The target source hash declared by the provider.
   final String sha256;
 
-  /// The provider-relative or resolved patch path for this entry.
+  /// The provider-relative patch path declared in `patchwork.yaml`.
   final String patchPath;
 
   /// Optional provider-authored explanation for this overlay.
@@ -129,7 +129,7 @@ final class OverlayContributionInspection {
   /// The provider package name, or `<root>` for the application patch file.
   final String provider;
 
-  /// The patch file path used by this contribution.
+  /// The absolute patch file path used by this contribution.
   final String patchPath;
 
   /// The patch file content hash used for deduplication diagnostics.
@@ -151,7 +151,7 @@ final class OverlayConflictInspection {
   /// The provider whose patch failed to apply.
   final String provider;
 
-  /// The failed patch path.
+  /// The absolute failed patch path.
   final String patchPath;
 
   /// The underlying patch application diagnostic.

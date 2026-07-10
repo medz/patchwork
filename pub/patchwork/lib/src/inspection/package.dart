@@ -8,7 +8,7 @@ import '../error.dart';
 import 'model.dart';
 import '../pub/resolution.dart';
 import '../state/applied_marker_reader.dart';
-import '../apply/freshness.dart';
+import '../state/applied_freshness.dart';
 import '../state/applied_path_policy.dart';
 import '../state/applied_resolution.dart';
 import '../state/dependency_override_state.dart';

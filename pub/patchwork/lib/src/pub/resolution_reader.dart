@@ -39,6 +39,11 @@ final class PubResolutionReader {
     String? packageConfigContent,
   }) {
     final workspace = workspaceLocator.locate(currentDirectory);
+    return read(workspace, packageConfigContent: packageConfigContent);
+  }
+
+  /// Reads and validates pub resolution files from an existing [workspace].
+  PubResolution read(PubWorkspace workspace, {String? packageConfigContent}) {
     final packages = _PackageIndex(
       packageConfig: _readPackageConfig(
         workspace,

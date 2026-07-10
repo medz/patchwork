@@ -65,6 +65,32 @@ void main() {
     );
   });
 
+  test('owned package paths take precedence over mirrored overrides', () {
+    final markers = [
+      AppliedMarker(
+        package: 'greeter',
+        version: '0.1.0',
+        patchSha256: 'greeter-sha',
+        path: '.dart_tool/patchwork/greeter@0.1.0',
+        source: null,
+      ),
+      AppliedMarker(
+        package: 'other_pkg',
+        version: '0.1.0',
+        patchSha256: 'other-sha',
+        path: '.dart_tool/patchwork/other_pkg@0.1.0',
+        source: null,
+        mirroredPubspecDependencyOverrides: const {
+          'greeter': {'path': 'packages/greeter'},
+        },
+      ),
+    ];
+
+    expect(ownedPubspecDependencyOverrides(markers)['greeter'], {
+      'path': '.dart_tool/patchwork/greeter@0.1.0',
+    });
+  });
+
   test('rejects malformed or mismatched marker files', () {
     final root = Directory.systemTemp.createTempSync('patchwork_marker_');
     addTearDown(() => root.deleteSync(recursive: true));

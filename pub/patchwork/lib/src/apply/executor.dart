@@ -1,4 +1,4 @@
-import 'activation.dart';
+import '../state/applied_activation.dart';
 import 'materializer.dart';
 import 'model.dart';
 import 'planner.dart';
@@ -12,7 +12,7 @@ final class ApplyExecutor {
   final AppliedPatchMaterializer materializer;
 
   /// Applied marker and pub override activation.
-  final AppliedPatchActivation activation;
+  final AppliedStateActivation activation;
 
   /// Materializes and activates [plan].
   AppliedPatch execute(ApplyPlan plan) {

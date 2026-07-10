@@ -10,13 +10,13 @@ final class AppliedPatchMaterializer {
     required this.patchFile,
   });
 
-  /// Atomic package-copy installer.
+  /// Failure-safe package-copy installer.
   final PackageMaterializer packageMaterializer;
 
   /// Patch apply helper.
   final PatchFile patchFile;
 
-  /// Copies [sourcePath], applies [patchContent], and atomically installs it.
+  /// Copies [sourcePath], applies [patchContent], and installs it with rollback.
   void materialize({
     required String package,
     required String version,

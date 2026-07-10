@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import '../apply/activation.dart';
 import '../patch/package_tree.dart';
+import '../state/applied_activation.dart';
 import 'model.dart';
 import 'plan.dart';
 import 'undo.dart';
@@ -12,7 +12,7 @@ final class CleanupExecutor {
   const CleanupExecutor({required this.activation, required this.packageTree});
 
   /// Applied marker and pub override activation.
-  final AppliedPatchActivation activation;
+  final AppliedStateActivation activation;
 
   /// Filesystem tree helper.
   final PackageTree packageTree;

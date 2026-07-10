@@ -1,4 +1,3 @@
-import 'apply/activation.dart';
 import 'apply/executor.dart';
 import 'apply/materializer.dart';
 import 'apply/model.dart';
@@ -29,6 +28,7 @@ import 'pub/resolution.dart';
 import 'pub/resolution_reader.dart';
 import 'pub/workspace.dart';
 import 'state/applied_marker.dart';
+import 'state/applied_activation.dart';
 import 'state/applied_path_policy.dart';
 import 'state/artifact_identity.dart';
 import 'state/dependency_override_state.dart';
@@ -55,9 +55,7 @@ const _invalidAppliedPathMessage =
 ///    [apply] and removed by [undo].
 final class Patchwork {
   Patchwork._({
-    required String rootPath,
-    required String currentPackageRootPath,
-    required Set<String> overrideRootPaths,
+    required PubWorkspace workspace,
     required PathLayout layout,
     required AppliedPathPolicy appliedPaths,
     required PubResolutionReader pubResolutionReader,
@@ -70,9 +68,7 @@ final class Patchwork {
     required PatchFile patchFile,
     required PubspecDependencyOverrides pubspecDependencyOverrides,
     required PubspecOverrides pubspecOverrides,
-  }) : _rootPath = rootPath,
-       _currentPackageRootPath = currentPackageRootPath,
-       _overrideRootPaths = overrideRootPaths,
+  }) : _workspace = workspace,
        _layout = layout,
        _appliedPaths = appliedPaths,
        _pubResolutionReader = pubResolutionReader,
@@ -100,9 +96,7 @@ final class Patchwork {
     const packageTree = PackageTree();
     const patchFile = PatchFile();
     return Patchwork._(
-      rootPath: workspace.rootPath,
-      currentPackageRootPath: workspace.currentPackageRootPath,
-      overrideRootPaths: workspace.rootPackageRootPaths,
+      workspace: workspace,
       layout: layout,
       appliedPaths: AppliedPathPolicy(
         rootPath: workspace.rootPath,
@@ -138,9 +132,7 @@ final class Patchwork {
     );
   }
 
-  final String _rootPath;
-  final String _currentPackageRootPath;
-  final Set<String> _overrideRootPaths;
+  final PubWorkspace _workspace;
   final PathLayout _layout;
   final AppliedPathPolicy _appliedPaths;
   final PubResolutionReader _pubResolutionReader;
@@ -156,6 +148,10 @@ final class Patchwork {
 
   /// The workspace root that owns Patchwork state.
   String get rootPath => _rootPath;
+
+  String get _rootPath => _workspace.rootPath;
+  String get _currentPackageRootPath => _workspace.currentPackageRootPath;
+  Set<String> get _overrideRootPaths => _workspace.rootPackageRootPaths;
 
   /// Inspects repository setup recommendations without mutating files.
   ///
@@ -175,7 +171,7 @@ final class Patchwork {
   /// contribution, deduplication, composition order, and conflicts using the
   /// current pub resolution.
   OverlayInspection inspectOverlays() {
-    return OverlayInspector(rootPath: _rootPath, layout: _layout).inspect();
+    return OverlayInspector(workspace: _workspace, layout: _layout).inspect();
   }
 
   /// Creates an editable copy for [package] under `.patchwork/`.
@@ -259,7 +255,7 @@ final class Patchwork {
     return OverlayPublisher(
       currentPackageRootPath: _currentPackageRootPath,
       layout: _layout,
-      pubResolutionReader: _pubResolutionReader,
+      readResolution: _readResolution,
     ).overlay(package, reason: reason);
   }
 
@@ -268,25 +264,40 @@ final class Patchwork {
   ///
   /// Packages with open edit directories are rejected before any output is
   /// generated, because applying while edits are uncommitted would make the
-  /// project state ambiguous.
-  List<AppliedPatch> applyAll() {
+  /// project state ambiguous. The result reports both regenerated packages and
+  /// whether callers still need to run `dart pub get`.
+  ApplyResult applyAll() {
+    final planning = _applyPlanner().plansNeedingApply();
     final applied = <AppliedPatch>[];
     final executor = _applyExecutor();
-    for (final plan in _applyPlanner().plansNeedingApply()) {
+    for (final plan in planning.plans) {
       applied.add(executor.execute(plan));
     }
-    return List.unmodifiable(applied);
+    return ApplyResult(
+      applied: applied,
+      needsPubGet: planning.needsPubGet || applied.isNotEmpty,
+    );
   }
 
   /// Applies the committed patch for [package] into generated output.
   ///
   /// The patch is applied to a fresh copy of the resolved source and then moved
-  /// into `.dart_tool/patchwork/` atomically with respect to the final
-  /// directory. The method also updates `pubspec_overrides.yaml`; callers should
-  /// run `dart pub get` afterwards so pub resolves the generated package.
-  AppliedPatch apply(String package) {
+  /// into `.dart_tool/patchwork/` with rollback if the directory swap fails.
+  /// The method also updates `pubspec_overrides.yaml`; callers should
+  /// run `dart pub get` when [ApplyResult.needsPubGet] is true so pub resolves
+  /// the generated package. Already-current output returns an unchanged result
+  /// instead of throwing an exception.
+  ApplyResult apply(String package) {
     _checkPlainPackageName(package);
-    return _applyExecutor().execute(_applyPlanner().plan(package));
+    final planning = _applyPlanner().planIfNeeded(package);
+    final plan = planning.plan;
+    if (plan == null) {
+      return ApplyResult(applied: const [], needsPubGet: planning.needsPubGet);
+    }
+    return ApplyResult(
+      applied: [_applyExecutor().execute(plan)],
+      needsPubGet: true,
+    );
   }
 
   /// Removes Patchwork-generated output and override state for [package].
@@ -349,7 +360,7 @@ final class Patchwork {
   PatchworkState inspect() {
     return PatchworkStateInspector(
       rootPath: _rootPath,
-      currentPackageRootPath: _currentPackageRootPath,
+      workspace: _workspace,
       layout: _layout,
       pubResolutionReader: _pubResolutionReader,
       editSessionStore: _editSessionStore,
@@ -360,7 +371,7 @@ final class Patchwork {
   }
 
   PubResolution _readResolution() {
-    return _pubResolutionReader.readFromDirectory(_currentPackageRootPath);
+    return _pubResolutionReader.read(_workspace);
   }
 
   DependencyOverrideState _overrideState() {
@@ -372,8 +383,8 @@ final class Patchwork {
     );
   }
 
-  AppliedPatchActivation _appliedActivation() {
-    return AppliedPatchActivation(
+  AppliedStateActivation _appliedActivation() {
+    return AppliedStateActivation(
       rootPath: _rootPath,
       appliedPaths: _appliedPaths,
       appliedMarkerStore: _appliedMarkerStore,

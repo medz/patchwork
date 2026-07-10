@@ -28,11 +28,11 @@ enum PubPackageSourceKind {
 /// A dependency selected by the current pub resolution.
 final class ResolvedPubPackage {
   /// Creates resolved dependency metadata.
-  const ResolvedPubPackage({
+  ResolvedPubPackage({
     required this.version,
     required this.rootPath,
-    required this.source,
-  });
+    required PackageSource Function() source,
+  }) : _readSource = source;
 
   /// The concrete package version selected by pub.
   final String version;
@@ -40,8 +40,13 @@ final class ResolvedPubPackage {
   /// The package root path selected by pub.
   final String rootPath;
 
+  final PackageSource Function() _readSource;
+  PackageSource? _source;
+
   /// The source identity and content hash Patchwork will lock against.
-  final PackageSource source;
+  ///
+  /// The package tree is fingerprinted only when a caller needs source identity.
+  PackageSource get source => _source ??= _readSource();
 }
 
 /// Version and source fields read from one lockfile entry.
@@ -153,7 +158,7 @@ final class PubResolution {
       () => ResolvedPubPackage(
         version: metadata.version,
         rootPath: packageRoot,
-        source: _sourceFor(metadata, packageRoot),
+        source: () => _sourceFor(metadata, packageRoot),
       ),
     );
   }

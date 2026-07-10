@@ -96,7 +96,6 @@ final class OverlayResolver {
     if (!providerDependsOnOverlayTarget(provider, entry.package)) {
       return _skippedEntry(
         entry,
-        patchPath: entry.patch,
         skipReason: 'overlay.provider_not_dependency',
         status: OverlayEntryStatus.failed,
       );
@@ -104,16 +103,11 @@ final class OverlayResolver {
 
     final resolved = tryResolveOverlayTarget(resolution, entry.package);
     if (resolved == null) {
-      return _skippedEntry(
-        entry,
-        patchPath: entry.patch,
-        skipReason: 'pub.package_not_found',
-      );
+      return _skippedEntry(entry, skipReason: 'pub.package_not_found');
     }
     if (resolved.version != entry.version) {
       return _skippedEntry(
         entry,
-        patchPath: entry.patch,
         skipReason: 'overlay.version_mismatch',
         resolved: resolved,
       );
@@ -121,7 +115,6 @@ final class OverlayResolver {
     if (resolved.source.sha256 != entry.sha256) {
       return _skippedEntry(
         entry,
-        patchPath: entry.patch,
         skipReason: 'overlay.source_mismatch',
         resolved: resolved,
       );
@@ -135,7 +128,6 @@ final class OverlayResolver {
     if (!File(patchPath).existsSync()) {
       return _skippedEntry(
         entry,
-        patchPath: patchPath,
         skipReason: 'overlay.patch_file_missing',
         resolved: resolved,
         status: OverlayEntryStatus.failed,
@@ -162,7 +154,7 @@ final class OverlayResolver {
       package: entry.package,
       version: entry.version,
       sha256: entry.sha256,
-      patchPath: patchPath,
+      patchPath: entry.patch,
       reason: entry.reason,
       status: OverlayEntryStatus.matched,
       resolvedVersion: resolved.version,
@@ -172,7 +164,6 @@ final class OverlayResolver {
 
   OverlayEntryInspection _skippedEntry(
     OverlayManifestEntry entry, {
-    required String patchPath,
     required String skipReason,
     ResolvedPubPackage? resolved,
     OverlayEntryStatus status = OverlayEntryStatus.skipped,
@@ -181,7 +172,7 @@ final class OverlayResolver {
       package: entry.package,
       version: entry.version,
       sha256: entry.sha256,
-      patchPath: patchPath,
+      patchPath: entry.patch,
       reason: entry.reason,
       status: status,
       skipReason: skipReason,

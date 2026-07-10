@@ -1,9 +1,9 @@
 import 'dart:io';
 
-import '../state/applied_marker.dart';
+import 'applied_marker.dart';
 import '../pub/source.dart';
-import '../state/applied_path_policy.dart';
-import '../state/dependency_override_state.dart';
+import 'applied_path_policy.dart';
+import 'dependency_override_state.dart';
 
 /// Whether an applied output is missing, stale, or no longer wired into pub.
 bool appliedPatchNeedsRefresh({

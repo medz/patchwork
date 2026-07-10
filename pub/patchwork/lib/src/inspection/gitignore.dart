@@ -140,7 +140,7 @@ final class _GitignoreRule {
 
     if (normalizedPattern.contains('/')) {
       return _matchesPathPattern(normalizedPattern, path) ||
-          path.startsWith('$normalizedPattern/');
+          (directoryOnly && _matchesPathPattern('$normalizedPattern/**', path));
     }
 
     final segments = path.split('/');
@@ -151,10 +151,76 @@ final class _GitignoreRule {
   }
 
   bool _matchesPathPattern(String pattern, String value) {
-    if (!pattern.contains('*')) {
-      return pattern == value;
-    }
-    final source = RegExp.escape(pattern).replaceAll(r'\*', r'[^/]*');
-    return RegExp('^$source\$').hasMatch(value);
+    return RegExp('^${_gitignoreGlobSource(pattern)}\$').hasMatch(value);
   }
+}
+
+String _gitignoreGlobSource(String pattern) {
+  final source = StringBuffer();
+  var index = 0;
+  while (index < pattern.length) {
+    final character = pattern[index];
+    if (character == '*') {
+      final doubleStar =
+          index + 1 < pattern.length && pattern[index + 1] == '*';
+      final wholeSegment =
+          doubleStar &&
+          (index == 0 || pattern[index - 1] == '/') &&
+          (index + 2 == pattern.length || pattern[index + 2] == '/');
+      if (wholeSegment) {
+        if (index + 2 < pattern.length && pattern[index + 2] == '/') {
+          source.write(r'(?:[^/]+/)*');
+          index += 3;
+        } else {
+          source.write('.*');
+          index += 2;
+        }
+        continue;
+      }
+      source.write(r'[^/]*');
+      index += doubleStar ? 2 : 1;
+      continue;
+    }
+    if (character == '?') {
+      source.write(r'[^/]');
+      index += 1;
+      continue;
+    }
+    if (character == '[') {
+      final closing = pattern.indexOf(']', index + 1);
+      if (closing > index + 1) {
+        source.write(
+          _characterClassSource(pattern.substring(index + 1, closing)),
+        );
+        index = closing + 1;
+        continue;
+      }
+    }
+    if (character == r'\' && index + 1 < pattern.length) {
+      source.write(RegExp.escape(pattern[index + 1]));
+      index += 2;
+      continue;
+    }
+    source.write(RegExp.escape(character));
+    index += 1;
+  }
+  return source.toString();
+}
+
+String _characterClassSource(String content) {
+  final source = StringBuffer('[');
+  var index = 0;
+  if (content.startsWith('!') || content.startsWith('^')) {
+    source.write('^');
+    index = 1;
+  }
+  for (; index < content.length; index += 1) {
+    final character = content[index];
+    if (character == r'\' || character == ']') {
+      source.write(r'\');
+    }
+    source.write(character);
+  }
+  source.write(']');
+  return source.toString();
 }

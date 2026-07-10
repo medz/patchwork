@@ -60,10 +60,11 @@ final class OverlayComposer {
           if (contribution.deduplicated) {
             continue;
           }
+          final patchContent = readOverlayPatch(contribution.patchPath);
           try {
             patchFile.apply(
               packagePath: packagePath,
-              patchContent: File(contribution.patchPath).readAsStringSync(),
+              patchContent: patchContent,
             );
           } on PatchworkException catch (error) {
             throw PatchworkException(
@@ -76,6 +77,20 @@ final class OverlayComposer {
           }
         }
       },
+    );
+  }
+}
+
+/// Reads an overlay patch with a stable Patchwork filesystem diagnostic.
+String readOverlayPatch(String path) {
+  try {
+    return File(path).readAsStringSync();
+  } on FileSystemException catch (error) {
+    throw PatchworkException(
+      'Could not read overlay patch file.',
+      code: 'overlay.patch_unreadable',
+      hint: error.message,
+      location: path,
     );
   }
 }

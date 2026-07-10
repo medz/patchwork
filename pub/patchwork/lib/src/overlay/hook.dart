@@ -125,7 +125,7 @@ void _rejectFailedEntries(ResolvedOverlays resolved) {
           throw PatchworkException(
             'Overlay patch file does not exist.',
             code: 'overlay.patch_file_missing',
-            location: entry.patchPath,
+            location: p.join(provider.rootPath, entry.patchPath),
           );
         default:
           throw PatchworkException(

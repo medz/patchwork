@@ -1,6 +1,7 @@
 import '../error.dart';
 import '../pub/resolution.dart';
 import '../pub/resolution_reader.dart';
+import '../pub/workspace.dart';
 import '../state/applied_marker.dart';
 import '../state/applied_path_policy.dart';
 import '../state/artifact_inventory.dart';
@@ -15,14 +16,14 @@ final class PatchworkStateInspector {
   /// Creates an inspector for one Patchwork state root.
   PatchworkStateInspector({
     required String rootPath,
-    required String currentPackageRootPath,
+    required PubWorkspace workspace,
     required PathLayout layout,
     required PubResolutionReader pubResolutionReader,
     required EditSessionStore editSessionStore,
     required AppliedMarkerStore appliedMarkerStore,
     required AppliedPathPolicy appliedPaths,
     required DependencyOverrideState Function() readOverrideState,
-  }) : _currentPackageRootPath = currentPackageRootPath,
+  }) : _workspace = workspace,
        _layout = layout,
        _pubResolutionReader = pubResolutionReader,
        _readOverrideState = readOverrideState,
@@ -34,7 +35,7 @@ final class PatchworkStateInspector {
          appliedPaths: appliedPaths,
        );
 
-  final String _currentPackageRootPath;
+  final PubWorkspace _workspace;
   final PathLayout _layout;
   final PubResolutionReader _pubResolutionReader;
   final DependencyOverrideState Function() _readOverrideState;
@@ -50,9 +51,7 @@ final class PatchworkStateInspector {
     PubResolution? resolution;
     PatchworkException? resolutionError;
     try {
-      resolution = _pubResolutionReader.readFromDirectory(
-        _currentPackageRootPath,
-      );
+      resolution = _pubResolutionReader.read(_workspace);
     } on PatchworkException catch (error) {
       resolutionError = error;
     }

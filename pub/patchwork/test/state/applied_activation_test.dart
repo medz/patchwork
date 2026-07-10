@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:patchwork/src/apply/activation.dart';
+import 'package:patchwork/src/state/applied_activation.dart';
 import 'package:patchwork/src/io/atomic_file_writer.dart';
 import 'package:patchwork/src/patch/package_tree.dart';
 import 'package:patchwork/src/pub/dependency_overrides.dart';
@@ -32,7 +32,7 @@ void main() {
     );
     const overrides = PubspecOverrides();
     var overrideReads = 0;
-    final activation = AppliedPatchActivation(
+    final activation = AppliedStateActivation(
       rootPath: root.path,
       appliedPaths: AppliedPathPolicy(
         rootPath: root.path,

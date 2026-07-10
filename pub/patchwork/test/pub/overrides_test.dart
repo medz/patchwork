@@ -93,6 +93,26 @@ dependency_overrides:
     );
   });
 
+  test('does not record the applied package as a restored mirror', () {
+    final root = Directory.systemTemp.createTempSync('patchwork_overrides_');
+    addTearDown(() => root.deleteSync(recursive: true));
+
+    final mirrors = const PubspecOverrides()
+        .edit(workspaceRootPath: root.path)
+        .upsertPathOverride(
+          package: 'greeter',
+          path: '.dart_tool/patchwork/greeter@0.1.0',
+          pubspecDependencyOverrides: const {
+            'greeter': {'path': 'packages/greeter'},
+            'shared': {'path': 'packages/shared'},
+          },
+        );
+
+    expect(mirrors, {
+      'shared': {'path': 'packages/shared'},
+    });
+  });
+
   test('preserves unrelated top-level fields while editing overrides', () {
     final root = Directory.systemTemp.createTempSync('patchwork_overrides_');
     addTearDown(() => root.deleteSync(recursive: true));

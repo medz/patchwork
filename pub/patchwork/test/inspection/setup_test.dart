@@ -76,6 +76,28 @@ pubspec_overrides.yaml
     );
   });
 
+  test('supports recursive, single-character, and bracket wildcards', () {
+    final root = Directory.systemTemp.createTempSync('patchwork_setup_');
+    addTearDown(() => root.deleteSync(recursive: true));
+    _writePubspec(root.path);
+    File(p.join(root.path, '.gitignore')).writeAsStringSync('''
+**/.patchwork/
+**/.dart_tool/
+pubspec_override?.yaml
+patches/example@0.0.[0-9].patch
+''');
+
+    final report = _inspect(root.path);
+
+    expect(_level(report, 'setup.ignore_edit_state'), SetupCheckLevel.ok);
+    expect(_level(report, 'setup.ignore_applied_output'), SetupCheckLevel.ok);
+    expect(
+      _level(report, 'setup.ignore_pubspec_overrides'),
+      SetupCheckLevel.ok,
+    );
+    expect(_level(report, 'setup.commit_patch_files'), SetupCheckLevel.warning);
+  });
+
   test('accepts Patchwork package-provided overlay hook setup', () {
     final root = Directory.systemTemp.createTempSync('patchwork_setup_');
     addTearDown(() => root.deleteSync(recursive: true));

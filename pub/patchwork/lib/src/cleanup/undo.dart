@@ -3,7 +3,7 @@ import '../error.dart';
 
 /// Plans `patchwork undo` before generated output is deleted.
 ///
-/// Undo execution is still handled by [AppliedPatchActivation]. This planner
+/// Undo execution is still handled by `AppliedStateActivation`. This planner
 /// only chooses whether the command is a no-op, or which single applied marker
 /// is safe to hand to execution.
 final class UndoPlanner {

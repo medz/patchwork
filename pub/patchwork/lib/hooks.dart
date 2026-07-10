@@ -10,11 +10,9 @@ import 'dart:io';
 
 import 'package:hooks/hooks.dart';
 
-import 'src/error.dart';
 import 'src/hooks/errors.dart';
 import 'src/state/path_layout.dart';
 import 'src/apply/model.dart';
-import 'src/inspection/model.dart';
 import 'src/patchwork.dart';
 import 'src/pub/workspace.dart';
 export 'patchwork.dart' show AppliedPatch;
@@ -56,25 +54,13 @@ Future<List<AppliedPatch>> _apply(
   _declareDependencies(output, workspace: workspace, layout: layout);
 
   final patchwork = Patchwork.open(packageRoot);
-  final applied = package == null
+  final result = package == null
       ? patchwork.applyAll()
-      : _applyPackage(patchwork, package);
-  final state = patchwork.inspect();
-  if (applied.isNotEmpty || _pubGetRequired(state, package: package)) {
+      : patchwork.apply(package);
+  if (result.needsPubGet) {
     await _runPubGet(workspace.rootPath);
   }
-  return applied;
-}
-
-List<AppliedPatch> _applyPackage(Patchwork patchwork, String package) {
-  try {
-    return [patchwork.apply(package)];
-  } on PatchworkException catch (error) {
-    if (error.code == 'applied.pub_get_required') {
-      return const [];
-    }
-    rethrow;
-  }
+  return result.applied;
 }
 
 void _declareDependencies(
@@ -102,20 +88,6 @@ void _declareDependencies(
     for (final path in directories)
       _existingDirectoryDependency(path).absolute.uri,
   });
-}
-
-bool _pubGetRequired(PatchworkState state, {required String? package}) {
-  for (final status in state.packages) {
-    if (package != null && status.package != package) {
-      continue;
-    }
-    if (status.problems.any(
-      (problem) => problem.code == 'applied.pub_get_required',
-    )) {
-      return true;
-    }
-  }
-  return false;
 }
 
 Future<void> _runPubGet(String rootPath) async {

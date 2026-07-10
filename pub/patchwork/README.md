@@ -413,8 +413,8 @@ applicable hunks and write reject details for manual repair. If the older patch
 no longer applies cleanly, create a fresh edit with `patchwork patch <pkg>` and
 port the relevant changes manually from the stale patch file.
 
-Patchwork keeps normal apply behavior atomic: a failed apply does not replace
-the committed patch file or pretend the generated output is healthy.
+Patchwork keeps normal apply behavior failure-safe: a failed directory swap
+restores the previous generated output and never changes the committed patch.
 
 ### Remove stale state
 
@@ -688,7 +688,10 @@ void main() {
 
   patchwork.patch('collection');
   patchwork.commit('collection');
-  patchwork.apply('collection');
+  final apply = patchwork.apply('collection');
+  if (apply.needsPubGet) {
+    stdout.writeln('Run dart pub get before using the applied package.');
+  }
   patchwork.undo('collection');
 
   final state = patchwork.inspect();

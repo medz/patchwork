@@ -24,3 +24,19 @@ final class AppliedPatch {
   /// The committed patch file used to produce [path].
   final String patchPath;
 }
+
+/// The outcome of applying one or more committed patches.
+final class ApplyResult {
+  /// Creates an apply result.
+  ApplyResult({required List<AppliedPatch> applied, required this.needsPubGet})
+    : applied = List.unmodifiable(applied);
+
+  /// Patches that regenerated applied output during this operation.
+  final List<AppliedPatch> applied;
+
+  /// Whether pub resolution must be refreshed for the current applied state.
+  final bool needsPubGet;
+
+  /// Whether this operation regenerated any applied output.
+  bool get changed => applied.isNotEmpty;
+}

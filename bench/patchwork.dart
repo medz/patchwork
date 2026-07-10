@@ -4,13 +4,14 @@ import 'dart:io';
 
 import 'package:hooks/hooks.dart';
 import 'package:path/path.dart' as p;
-import 'package:patchwork/src/apply/activation.dart';
+import 'package:patchwork/src/state/applied_activation.dart';
 import 'package:patchwork/src/edit/model.dart';
 import 'package:patchwork/src/overlay/inspector.dart';
 import 'package:patchwork/src/patch/package_tree.dart';
 import 'package:patchwork/src/pub/source.dart';
 import 'package:patchwork/src/pub/dependency_overrides.dart';
 import 'package:patchwork/src/pub/overrides.dart';
+import 'package:patchwork/src/pub/workspace.dart';
 import 'package:patchwork/src/state/applied_marker.dart';
 import 'package:patchwork/src/state/applied_path_policy.dart';
 import 'package:patchwork/src/state/dependency_override_state.dart';
@@ -268,7 +269,7 @@ List<_Benchmark> _benchmarks() {
         return _Prepared(
           run: () {
             final inspection = OverlayInspector(
-              rootPath: fixture.root.path,
+              workspace: const PubWorkspaceLocator().locate(fixture.root.path),
               layout: PathLayout(fixture.root.path),
             ).inspect();
             if (inspection.providers.length != 8 ||
@@ -725,7 +726,7 @@ final class _ActivationFixture {
 
   void activatePending() {
     const overrides = PubspecOverrides();
-    final activation = AppliedPatchActivation(
+    final activation = AppliedStateActivation(
       rootPath: root.path,
       appliedPaths: AppliedPathPolicy(
         rootPath: root.path,

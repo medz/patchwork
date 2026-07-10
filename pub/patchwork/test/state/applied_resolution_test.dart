@@ -75,7 +75,7 @@ bool _resolves({
     resolved: ResolvedPubPackage(
       version: '0.1.0',
       rootPath: resolvedRootPath,
-      source: PackageSource(type: 'path', sha256: 'source-sha'),
+      source: () => PackageSource(type: 'path', sha256: 'source-sha'),
     ),
   );
 }

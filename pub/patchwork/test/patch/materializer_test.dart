@@ -71,6 +71,51 @@ void main() {
     );
     expect(_temporaryDirectories(outputPath), isEmpty);
   });
+
+  test('restores existing output when the install rename fails', () {
+    final root = Directory.systemTemp.createTempSync('patchwork_materializer_');
+    addTearDown(() => root.deleteSync(recursive: true));
+
+    final sourcePath = p.join(root.path, 'source');
+    final outputPath = p.join(root.path, 'output', 'greeter@0.1.0');
+    File(p.join(sourcePath, 'lib', 'greeter.dart'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('next');
+    File(p.join(outputPath, 'current.txt'))
+      ..createSync(recursive: true)
+      ..writeAsStringSync('current');
+    var renames = 0;
+    final materializer = PackageMaterializer(
+      packageTree: const PackageTree(),
+      renameDirectory: (source, destination) {
+        renames += 1;
+        if (renames == 2) {
+          throw FileSystemException('install failed', source);
+        }
+        Directory(source).renameSync(destination);
+      },
+    );
+
+    expect(
+      () => materializer.materialize(
+        identity: 'greeter@0.1.0',
+        sourcePath: sourcePath,
+        outputPath: outputPath,
+        transform: (_) {},
+      ),
+      throwsA(isA<FileSystemException>()),
+    );
+
+    expect(
+      File(p.join(outputPath, 'current.txt')).readAsStringSync(),
+      'current',
+    );
+    expect(
+      File(p.join(outputPath, 'lib', 'greeter.dart')).existsSync(),
+      isFalse,
+    );
+    expect(_temporaryDirectories(outputPath), isEmpty);
+  });
 }
 
 List<FileSystemEntity> _temporaryDirectories(String outputPath) {

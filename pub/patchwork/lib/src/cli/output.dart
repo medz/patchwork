@@ -95,7 +95,7 @@ void printCleanup(
   final verb = result.dryRun ? 'Would remove' : 'Removed';
   for (final change in result.changes) {
     out.writeln(
-      '$verb ${_cleanupKindLabel(change.kind)} '
+      '$verb ${_cleanupChangeLabel(change)} '
       '${patchwork.displayPath(change.path)}.',
     );
   }
@@ -202,11 +202,12 @@ void _printSuggestedActions(io.IOSink out, List<SuggestedAction> actions) {
   }
 }
 
-String _cleanupKindLabel(CleanupChangeKind kind) {
-  return switch (kind) {
+String _cleanupChangeLabel(CleanupChange change) {
+  return switch (change.kind) {
     CleanupChangeKind.patchFile => 'patch file',
     CleanupChangeKind.editDirectory => 'edit directory',
     CleanupChangeKind.appliedDirectory => 'applied directory',
-    CleanupChangeKind.pubspecOverride => 'pubspec override',
+    CleanupChangeKind.pubspecOverride =>
+      'pubspec override for ${change.package}',
   };
 }

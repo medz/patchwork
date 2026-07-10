@@ -20,13 +20,18 @@ final class CleanupPlanBuilder {
   final bool force;
 
   final List<CleanupChange> _changes = [];
-  final Set<(CleanupChangeKind, String)> _changeKeys = {};
+  final Set<(CleanupChangeKind, String, String, String)> _changeKeys = {};
   final List<AppliedMarker> _appliedMarkers = [];
   final Set<(String, String)> _appliedMarkerKeys = {};
 
   /// Adds [change] unless the same kind and path were already planned.
   void addChange(CleanupChange change) {
-    if (_changeKeys.add((change.kind, change.path))) {
+    if (_changeKeys.add((
+      change.kind,
+      change.package,
+      change.version,
+      change.path,
+    ))) {
       _changes.add(change);
     }
   }

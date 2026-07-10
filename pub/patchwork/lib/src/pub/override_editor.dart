@@ -34,6 +34,7 @@ final class PubspecOverridesEditor {
     final canIntroduceMirrors =
         !_hasDependencyOverrides ||
         _hasOnlyOwned(_dependencyOverrides, ownedDependencyOverrides);
+    _dependencyOverrides[package] = {'path': path};
     final nextMirrors = _restoreMirrors(
       dependencyOverrides: _dependencyOverrides,
       pubspecDependencyOverrides: pubspecDependencyOverrides,
@@ -41,7 +42,6 @@ final class PubspecOverridesEditor {
       canIntroduceMirrors: canIntroduceMirrors,
       retainPreviousMirrors: true,
     );
-    _dependencyOverrides[package] = {'path': path};
     _document['dependency_overrides'] = _dependencyOverrides;
     _hasDependencyOverrides = true;
     _write(_document);

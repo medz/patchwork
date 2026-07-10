@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:patchwork/src/overlay/inspector.dart';
 import 'package:patchwork/src/patch/package_tree.dart';
+import 'package:patchwork/src/pub/workspace.dart';
 import 'package:patchwork/src/state/path_layout.dart';
 import 'package:patchwork/src/overlay/model.dart';
 import 'package:test/test.dart';
@@ -27,6 +28,12 @@ void main() {
           .expand((provider) => provider.entries)
           .map((entry) => entry.status),
       [OverlayEntryStatus.matched, OverlayEntryStatus.matched],
+    );
+    expect(
+      inspection.providers
+          .expand((provider) => provider.entries)
+          .map((entry) => entry.patchPath),
+      everyElement('patches/greeter@0.1.0.patch'),
     );
     final target = inspection.targets.single;
     expect(target.package, 'greeter');
@@ -152,7 +159,7 @@ final class _OverlayFixture {
 
   OverlayInspection inspect() {
     return OverlayInspector(
-      rootPath: root.path,
+      workspace: const PubWorkspaceLocator().locate(root.path),
       layout: PathLayout(root.path),
     ).inspect();
   }

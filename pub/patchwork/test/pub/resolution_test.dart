@@ -3,7 +3,10 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:patchwork/src/error.dart';
+import 'package:patchwork/src/patch/package_tree.dart';
+import 'package:patchwork/src/pub/resolution.dart';
 import 'package:patchwork/src/pub/resolution_reader.dart';
+import 'package:patchwork/src/pub/workspace.dart';
 import 'package:test/test.dart';
 
 void main() {
@@ -160,6 +163,52 @@ packages:
           (error) => error.code,
           'code',
           'pub.package_not_direct_dependency',
+        ),
+      ),
+    );
+  });
+
+  test('defers source-tree hashing until source identity is requested', () {
+    final root = Directory.systemTemp.createTempSync('patchwork_resolution_');
+    addTearDown(() {
+      if (root.existsSync()) root.deleteSync(recursive: true);
+    });
+    final packageRoot = p.join(root.path, 'greeter');
+    _writePackage(packageRoot, 'greeter');
+    final workspace = PubWorkspace(
+      rootPath: root.path,
+      currentPackageRootPath: root.path,
+      rootPackageRootPaths: {root.path},
+      packageConfigPath: p.join(root.path, '.dart_tool', 'package_config.json'),
+      lockfilePath: p.join(root.path, 'pubspec.lock'),
+      packageGraphPath: p.join(root.path, '.dart_tool', 'package_graph.json'),
+    );
+    final resolution = PubResolution(
+      workspace: workspace,
+      packageRoots: {'greeter': packageRoot},
+      metadata: {
+        'greeter': PubPackageMetadata(
+          version: '0.1.0',
+          sourceKind: PubPackageSourceKind.path,
+          description: const {'path': 'greeter'},
+        ),
+      },
+      rootNames: const {},
+      directDependencies: const {'greeter'},
+      packageTree: const PackageTree(),
+    );
+
+    final resolved = resolution.resolvePackage('greeter');
+    Directory(packageRoot).deleteSync(recursive: true);
+
+    expect(resolved.version, '0.1.0');
+    expect(
+      () => resolved.source,
+      throwsA(
+        isA<PatchworkException>().having(
+          (error) => error.code,
+          'code',
+          'fs.package_tree_missing',
         ),
       ),
     );

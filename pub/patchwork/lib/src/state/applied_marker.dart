@@ -179,6 +179,8 @@ Map<String, Object?> ownedPubspecDependencyOverrides(
   final dependencyOverrides = <String, Object?>{};
   for (final marker in markers) {
     dependencyOverrides.addAll(marker.mirroredPubspecDependencyOverrides);
+  }
+  for (final marker in markers) {
     dependencyOverrides[marker.package] = {'path': marker.path};
   }
   return dependencyOverrides;

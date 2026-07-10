@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0 - 2026-07-10
 
 - Made the core `Patchwork` filesystem API synchronous and narrowed
   `Patchwork.open` to string paths; hook and CLI adapters remain asynchronous

@@ -12,7 +12,7 @@ workspace:
 
 dependencies:
   hooks: ^2.0.2
-  patchwork: ^0.6.0
+  patchwork: ^0.7.0
   path: ^1.9.1
 
 dev_dependencies:

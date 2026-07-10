@@ -683,15 +683,15 @@ import 'dart:io';
 
 import 'package:patchwork/patchwork.dart';
 
-Future<void> main() async {
-  final patchwork = await Patchwork.open(Directory.current);
+void main() {
+  final patchwork = Patchwork.open(Directory.current.path);
 
-  await patchwork.patch('collection');
-  await patchwork.commit('collection');
-  await patchwork.apply('collection');
-  await patchwork.undo('collection');
+  patchwork.patch('collection');
+  patchwork.commit('collection');
+  patchwork.apply('collection');
+  patchwork.undo('collection');
 
-  final state = await patchwork.inspect();
+  final state = patchwork.inspect();
   stdout.writeln('${state.packages.length} patchwork packages');
 }
 ```

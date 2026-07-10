@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Patchwork is a Dart workspace. The root `pubspec.yaml` defines the workspace and shared development dependencies. The publishable package lives in `pub/patchwork`, with the executable in `bin/patchwork.dart`, public exports in `lib/patchwork.dart`, and implementation code under `lib/src/` by domain (`cli`, `pub`, `patch`, `lock`, `internal`, and related helpers). Tests live in `pub/patchwork/test` and mirror those domains, with end-to-end coverage in `test/e2e`. Runnable smoke examples are under `examples/hello_patch`.
+Patchwork is a Dart workspace. The root `pubspec.yaml` defines the workspace and shared development dependencies. The publishable package lives in `pub/patchwork`, with the executable in `bin/patchwork.dart`, public exports in `lib/patchwork.dart`, and implementation code under `lib/src/` by domain (`apply`, `cleanup`, `edit`, `inspection`, `overlay`, `patch`, `pub`, and `state`). CLI, hook, and filesystem adapters live in their own narrow folders. Tests live in `pub/patchwork/test` and mirror those domains, with end-to-end coverage in `test/e2e`. Runnable smoke examples are under `examples/hello_patch`.
 
 ## Build, Test, and Development Commands
 

@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:hooks/hooks.dart';
 
 import 'src/error.dart';
+import 'src/internal/hook_errors.dart';
 import 'src/internal/path_layout.dart';
 import 'src/model.dart';
 import 'src/patchwork.dart';
@@ -28,7 +29,7 @@ Future<List<AppliedPatch>> applyAll(
   BuildInput input,
   BuildOutputBuilder output,
 ) {
-  return _wrapPatchworkErrors(() => _apply(input, output, package: null));
+  return wrapPatchworkHookErrors(() => _apply(input, output, package: null));
 }
 
 /// Applies the committed Patchwork patch for [package] from a build hook.
@@ -41,7 +42,7 @@ Future<List<AppliedPatch>> apply(
   BuildOutputBuilder output, {
   required String package,
 }) {
-  return _wrapPatchworkErrors(() => _apply(input, output, package: package));
+  return wrapPatchworkHookErrors(() => _apply(input, output, package: package));
 }
 
 Future<List<AppliedPatch>> _apply(
@@ -141,29 +142,6 @@ Future<void> _runPubGet(String rootPath) async {
       if (details.isNotEmpty) details,
     ].join('\n'),
   );
-}
-
-Future<T> _wrapPatchworkErrors<T>(Future<T> Function() run) async {
-  try {
-    return await run();
-  } on HookError {
-    rethrow;
-  } on PatchworkException catch (error, stackTrace) {
-    throw BuildError(
-      message: _formatPatchworkException(error),
-      wrappedException: error,
-      wrappedTrace: stackTrace,
-    );
-  }
-}
-
-String _formatPatchworkException(PatchworkException error) {
-  final lines = [
-    '${error.code}: ${error.message}',
-    if (error.hint != null && error.hint!.isNotEmpty) error.hint!,
-    if (error.location != null && error.location!.isNotEmpty) error.location!,
-  ];
-  return lines.join('\n');
 }
 
 String _join(String part1, String part2) {

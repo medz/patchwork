@@ -73,6 +73,7 @@ packages:
     expect(hosted.source.type, 'hosted');
     expect(hosted.source.fields, {'url': 'https://pub.example'});
     expect(hosted.source.sha256, isNotEmpty);
+    expect(resolution.resolvePackage('hosted_pkg'), same(hosted));
 
     final path = resolution.resolvePackage('path_pkg');
     expect(path.source.type, 'path');
@@ -151,6 +152,16 @@ packages:
           .resolvePackage('transitive_pkg', requireDirectDependency: false)
           .rootPath,
       transitiveRoot,
+    );
+    expect(
+      () => resolution.resolvePackage('transitive_pkg'),
+      throwsA(
+        isA<PatchworkException>().having(
+          (error) => error.code,
+          'code',
+          'pub.package_not_direct_dependency',
+        ),
+      ),
     );
   });
 

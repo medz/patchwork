@@ -8,7 +8,7 @@ import '../model.dart';
 import '../overlay_manifest.dart';
 import '../patch_file.dart';
 import '../pub/package_resolution.dart';
-import 'hashing.dart';
+import 'overlay_rules.dart';
 import 'package_tree.dart';
 import 'path_layout.dart';
 import 'pub_resolution_files.dart';
@@ -93,8 +93,7 @@ final class OverlayInspector {
       );
     }
 
-    _sortProviderContributions(groups.values);
-    _deduplicateContributions(groups.values);
+    _normalizeProviderContributions(groups.values);
     _appendRootPatchContributions(groups.values);
 
     return OverlayInspection(
@@ -132,7 +131,7 @@ final class OverlayInspector {
     required PubResolution resolution,
     required SplayTreeMap<String, _OverlayTargetPlan> groups,
   }) {
-    if (provider == null || !provider.dependencies.contains(entry.package)) {
+    if (!providerDependsOnOverlayTarget(provider, entry.package)) {
       return _skippedEntry(
         entry,
         patchPath: entry.patch,
@@ -141,7 +140,7 @@ final class OverlayInspector {
       );
     }
 
-    final resolved = _tryResolveOverlayTarget(resolution, entry.package);
+    final resolved = tryResolveOverlayTarget(resolution, entry.package);
     if (resolved == null) {
       return _skippedEntry(
         entry,
@@ -167,7 +166,7 @@ final class OverlayInspector {
       );
     }
 
-    final patchPath = _resolveManifestPatchPath(
+    final patchPath = resolveOverlayPatchPath(
       packageRootPath: package.rootPath,
       manifestPath: manifestPath,
       patchPath: entry.patch,
@@ -192,10 +191,7 @@ final class OverlayInspector {
       ),
     );
     group.contributions.add(
-      _OverlayContributionPlan.active(
-        provider: package.name,
-        patchPath: patchPath,
-      ),
+      OverlayContribution(provider: package.name, patchPath: patchPath),
     );
 
     return OverlayEntryInspection(
@@ -208,20 +204,6 @@ final class OverlayInspector {
       resolvedVersion: resolved.version,
       resolvedSha256: resolved.source.sha256,
     );
-  }
-
-  ResolvedPubPackage? _tryResolveOverlayTarget(
-    PubResolution resolution,
-    String package,
-  ) {
-    try {
-      return resolution.resolvePackage(package, requireDirectDependency: false);
-    } on PatchworkException catch (error) {
-      if (error.code == 'pub.package_not_found') {
-        return null;
-      }
-      rethrow;
-    }
   }
 
   OverlayEntryInspection _skippedEntry(
@@ -244,81 +226,28 @@ final class OverlayInspector {
     );
   }
 
-  String _resolveManifestPatchPath({
-    required String packageRootPath,
-    required String manifestPath,
-    required String patchPath,
-  }) {
-    if (p.isAbsolute(patchPath)) {
-      throw PatchworkException(
-        'Overlay patch paths must be relative to the declaring package.',
-        code: 'overlay.absolute_patch_path',
-        location: manifestPath,
-      );
-    }
-    final absolutePath = p.normalize(p.join(packageRootPath, patchPath));
-    final rootPath = p.normalize(p.absolute(packageRootPath));
-    if (!p.isWithin(rootPath, absolutePath)) {
-      throw PatchworkException(
-        'Overlay patch paths must stay inside the declaring package.',
-        code: 'overlay.patch_path_escapes_package',
-        location: manifestPath,
-      );
-    }
-    return absolutePath;
-  }
-
-  void _sortProviderContributions(Iterable<_OverlayTargetPlan> groups) {
+  void _normalizeProviderContributions(Iterable<_OverlayTargetPlan> groups) {
     for (final group in groups) {
-      group.contributions.sort((left, right) {
-        final providerCompare = left.provider.compareTo(right.provider);
-        if (providerCompare != 0) {
-          return providerCompare;
-        }
-        return left.patchPath.compareTo(right.patchPath);
-      });
-    }
-  }
-
-  void _deduplicateContributions(Iterable<_OverlayTargetPlan> groups) {
-    for (final group in groups) {
-      final seen = <String>{};
-      for (var index = 0; index < group.contributions.length; index++) {
-        final contribution = group.contributions[index];
-        if (seen.add(contribution.patchSha256)) {
-          continue;
-        }
-        group.contributions[index] = _OverlayContributionPlan.deduplicated(
-          provider: contribution.provider,
-          patchPath: contribution.patchPath,
-        );
-      }
+      final normalized = normalizeProviderOverlayContributions(
+        group.contributions,
+      );
+      group.contributions
+        ..clear()
+        ..addAll(normalized);
     }
   }
 
   void _appendRootPatchContributions(Iterable<_OverlayTargetPlan> groups) {
     for (final group in groups) {
       final patchPath = layout.patchPath(group.package, group.version);
-      final patchFile = File(patchPath);
-      if (!patchFile.existsSync()) {
+      final contribution = rootOverlayContribution(
+        patchPath,
+        group.contributions,
+      );
+      if (contribution == null) {
         continue;
       }
-
-      final patchSha256 = sha256Hex(patchFile.readAsBytesSync());
-      final duplicate = group.contributions.any((contribution) {
-        return contribution.patchSha256 == patchSha256;
-      });
-      group.contributions.add(
-        duplicate
-            ? _OverlayContributionPlan.deduplicated(
-                provider: '<root>',
-                patchPath: patchPath,
-              )
-            : _OverlayContributionPlan.active(
-                provider: '<root>',
-                patchPath: patchPath,
-              ),
-      );
+      group.contributions.add(contribution);
     }
   }
 
@@ -334,7 +263,9 @@ final class OverlayInspector {
             provider: contribution.provider,
             patchPath: contribution.patchPath,
             sha256: contribution.patchSha256,
-            status: contribution.status,
+            status: contribution.deduplicated
+                ? OverlayContributionStatus.deduplicated
+                : OverlayContributionStatus.active,
           ),
       ]),
       conflict: _inspectConflict(group),
@@ -343,7 +274,7 @@ final class OverlayInspector {
 
   OverlayConflictInspection? _inspectConflict(_OverlayTargetPlan group) {
     final active = group.contributions.where(
-      (contribution) => contribution.status == OverlayContributionStatus.active,
+      (contribution) => !contribution.deduplicated,
     );
     if (active.isEmpty) {
       return null;
@@ -399,40 +330,5 @@ final class _OverlayTargetPlan {
   final String version;
   final String sha256;
   final String sourcePath;
-  final List<_OverlayContributionPlan> contributions = [];
-}
-
-final class _OverlayContributionPlan {
-  _OverlayContributionPlan._({
-    required this.provider,
-    required this.patchPath,
-    required this.status,
-  }) : patchSha256 = sha256Hex(File(patchPath).readAsBytesSync());
-
-  factory _OverlayContributionPlan.active({
-    required String provider,
-    required String patchPath,
-  }) {
-    return _OverlayContributionPlan._(
-      provider: provider,
-      patchPath: patchPath,
-      status: OverlayContributionStatus.active,
-    );
-  }
-
-  factory _OverlayContributionPlan.deduplicated({
-    required String provider,
-    required String patchPath,
-  }) {
-    return _OverlayContributionPlan._(
-      provider: provider,
-      patchPath: patchPath,
-      status: OverlayContributionStatus.deduplicated,
-    );
-  }
-
-  final String provider;
-  final String patchPath;
-  final String patchSha256;
-  final OverlayContributionStatus status;
+  final List<OverlayContribution> contributions = [];
 }

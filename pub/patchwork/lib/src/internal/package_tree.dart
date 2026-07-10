@@ -37,12 +37,7 @@ final class PackageTree {
       sink.add(utf8.encode('${entry.type}:${entry.relativePath}\n'));
       switch (entry.type) {
         case _TreeEntryType.file:
-          final mode = File(entry.path).statSync().mode;
-          final bytes = File(entry.path).readAsBytesSync();
-          sink.add(utf8.encode('$mode\n'));
-          sink.add(utf8.encode('${bytes.length}\n'));
-          sink.add(bytes);
-          sink.add(const [0x0a]);
+          _addFileToHash(sink, entry.path);
         case _TreeEntryType.link:
           sink.add(utf8.encode('${Link(entry.path).targetSync()}\n'));
       }
@@ -159,6 +154,26 @@ final class PackageTree {
           break;
       }
     }
+  }
+}
+
+void _addFileToHash(Sink<List<int>> sink, String path) {
+  final file = File(path);
+  final mode = file.statSync().mode;
+  final input = file.openSync();
+  try {
+    sink.add(utf8.encode('$mode\n'));
+    sink.add(utf8.encode('${input.lengthSync()}\n'));
+    while (true) {
+      final bytes = input.readSync(64 * 1024);
+      if (bytes.isEmpty) {
+        break;
+      }
+      sink.add(bytes);
+    }
+    sink.add(const [0x0a]);
+  } finally {
+    input.closeSync();
   }
 }
 

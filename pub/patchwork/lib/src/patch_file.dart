@@ -1,10 +1,11 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
 import 'error.dart';
+import 'internal/git_patch.dart';
 import 'internal/package_tree.dart';
+import 'internal/reject_files.dart';
 
 /// Runs the `git` subprocess used for patch operations.
 ///
@@ -82,8 +83,8 @@ final class PatchFile {
           '--full-index',
           '--binary',
           '--no-index',
-          _gitArgumentPath(sourceSnapshotPath),
-          _gitArgumentPath(editSnapshotPath),
+          gitArgumentPath(sourceSnapshotPath),
+          gitArgumentPath(editSnapshotPath),
         ],
         workingDirectory: tempRoot.path,
         failureCode: 'patch.diff_failed',
@@ -95,7 +96,7 @@ final class PatchFile {
       if (output.isEmpty) {
         return '';
       }
-      return _postProcessGitDiff(
+      return postProcessGitDiff(
         output: output,
         sourcePath: sourceSnapshotPath,
         editPath: editSnapshotPath,
@@ -192,7 +193,7 @@ final class PatchFile {
       );
     }
 
-    final existingRejectBackups = _rejectFileBackups(packagePath);
+    final rejectFiles = RejectFileTransaction.capture(packagePath);
     final patchFile = File(
       p.join(
         Directory.systemTemp.path,
@@ -203,9 +204,9 @@ final class PatchFile {
 
     try {
       patchFile.writeAsStringSync(patchContent, flush: true);
-      final patchTouchedPaths = _patchTouchedRelativePaths(patchContent)
+      final patchTouchedPaths = patchTouchedRelativePaths(patchContent)
         ..addAll(
-          _gitNumstatRelativePaths(
+          gitNumstatRelativePaths(
             _runGitAllowingRejects([
               'apply',
               '--numstat',
@@ -225,7 +226,7 @@ final class PatchFile {
         '\r\n',
         '\n',
       );
-      final normalizedOutput = _normalizedGitOutput(
+      final normalizedOutput = normalizedGitOutput(
         gitOutput,
         workingDirectory: packagePath,
         patchPath: patchFile.path,
@@ -237,10 +238,8 @@ final class PatchFile {
           hint: normalizedOutput,
         );
       }
-      final rejectPaths = _gitRejectRelativePaths(gitOutput);
-      final movedRejectPaths = _moveReportedRejectFiles(
-        packagePath: packagePath,
-        existingRejectBackups: existingRejectBackups,
+      final rejectPaths = gitRejectRelativePaths(gitOutput);
+      final movedRejectPaths = rejectFiles.moveReported(
         rejectPaths: rejectPaths,
         patchTouchedPaths: patchTouchedPaths,
         failureHint: normalizedOutput,
@@ -347,465 +346,4 @@ final class PartialPatchApply {
 
   /// Whether Git applied the patch without rejected or failed hunks.
   bool get appliedCleanly => exitCode == 0 && rejectPaths.isEmpty;
-}
-
-String _gitArgumentPath(String path) {
-  return p.absolute(path).replaceAll('\\', '/');
-}
-
-String _normalizedGitOutput(
-  String output, {
-  required String workingDirectory,
-  required String patchPath,
-}) {
-  return output
-      .replaceAll(_gitArgumentPath(patchPath), '<patch>')
-      .replaceAll(patchPath, '<patch>')
-      .replaceAll(_gitArgumentPath(workingDirectory), '.')
-      .replaceAll(workingDirectory, '.')
-      .trim();
-}
-
-List<String> _rejectRelativePaths(String packagePath) {
-  final root = Directory(packagePath);
-  if (!root.existsSync()) {
-    return const [];
-  }
-  final paths = <String>[];
-  void collect(Directory directory) {
-    for (final entity in directory.listSync(followLinks: false)) {
-      final relativePath = p.split(p.relative(entity.path, from: packagePath));
-      if (relativePath.isNotEmpty && relativePath.first == '.patchwork') {
-        continue;
-      }
-      final type = FileSystemEntity.typeSync(entity.path, followLinks: false);
-      if (type == FileSystemEntityType.directory) {
-        collect(Directory(entity.path));
-      } else if ((type == FileSystemEntityType.file ||
-              type == FileSystemEntityType.link) &&
-          entity.path.endsWith('.rej')) {
-        paths.add(relativePath.join('/'));
-      }
-    }
-  }
-
-  collect(root);
-  paths.sort();
-  return paths;
-}
-
-Map<String, _RejectEntryBackup> _rejectFileBackups(String packagePath) {
-  return {
-    for (final relativePath in _rejectRelativePaths(packagePath))
-      relativePath: _RejectEntryBackup.read(
-        p.joinAll([packagePath, ...relativePath.split('/')]),
-      ),
-  };
-}
-
-final class _RejectEntryBackup {
-  const _RejectEntryBackup.file(this.bytes, this.mode) : linkTarget = null;
-
-  const _RejectEntryBackup.link(this.linkTarget) : bytes = null, mode = null;
-
-  factory _RejectEntryBackup.read(String path) {
-    final type = FileSystemEntity.typeSync(path, followLinks: false);
-    if (type == FileSystemEntityType.link) {
-      return _RejectEntryBackup.link(Link(path).targetSync());
-    }
-    final file = File(path);
-    return _RejectEntryBackup.file(
-      file.readAsBytesSync(),
-      file.statSync().mode,
-    );
-  }
-
-  final List<int>? bytes;
-
-  final int? mode;
-
-  final String? linkTarget;
-
-  void restore(String path) {
-    _deleteExistingPath(path);
-    final target = linkTarget;
-    if (target != null) {
-      Link(path).createSync(target);
-      return;
-    }
-    File(path).writeAsBytesSync(bytes!, flush: true);
-    _restoreFileMode(path, mode!);
-  }
-}
-
-void _restoreFileMode(String path, int mode) {
-  if (Platform.isWindows) {
-    return;
-  }
-
-  final permissions = (mode & 0x0fff).toRadixString(8);
-  final ProcessResult result;
-  try {
-    result = Process.runSync('chmod', [permissions, path]);
-  } on ProcessException catch (error) {
-    throw PatchworkException(
-      'Could not restore reject file mode.',
-      code: 'patch.reject_mode_restore_failed',
-      hint: error.message,
-      location: path,
-    );
-  }
-  if (result.exitCode != 0) {
-    throw PatchworkException(
-      'Could not restore reject file mode.',
-      code: 'patch.reject_mode_restore_failed',
-      hint: '${result.stderr}${result.stdout}'.trim(),
-      location: path,
-    );
-  }
-}
-
-Set<String> _gitRejectRelativePaths(String output) {
-  final paths = <String>{};
-  final rejectLine = RegExp(
-    r'^Applying patch (.+) with [0-9]+ rejects?\.\.\.$',
-  );
-  for (final line in output.split('\n')) {
-    final match = rejectLine.firstMatch(line.trimRight());
-    if (match == null) {
-      continue;
-    }
-    paths.add('${_decodeGitPath(match.group(1)!)}.rej');
-  }
-  return paths;
-}
-
-Set<String> _gitNumstatRelativePaths(ProcessResult result) {
-  if (result.exitCode != 0) {
-    return const {};
-  }
-
-  final paths = <String>{};
-  for (final record in result.stdout.toString().split('\x00')) {
-    if (record.isEmpty) {
-      continue;
-    }
-    final firstSeparator = record.indexOf('\t');
-    if (firstSeparator == -1) {
-      continue;
-    }
-    final secondSeparator = record.indexOf('\t', firstSeparator + 1);
-    if (secondSeparator == -1) {
-      continue;
-    }
-    final path = _patchRelativePath(record.substring(secondSeparator + 1));
-    if (path != null) {
-      paths.add(path);
-    }
-  }
-  return paths;
-}
-
-Set<String> _patchTouchedRelativePaths(String patchContent) {
-  final paths = <String>{};
-  final normalized = patchContent.replaceAll('\r\n', '\n');
-  for (final line in normalized.split('\n')) {
-    if (line.startsWith('--- ')) {
-      final path = _patchHeaderRelativePath(line.substring(4));
-      if (path != null) {
-        paths.add(path);
-      }
-    } else if (line.startsWith('+++ ')) {
-      final path = _patchHeaderRelativePath(line.substring(4));
-      if (path != null) {
-        paths.add(path);
-      }
-    } else {
-      final path = _patchMetadataRelativePath(line);
-      if (path != null) {
-        paths.add(path);
-      }
-    }
-  }
-  return paths;
-}
-
-String? _patchHeaderRelativePath(String rawPath) {
-  final path = _patchRelativePath(rawPath);
-  if (path == null) {
-    return null;
-  }
-  if (path.startsWith('a/') || path.startsWith('b/')) {
-    return path.substring(2);
-  }
-  return null;
-}
-
-String? _patchMetadataRelativePath(String line) {
-  const prefixes = ['rename from ', 'rename to ', 'copy from ', 'copy to '];
-  for (final prefix in prefixes) {
-    if (line.startsWith(prefix)) {
-      return _patchRelativePath(line.substring(prefix.length));
-    }
-  }
-  return null;
-}
-
-String? _patchRelativePath(String rawPath) {
-  final decodedPath = _decodeGitPath(rawPath.trimRight());
-  if (decodedPath.isEmpty || decodedPath == '/dev/null') {
-    return null;
-  }
-  return decodedPath.replaceAll('\\', '/');
-}
-
-String _decodeGitPath(String path) {
-  if (path.length < 2 || !path.startsWith('"') || !path.endsWith('"')) {
-    return path;
-  }
-
-  final content = path.substring(1, path.length - 1);
-  final bytes = <int>[];
-  for (var index = 0; index < content.length; index += 1) {
-    final char = content[index];
-    if (char != '\\') {
-      bytes.addAll(utf8.encode(char));
-      continue;
-    }
-
-    if (index + 1 >= content.length) {
-      bytes.add('\\'.codeUnitAt(0));
-      continue;
-    }
-
-    final next = content[index + 1];
-    if (_isOctalDigit(next)) {
-      var end = index + 1;
-      while (end < content.length &&
-          end < index + 4 &&
-          _isOctalDigit(content[end])) {
-        end += 1;
-      }
-      bytes.add(int.parse(content.substring(index + 1, end), radix: 8));
-      index = end - 1;
-      continue;
-    }
-
-    bytes.add(switch (next) {
-      'a' => 0x07,
-      'b' => 0x08,
-      'f' => 0x0c,
-      'n' => 0x0a,
-      'r' => 0x0d,
-      't' => 0x09,
-      'v' => 0x0b,
-      _ => next.codeUnitAt(0),
-    });
-    index += 1;
-  }
-  return utf8.decode(bytes);
-}
-
-bool _isOctalDigit(String value) {
-  final codeUnit = value.codeUnitAt(0);
-  return codeUnit >= 0x30 && codeUnit <= 0x37;
-}
-
-List<String> _moveReportedRejectFiles({
-  required String packagePath,
-  required Map<String, _RejectEntryBackup> existingRejectBackups,
-  required Set<String> rejectPaths,
-  required Set<String> patchTouchedPaths,
-  required String failureHint,
-}) {
-  _validateReportedRejectFiles(
-    packagePath: packagePath,
-    rejectPaths: rejectPaths,
-    failureHint: failureHint,
-  );
-  _validateNoRejectPathCollisions(
-    packagePath: packagePath,
-    existingRejectBackups: existingRejectBackups,
-    rejectPaths: rejectPaths,
-    patchTouchedPaths: patchTouchedPaths,
-    failureHint: failureHint,
-  );
-
-  final movedPaths = <String>[];
-  for (final relativePath in rejectPaths) {
-    final source = File(p.joinAll([packagePath, ...relativePath.split('/')]));
-    final rejectBytes = source.readAsBytesSync();
-    final movedRelativePath = p
-        .joinAll(['.patchwork', 'rejects', ...relativePath.split('/')])
-        .replaceAll('\\', '/');
-    final destination = File(
-      p.joinAll([packagePath, ...movedRelativePath.split('/')]),
-    );
-    destination.parent.createSync(recursive: true);
-    _deleteExistingPath(destination.path);
-    destination.writeAsBytesSync(rejectBytes, flush: true);
-    final backup = existingRejectBackups[relativePath];
-    if (backup == null) {
-      _deleteExistingPath(source.path);
-    } else {
-      backup.restore(source.path);
-    }
-    movedPaths.add(movedRelativePath);
-  }
-  movedPaths.sort();
-  return movedPaths;
-}
-
-void _validateNoRejectPathCollisions({
-  required String packagePath,
-  required Map<String, _RejectEntryBackup> existingRejectBackups,
-  required Set<String> rejectPaths,
-  required Set<String> patchTouchedPaths,
-  required String failureHint,
-}) {
-  final collisions = rejectPaths.where(patchTouchedPaths.contains).toList()
-    ..sort();
-  if (collisions.isEmpty) {
-    return;
-  }
-
-  for (final relativePath in collisions) {
-    final path = p.joinAll([packagePath, ...relativePath.split('/')]);
-    final backup = existingRejectBackups[relativePath];
-    if (backup == null) {
-      _deleteExistingPath(path);
-    } else {
-      backup.restore(path);
-    }
-  }
-
-  final relativePath = collisions.first;
-  throw PatchworkException(
-    'Could not safely create partial repair because a rejected hunk '
-    'collides with a patched .rej file.',
-    code: 'patch.reject_collision',
-    hint: failureHint,
-    location: p.joinAll([packagePath, ...relativePath.split('/')]),
-  );
-}
-
-void _validateReportedRejectFiles({
-  required String packagePath,
-  required Set<String> rejectPaths,
-  required String failureHint,
-}) {
-  for (final relativePath in rejectPaths) {
-    final path = p.joinAll([packagePath, ...relativePath.split('/')]);
-    final type = FileSystemEntity.typeSync(path, followLinks: false);
-    if (type == FileSystemEntityType.file ||
-        type == FileSystemEntityType.link) {
-      continue;
-    }
-    throw PatchworkException(
-      'Git reported a rejected hunk but did not write the reject file.',
-      code: 'patch.reject_missing',
-      hint: failureHint,
-      location: path,
-    );
-  }
-}
-
-void _deleteExistingPath(String path) {
-  final type = FileSystemEntity.typeSync(path, followLinks: false);
-  switch (type) {
-    case FileSystemEntityType.directory:
-      Directory(path).deleteSync(recursive: true);
-    case FileSystemEntityType.file:
-      File(path).deleteSync();
-    case FileSystemEntityType.link:
-      Link(path).deleteSync();
-    case FileSystemEntityType.notFound:
-    case FileSystemEntityType.pipe:
-    case FileSystemEntityType.unixDomainSock:
-      break;
-  }
-}
-
-String _gitDiffPathPrefix(String path) {
-  final normalized = _gitArgumentPath(path);
-  if (normalized.startsWith('/')) {
-    return normalized.substring(1);
-  }
-  return normalized;
-}
-
-String _postProcessGitDiff({
-  required String output,
-  required String sourcePath,
-  required String editPath,
-}) {
-  final oldPrefix = _gitDiffPathPrefix(sourcePath);
-  final newPrefix = _gitDiffPathPrefix(editPath);
-  final hasTrailingNewline = output.endsWith('\n');
-  final lines = output.split('\n');
-  if (hasTrailingNewline) {
-    lines.removeLast();
-  }
-
-  final buffer = StringBuffer();
-  for (final line in lines) {
-    final processed = _shouldRewriteGitDiffLine(line)
-        ? _stripGitDiffRootPrefixes(line, oldPrefix, newPrefix)
-        : line;
-    buffer
-      ..write(processed)
-      ..write('\n');
-  }
-
-  if (!hasTrailingNewline && buffer.length > 0) {
-    final content = buffer.toString();
-    return content.substring(0, content.length - 1);
-  }
-  return buffer.toString();
-}
-
-bool _shouldRewriteGitDiffLine(String line) {
-  if (line.isEmpty) {
-    return false;
-  }
-
-  final first = line.codeUnitAt(0);
-  if (first == 0x20) {
-    return false;
-  }
-  if (first == 0x2d && !line.startsWith('--- ')) {
-    return false;
-  }
-  if (first == 0x2b && !line.startsWith('+++ ')) {
-    return false;
-  }
-  return true;
-}
-
-String _stripGitDiffRootPrefixes(
-  String line,
-  String oldPrefix,
-  String newPrefix,
-) {
-  var result = line;
-  for (final side in const ['a', 'b']) {
-    result = result.replaceAll('$side/$oldPrefix/', '$side/');
-    result = result.replaceAll('$side/$newPrefix/', '$side/');
-  }
-  result = result.replaceAll('$oldPrefix/', '');
-  result = result.replaceAll('$newPrefix/', '');
-  return _stripMetadataLeadingSlash(result);
-}
-
-String _stripMetadataLeadingSlash(String line) {
-  const prefixes = ['rename from ', 'rename to ', 'copy from ', 'copy to '];
-  for (final prefix in prefixes) {
-    if (line.startsWith('$prefix/')) {
-      return '$prefix${line.substring(prefix.length + 1)}';
-    }
-    if (line.startsWith('$prefix"/')) {
-      return '$prefix"${line.substring(prefix.length + 2)}';
-    }
-  }
-  return line;
 }

@@ -1,4 +1,4 @@
-import '../model.dart';
+import '../inspection/model.dart';
 
 /// A diagnostic next action printed by `patchwork doctor --explain`.
 ///

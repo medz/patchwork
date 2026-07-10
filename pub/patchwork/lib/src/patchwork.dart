@@ -1,32 +1,39 @@
-import 'dart:io';
-
-import 'applied_marker.dart';
-import 'edit_session.dart';
+import 'apply/activation.dart';
+import 'apply/executor.dart';
+import 'apply/materializer.dart';
+import 'apply/model.dart';
+import 'apply/planner.dart';
+import 'cleanup/applied.dart';
+import 'cleanup/executor.dart';
+import 'cleanup/model.dart';
+import 'cleanup/prune.dart';
+import 'cleanup/remove.dart';
+import 'cleanup/undo.dart';
+import 'edit/committer.dart';
+import 'edit/model.dart';
+import 'edit/planner.dart';
+import 'edit/preparer.dart';
 import 'error.dart';
-import 'internal/applied_patch_activation.dart';
-import 'internal/applied_patch_materializer.dart';
-import 'internal/applied_path_policy.dart';
-import 'internal/apply_planner.dart';
-import 'internal/artifact_identity.dart';
-import 'internal/cleanup_planner.dart';
-import 'internal/dependency_override_state.dart';
-import 'internal/edit_preparer.dart';
-import 'internal/edit_planner.dart';
-import 'internal/package_tree.dart';
-import 'internal/overlay_inspector.dart';
-import 'internal/overlay_publisher.dart';
-import 'internal/path_layout.dart';
-import 'internal/patch_committer.dart';
-import 'internal/project_paths.dart';
-import 'internal/setup_inspector.dart';
-import 'internal/state_inspector.dart';
-import 'internal/undo_planner.dart';
-import 'model.dart';
-import 'patch_file.dart';
-import 'pub/package_resolution.dart';
-import 'pub/pubspec_dependency_overrides.dart';
-import 'pub/pubspec_overrides.dart';
-import 'pub/pub_workspace.dart';
+import 'inspection/model.dart';
+import 'inspection/setup.dart';
+import 'inspection/state.dart';
+import 'overlay/inspector.dart';
+import 'overlay/model.dart';
+import 'overlay/publisher.dart';
+import 'patch/file.dart';
+import 'patch/materializer.dart';
+import 'patch/package_tree.dart';
+import 'pub/dependency_overrides.dart';
+import 'pub/overrides.dart';
+import 'pub/resolution.dart';
+import 'pub/resolution_reader.dart';
+import 'pub/workspace.dart';
+import 'state/applied_marker.dart';
+import 'state/applied_path_policy.dart';
+import 'state/artifact_identity.dart';
+import 'state/dependency_override_state.dart';
+import 'state/edit_session.dart';
+import 'state/path_layout.dart';
 
 const _invalidAppliedPathMessage =
     'Applied output must point at the generated Patchwork output for this package.';
@@ -79,24 +86,15 @@ final class Patchwork {
        _pubspecDependencyOverrides = pubspecDependencyOverrides,
        _pubspecOverrides = pubspecOverrides;
 
-  /// Opens the Patchwork project containing [root].
+  /// Opens the Patchwork project containing [path].
   ///
-  /// [root] may be a [Directory] or path string inside a Dart package or
-  /// workspace member. The nearest package root is used as the current package,
-  /// while the owning pub resolution root becomes the Patchwork state root.
+  /// [path] may point anywhere inside a Dart package or workspace member. The
+  /// nearest package root is used as the current package, while the owning pub
+  /// resolution root becomes the Patchwork state root.
   ///
-  /// Throws a [PatchworkException] if [root] is not a directory or path string,
-  /// or if no usable pub project can be found.
-  static Future<Patchwork> open(Object root) async {
-    final rootPath = switch (root) {
-      Directory directory => directory.path,
-      String path => path,
-      _ => throw PatchworkException(
-        'Patchwork.open expects a Directory or path string.',
-        code: 'usage.invalid_root',
-      ),
-    };
-    final workspace = const PubWorkspaceLocator().locate(rootPath);
+  /// Throws a [PatchworkException] if no usable pub project can be found.
+  factory Patchwork.open(String path) {
+    final workspace = const PubWorkspaceLocator().locate(path);
     final layout = PathLayout(workspace.rootPath);
     final editSessionStore = EditSessionStore(layout: layout);
     const packageTree = PackageTree();
@@ -128,8 +126,9 @@ final class Patchwork {
         patchFile: patchFile,
       ),
       appliedMaterializer: AppliedPatchMaterializer(
-        layout: layout,
-        packageTree: packageTree,
+        packageMaterializer: const PackageMaterializer(
+          packageTree: packageTree,
+        ),
         patchFile: patchFile,
       ),
       packageTree: packageTree,
@@ -155,20 +154,15 @@ final class Patchwork {
   final PubspecDependencyOverrides _pubspecDependencyOverrides;
   final PubspecOverrides _pubspecOverrides;
 
-  /// Returns [path] relative to the Patchwork state root when possible.
-  ///
-  /// This is a presentation helper for CLI output. Absolute paths outside the
-  /// project are returned unchanged so callers do not lose information.
-  String relativePath(String path) {
-    return relativeToProjectRoot(rootPath: _rootPath, path: path);
-  }
+  /// The workspace root that owns Patchwork state.
+  String get rootPath => _rootPath;
 
   /// Inspects repository setup recommendations without mutating files.
   ///
   /// The report focuses on Patchwork's project contract: commit patch files,
   /// ignore generated edit and activation state, and use high-level commands in
   /// CI unless a script intentionally handles pub resolution itself.
-  Future<SetupReport> inspectSetup() async {
+  SetupReport inspectSetup() {
     return SetupInspector(
       rootPath: _rootPath,
       currentPackageRootPath: _currentPackageRootPath,
@@ -180,7 +174,7 @@ final class Patchwork {
   /// The report explains provider manifests, match and skip reasons, root patch
   /// contribution, deduplication, composition order, and conflicts using the
   /// current pub resolution.
-  Future<OverlayInspection> inspectOverlays() async {
+  OverlayInspection inspectOverlays() {
     return OverlayInspector(rootPath: _rootPath, layout: _layout).inspect();
   }
 
@@ -194,11 +188,11 @@ final class Patchwork {
   /// The package must be selected by the current pub resolution and must not
   /// already resolve to Patchwork generated output. The edit directory carries a
   /// hidden baseline snapshot used later by [commit].
-  Future<PreparedEdit> patch(
+  PreparedEdit patch(
     String package, {
     PatchRef? fromPatch,
     bool replaceExisting = false,
-  }) async {
+  }) {
     _checkPlainPackageName(package);
     return _executeEditPlan(
       _editPlanner().patch(
@@ -209,7 +203,7 @@ final class Patchwork {
     );
   }
 
-  Future<PreparedEdit> _executeEditPlan(EditPlan plan) {
+  PreparedEdit _executeEditPlan(EditPlan plan) {
     return _editPreparer.prepare(
       package: plan.package,
       resolved: plan.resolved,
@@ -226,11 +220,11 @@ final class Patchwork {
   /// When [fromVersion] is omitted, exactly one stale patch file must exist for
   /// [package]. The result is an ordinary edit directory for the current resolved
   /// package version; callers should review it and then run [commit].
-  Future<PreparedEdit> carry(
+  PreparedEdit carry(
     String package, {
     String? fromVersion,
     bool partial = false,
-  }) async {
+  }) {
     _checkPlainPackageName(package);
     return _executeEditPlan(
       _editPlanner().carry(package, fromVersion: fromVersion, partial: partial),
@@ -242,7 +236,7 @@ final class Patchwork {
   /// The edit is diffed against its hidden baseline snapshot. Empty diffs
   /// remove the committed patch file, unchanged edits are discarded, and real
   /// changes are validated before the patch file is written.
-  Future<PatchWrite> commit(String package) async {
+  PatchWrite commit(String package) {
     _checkPlainPackageName(package);
     return _committer.commit(package);
   }
@@ -250,8 +244,8 @@ final class Patchwork {
   /// Commits every open edit directory in package-name order.
   ///
   /// Returns an empty list when there are no open edits.
-  Future<List<PatchWrite>> commitAll() async {
-    return _committer.commitAll();
+  List<PatchWrite> commitAll() {
+    return List.unmodifiable(_committer.commitAll());
   }
 
   /// Registers the committed patch for [package] in the current package's
@@ -260,7 +254,7 @@ final class Patchwork {
   /// The target package must have a committed patch file for the current pub
   /// resolution, and the current package must have `patchwork` as a regular
   /// dependency so downstream consumers receive Patchwork's hook.
-  Future<RegisteredOverlay> overlay(String package, {String? reason}) async {
+  RegisteredOverlay overlay(String package, {String? reason}) {
     _checkPlainPackageName(package);
     return OverlayPublisher(
       currentPackageRootPath: _currentPackageRootPath,
@@ -269,17 +263,19 @@ final class Patchwork {
     ).overlay(package, reason: reason);
   }
 
-  /// Applies every committed patch that needs generated output.
+  /// Applies every committed patch that needs generated output in package-name
+  /// order.
   ///
   /// Packages with open edit directories are rejected before any output is
   /// generated, because applying while edits are uncommitted would make the
   /// project state ambiguous.
-  Future<List<AppliedPatch>> applyAll() async {
+  List<AppliedPatch> applyAll() {
     final applied = <AppliedPatch>[];
+    final executor = _applyExecutor();
     for (final plan in _applyPlanner().plansNeedingApply()) {
-      applied.add(_executeApplyPlan(plan));
+      applied.add(executor.execute(plan));
     }
-    return applied;
+    return List.unmodifiable(applied);
   }
 
   /// Applies the committed patch for [package] into generated output.
@@ -288,34 +284,9 @@ final class Patchwork {
   /// into `.dart_tool/patchwork/` atomically with respect to the final
   /// directory. The method also updates `pubspec_overrides.yaml`; callers should
   /// run `dart pub get` afterwards so pub resolves the generated package.
-  Future<AppliedPatch> apply(String package) async {
+  AppliedPatch apply(String package) {
     _checkPlainPackageName(package);
-    return _executeApplyPlan(_applyPlanner().plan(package));
-  }
-
-  AppliedPatch _executeApplyPlan(ApplyPlan plan) {
-    _appliedMaterializer.materialize(
-      package: plan.package,
-      version: plan.version,
-      sourcePath: plan.sourcePath,
-      appliedPath: plan.appliedPath,
-      patchContent: plan.patchContent,
-    );
-
-    _appliedActivation().activate(
-      package: plan.package,
-      version: plan.version,
-      patchSha256: plan.patchSha256,
-      path: plan.appliedRecordPath,
-      source: plan.source,
-    );
-
-    return AppliedPatch(
-      package: plan.package,
-      version: plan.version,
-      path: plan.appliedPath,
-      patchPath: plan.patchPath,
-    );
+    return _applyExecutor().execute(_applyPlanner().plan(package));
   }
 
   /// Removes Patchwork-generated output and override state for [package].
@@ -323,27 +294,9 @@ final class Patchwork {
   /// The override is removed only if it still points at the path recorded by
   /// Patchwork. User-owned overrides and paths outside the generated Patchwork
   /// output tree are left untouched or rejected.
-  Future<UnappliedPatch> undo(String package) async {
+  UnappliedPatch undo(String package) {
     _checkPlainPackageName(package);
-    return _executeUndoPlan(_undoPlanner().plan(package));
-  }
-
-  UnappliedPatch _executeUndoPlan(UndoPlan plan) {
-    final marker = plan.marker;
-    if (marker == null) {
-      return UnappliedPatch(package: plan.package, changed: false);
-    }
-
-    final absoluteAppliedPath = _appliedActivation().remove(
-      marker,
-      code: 'undo.applied_path_not_deletable',
-    );
-
-    return UnappliedPatch(
-      package: plan.package,
-      changed: true,
-      path: absoluteAppliedPath,
-    );
+    return _cleanupExecutor().undo(_undoPlanner().plan(package));
   }
 
   /// Removes Patchwork artifacts for [package] and optional [version].
@@ -352,20 +305,20 @@ final class Patchwork {
   /// markers. Set [force] to explicitly remove those local states too. When
   /// [dryRun] is true, the returned changes are planned but no files are
   /// modified.
-  Future<CleanupResult> remove(
+  CleanupResult remove(
     String package, {
     String? version,
     bool dryRun = false,
     bool force = false,
-  }) async {
+  }) {
     _checkPlainPackageName(package);
-    final plan = _cleanupPlanner().remove(
+    final plan = _removePlanner().plan(
       package,
       version: version,
       dryRun: dryRun,
       force: force,
     );
-    _executeCleanupPlan(
+    _cleanupExecutor().execute(
       plan,
       appliedPathCode: 'remove.applied_path_not_deletable',
     );
@@ -379,9 +332,9 @@ final class Patchwork {
   /// at Patchwork's deterministic generated directory and no active override
   /// references it. Set [force] to also discard open edits or active applied
   /// state associated with stale patches.
-  Future<CleanupResult> prune({bool dryRun = false, bool force = false}) async {
-    final plan = _cleanupPlanner().prune(dryRun: dryRun, force: force);
-    _executeCleanupPlan(
+  CleanupResult prune({bool dryRun = false, bool force = false}) {
+    final plan = _prunePlanner().plan(dryRun: dryRun, force: force);
+    _cleanupExecutor().execute(
       plan,
       appliedPathCode: 'prune.applied_path_not_deletable',
     );
@@ -393,7 +346,7 @@ final class Patchwork {
   /// Unlike command methods, inspection is read-only. Pub resolution errors are
   /// reported as [PatchProblem] entries when possible so `status` and `doctor`
   /// can still explain existing Patchwork state.
-  Future<PatchworkState> inspect() async {
+  PatchworkState inspect() {
     return PatchworkStateInspector(
       rootPath: _rootPath,
       currentPackageRootPath: _currentPackageRootPath,
@@ -431,13 +384,26 @@ final class Patchwork {
     );
   }
 
+  ApplyExecutor _applyExecutor() {
+    return ApplyExecutor(
+      materializer: _appliedMaterializer,
+      activation: _appliedActivation(),
+    );
+  }
+
+  CleanupExecutor _cleanupExecutor() {
+    return CleanupExecutor(
+      activation: _appliedActivation(),
+      packageTree: _packageTree,
+    );
+  }
+
   EditPlanner _editPlanner() {
     return EditPlanner(
       rootPath: _rootPath,
       layout: _layout,
       appliedPaths: _appliedPaths,
       appliedMarkerStore: _appliedMarkerStore,
-      pubspecOverrides: _pubspecOverrides,
       readResolution: _readResolution,
       readOverrideState: _overrideState,
     );
@@ -456,46 +422,36 @@ final class Patchwork {
     );
   }
 
-  CleanupPlanner _cleanupPlanner() {
-    return CleanupPlanner(
-      rootPath: _rootPath,
+  RemovePlanner _removePlanner() {
+    return RemovePlanner(
       layout: _layout,
-      appliedPaths: _appliedPaths,
       appliedMarkerStore: _appliedMarkerStore,
       readResolution: _readResolution,
       readOverrideState: _overrideState,
+      appliedCleanup: _appliedCleanup(),
+    );
+  }
+
+  PrunePlanner _prunePlanner() {
+    return PrunePlanner(
+      layout: _layout,
+      appliedMarkerStore: _appliedMarkerStore,
+      readResolution: _readResolution,
+      readOverrideState: _overrideState,
+      appliedCleanup: _appliedCleanup(),
+    );
+  }
+
+  AppliedCleanup _appliedCleanup() {
+    return AppliedCleanup(
+      rootPath: _rootPath,
+      appliedPaths: _appliedPaths,
       invalidAppliedPathMessage: _invalidAppliedPathMessage,
     );
   }
 
   UndoPlanner _undoPlanner() {
     return UndoPlanner(appliedMarkerStore: _appliedMarkerStore);
-  }
-
-  void _executeCleanupPlan(
-    CleanupPlan plan, {
-    required String appliedPathCode,
-  }) {
-    if (plan.result.dryRun) {
-      return;
-    }
-    for (final marker in plan.appliedMarkers) {
-      _appliedActivation().remove(marker, code: appliedPathCode);
-    }
-    for (final change in plan.result.changes) {
-      switch (change.kind) {
-        case CleanupChangeKind.patchFile:
-          final file = File(change.path);
-          if (file.existsSync()) {
-            file.deleteSync();
-          }
-        case CleanupChangeKind.editDirectory:
-          _packageTree.deleteDirectory(change.path);
-        case CleanupChangeKind.appliedDirectory ||
-            CleanupChangeKind.pubspecOverride:
-          break;
-      }
-    }
   }
 }
 

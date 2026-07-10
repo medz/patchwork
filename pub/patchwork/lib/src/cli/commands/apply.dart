@@ -1,10 +1,11 @@
 import 'dart:io' as io;
 
 import '../../error.dart';
-import '../../model.dart';
+import '../../apply/model.dart';
 import '../../patchwork.dart';
 import '../arguments.dart';
-import '../output.dart';
+import '../json.dart';
+import '../path.dart';
 import '../pub_get.dart';
 
 /// Runs `patchwork apply`.
@@ -22,10 +23,9 @@ Future<int> runApplyCommand(
   final options = parsePubGetOption('apply', parsed.rest);
   final package = singlePackage('apply', options.rest, required: false);
   final applied = package == null
-      ? await patchwork.applyAll()
-      : await _applyPackage(patchwork, package);
-  final needsPubGet =
-      applied.isNotEmpty || await _pubGetRequired(patchwork, package);
+      ? patchwork.applyAll()
+      : _applyPackage(patchwork, package);
+  final needsPubGet = applied.isNotEmpty || _pubGetRequired(patchwork, package);
   final pubGetRan = options.pubGet && needsPubGet;
   if (pubGetRan) {
     await runPubGet(workingDirectory);
@@ -48,8 +48,8 @@ Future<int> runApplyCommand(
 
   for (final patch in applied) {
     out.writeln(
-      'Applied ${patchwork.relativePath(patch.patchPath)} to '
-      '${patchwork.relativePath(patch.path)}.',
+      'Applied ${patchwork.displayPath(patch.patchPath)} to '
+      '${patchwork.displayPath(patch.path)}.',
     );
   }
   if (pubGetRan) {
@@ -60,12 +60,9 @@ Future<int> runApplyCommand(
   return 0;
 }
 
-Future<List<AppliedPatch>> _applyPackage(
-  Patchwork patchwork,
-  String package,
-) async {
+List<AppliedPatch> _applyPackage(Patchwork patchwork, String package) {
   try {
-    return [await patchwork.apply(package)];
+    return [patchwork.apply(package)];
   } on PatchworkException catch (error) {
     if (error.code == 'applied.pub_get_required') {
       return const [];
@@ -74,8 +71,8 @@ Future<List<AppliedPatch>> _applyPackage(
   }
 }
 
-Future<bool> _pubGetRequired(Patchwork patchwork, String? package) async {
-  final state = await patchwork.inspect();
+bool _pubGetRequired(Patchwork patchwork, String? package) {
+  final state = patchwork.inspect();
   for (final status in state.packages) {
     if (package != null && status.package != package) {
       continue;

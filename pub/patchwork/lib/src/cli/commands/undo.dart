@@ -2,7 +2,7 @@ import 'dart:io' as io;
 
 import '../../patchwork.dart';
 import '../arguments.dart';
-import '../output.dart';
+import '../json.dart';
 import '../pub_get.dart';
 
 /// Runs `patchwork undo`.
@@ -19,7 +19,7 @@ Future<int> runUndoCommand(
   final parsed = parseCommandArguments('undo', arguments);
   final options = parsePubGetOption('undo', parsed.rest);
   final package = singlePackage('undo', options.rest, required: true)!;
-  final result = await patchwork.undo(package);
+  final result = patchwork.undo(package);
   final needsPubGet = result.changed;
   final pubGetRan = options.pubGet && needsPubGet;
   if (pubGetRan) {

@@ -4,13 +4,19 @@ import 'dart:io';
 
 import 'package:hooks/hooks.dart';
 import 'package:path/path.dart' as p;
-import 'package:patchwork/src/applied_marker.dart';
-import 'package:patchwork/src/internal/overlay_inspector.dart';
-import 'package:patchwork/src/internal/package_tree.dart';
-import 'package:patchwork/src/internal/path_layout.dart';
-import 'package:patchwork/src/model.dart';
-import 'package:patchwork/src/overlay_hook.dart' as overlay_hook;
-import 'package:patchwork/src/patch_file.dart';
+import 'package:patchwork/src/apply/activation.dart';
+import 'package:patchwork/src/edit/model.dart';
+import 'package:patchwork/src/overlay/inspector.dart';
+import 'package:patchwork/src/patch/package_tree.dart';
+import 'package:patchwork/src/pub/source.dart';
+import 'package:patchwork/src/pub/dependency_overrides.dart';
+import 'package:patchwork/src/pub/overrides.dart';
+import 'package:patchwork/src/state/applied_marker.dart';
+import 'package:patchwork/src/state/applied_path_policy.dart';
+import 'package:patchwork/src/state/dependency_override_state.dart';
+import 'package:patchwork/src/state/path_layout.dart';
+import 'package:patchwork/src/overlay/hook.dart' as overlay_hook;
+import 'package:patchwork/src/patch/file.dart';
 import 'package:patchwork/src/patchwork.dart';
 
 Future<void> main(List<String> arguments) async {
@@ -181,16 +187,16 @@ List<_Benchmark> _benchmarks() {
       prepare: () {
         final fixture = _PatchworkFixture.create(files: 72);
         return _Prepared(
-          run: () async {
-            final patchwork = await Patchwork.open(fixture.appRoot);
-            await patchwork.patch('greeter');
+          run: () {
+            final patchwork = Patchwork.open(fixture.appRoot);
+            patchwork.patch('greeter');
             fixture.editGreeter('Hello from benchmark');
-            final write = await patchwork.commit('greeter');
+            final write = patchwork.commit('greeter');
             if (write.status != PatchWriteStatus.written) {
               throw StateError('patch was not written');
             }
-            await patchwork.apply('greeter');
-            await patchwork.undo('greeter');
+            patchwork.apply('greeter');
+            patchwork.undo('greeter');
           },
           cleanup: fixture.dispose,
         );
@@ -221,16 +227,30 @@ List<_Benchmark> _benchmarks() {
       },
     ),
     _Benchmark(
+      group: 'activation',
+      name: 'activate packages with existing markers',
+      iterations: 12,
+      freshFixture: true,
+      prepare: () {
+        final fixture = _ActivationFixture.create(
+          existingPackages: 80,
+          pendingPackages: 8,
+        );
+        return _Prepared(
+          run: fixture.activatePending,
+          cleanup: fixture.dispose,
+        );
+      },
+    ),
+    _Benchmark(
       group: 'inventory',
       name: 'patchwork inspect state',
       iterations: 45,
       prepare: () {
         final fixture = _InventoryFixture.create(packages: 80);
         return _Prepared(
-          run: () async {
-            final state = await (await Patchwork.open(
-              fixture.root.path,
-            )).inspect();
+          run: () {
+            final state = Patchwork.open(fixture.root.path).inspect();
             if (state.packages.length != 80) {
               throw StateError('inspect missed packages');
             }
@@ -246,8 +266,8 @@ List<_Benchmark> _benchmarks() {
       prepare: () {
         final fixture = _OverlayFixture.create(providers: 8);
         return _Prepared(
-          run: () async {
-            final inspection = await OverlayInspector(
+          run: () {
+            final inspection = OverlayInspector(
               rootPath: fixture.root.path,
               layout: PathLayout(fixture.root.path),
             ).inspect();
@@ -334,7 +354,7 @@ const _usage = '''
 Usage: dart bench/patchwork.dart [options]
 
 Options:
-  --case <name>  Run one group: package-tree, patch-file, patchwork-workflow, inventory, overlay.
+  --case <name>  Run one benchmark group.
   --json         Print machine-readable JSON.
   -h, --help     Print this help.
 ''';
@@ -631,6 +651,111 @@ environment:
       dependencies: dependencyRoots,
     );
     return _InventoryFixture(root);
+  }
+
+  void dispose() {
+    if (root.existsSync()) {
+      root.deleteSync(recursive: true);
+    }
+  }
+}
+
+final class _ActivationFixture {
+  const _ActivationFixture({
+    required this.root,
+    required this.layout,
+    required this.markerStore,
+    required this.pendingPackages,
+  });
+
+  final Directory root;
+  final PathLayout layout;
+  final AppliedMarkerStore markerStore;
+  final List<String> pendingPackages;
+
+  static _ActivationFixture create({
+    required int existingPackages,
+    required int pendingPackages,
+  }) {
+    final root = Directory.systemTemp.createTempSync(
+      'patchwork_bench_activation_',
+    );
+    _writeAppPackage(
+      root.path,
+      package: 'activation_app',
+      greeterPath: 'packages/greeter',
+    );
+    final layout = PathLayout(root.path);
+    final markerStore = AppliedMarkerStore(layout: layout);
+    for (var index = 0; index < existingPackages; index += 1) {
+      final package = 'existing_$index';
+      const version = '0.1.0';
+      Directory(
+        layout.appliedPath(package, version),
+      ).createSync(recursive: true);
+      markerStore.write(
+        AppliedMarker(
+          package: package,
+          version: version,
+          patchSha256: 'patch-$index',
+          path: layout.relativeAppliedPath(package, version),
+          source: PackageSource(
+            type: 'path',
+            sha256: 'source-$index',
+            fields: const {},
+          ),
+        ),
+      );
+    }
+    final pending = [
+      for (var index = 0; index < pendingPackages; index += 1) 'pending_$index',
+    ];
+    for (final package in pending) {
+      Directory(
+        layout.appliedPath(package, '0.1.0'),
+      ).createSync(recursive: true);
+    }
+    return _ActivationFixture(
+      root: root,
+      layout: layout,
+      markerStore: markerStore,
+      pendingPackages: pending,
+    );
+  }
+
+  void activatePending() {
+    const overrides = PubspecOverrides();
+    final activation = AppliedPatchActivation(
+      rootPath: root.path,
+      appliedPaths: AppliedPathPolicy(
+        rootPath: root.path,
+        layout: layout,
+        protectedRootPaths: {root.path},
+      ),
+      appliedMarkerStore: markerStore,
+      pubspecOverrides: overrides,
+      packageTree: const PackageTree(),
+      readOverrideState: () => DependencyOverrideState.read(
+        rootPath: root.path,
+        overrideRootPaths: {root.path},
+        pubspecOverrides: overrides,
+        pubspecDependencyOverrides: const PubspecDependencyOverrides(),
+      ),
+      invalidAppliedPathMessage: 'invalid applied path',
+    );
+    for (final package in pendingPackages) {
+      activation.activate(
+        package: package,
+        version: '0.1.0',
+        patchSha256: '$package-patch',
+        path: layout.relativeAppliedPath(package, '0.1.0'),
+        source: PackageSource(
+          type: 'path',
+          sha256: '$package-source',
+          fields: const {},
+        ),
+      );
+    }
   }
 
   void dispose() {
